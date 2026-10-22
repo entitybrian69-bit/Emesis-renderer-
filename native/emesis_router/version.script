@@ -1,0 +1,10 @@
+{
+    global:
+        gl*;
+        egl*;
+        set_getmainfbsize;
+        set_getprocaddress;
+        Java_com_entitybrian_emesis_*;
+    local:
+        *;
+};

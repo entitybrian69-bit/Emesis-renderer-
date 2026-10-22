@@ -1,0 +1,12 @@
+# Build outputs & generated binaries
+.gradle/
+build/
+app/build/
+app/src/main/jniLibs/
+*.apk
+*.aab
+*.idsig
+*.jks
+*.keystore
+local.properties
+.cxx/

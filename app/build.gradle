@@ -1,0 +1,60 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.entitybrian.emesis'
+    compileSdk 34
+    ndkVersion "27.0.12077973"
+
+    defaultConfig {
+        applicationId "com.entitybrian.emesis"
+        minSdk 21
+        targetSdk 34
+        versionCode 100
+        versionName "1.0.0"
+
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++23 -O3"
+                arguments "-DANDROID_STL=c++_static"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('../native/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Required so launchers can dlopen plugin .so binaries from nativeLibraryDir
+            useLegacyPackaging true
+        }
+    }
+
+    splits {
+        abi {
+            enable false
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}

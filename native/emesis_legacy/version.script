@@ -1,0 +1,4 @@
+{
+   global: gl*; set_getmainfbsize; set_getprocaddress; initialize_gl4es; initialize_emesis_legacy;
+   local: *;
+};
