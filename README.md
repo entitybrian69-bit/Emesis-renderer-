@@ -6,23 +6,23 @@
 
   **Universal All-in-One Android Renderer Plugin APK for Minecraft: Java Edition**
 
-  [![Download Universal APK](https://img.shields.io/badge/Download-EmesisRenderer--Universal--v1.0.0.apk-00FF88?style=for-the-badge&logo=android&logoColor=080C0F)](https://github.com/entitybrian69-bit/Emesis-renderer-/raw/arena/fac24748-emesis-renderer/EmesisRenderer-Universal-v1.0.0.apk)
+  [![Download Universal APK](https://img.shields.io/badge/Download-EmesisRenderer--Universal--v1.0.0.apk-00FF88?style=for-the-badge&logo=android&logoColor=080C0F)](https://github.com/entitybrian69-bit/Emesis-renderer-/releases/download/v1.0.0/EmesisRenderer-Universal-v1.0.0.apk)
 </div>
 
 ---
 
-## Direct Download
+## Official Release Download
 
 - **Direct Universal APK Download (32-bit & 64-bit Android):**
-  [**`EmesisRenderer-Universal-v1.0.0.apk`**](https://github.com/entitybrian69-bit/Emesis-renderer-/raw/arena/fac24748-emesis-renderer/EmesisRenderer-Universal-v1.0.0.apk)
-- **GitHub File Viewer Page:**
-  [https://github.com/entitybrian69-bit/Emesis-renderer-/blob/arena/fac24748-emesis-renderer/EmesisRenderer-Universal-v1.0.0.apk](https://github.com/entitybrian69-bit/Emesis-renderer-/blob/arena/fac24748-emesis-renderer/EmesisRenderer-Universal-v1.0.0.apk)
+  [**`EmesisRenderer-Universal-v1.0.0.apk`**](https://github.com/entitybrian69-bit/Emesis-renderer-/releases/download/v1.0.0/EmesisRenderer-Universal-v1.0.0.apk)
+- **GitHub Release Page (`v1.0.0`):**
+  [https://github.com/entitybrian69-bit/Emesis-renderer-/releases/tag/v1.0.0](https://github.com/entitybrian69-bit/Emesis-renderer-/releases/tag/v1.0.0)
 
 ---
 
 ## Overview
 
-**Emesis Renderer** is a unified, zero-configuration Android launcher renderer plugin APK created by **Entitybrian**. Instead of switching between separate renderer plugins for older and modern Minecraft releases, **Emesis Renderer** bundles two isolated native OpenGL-over-GLES rendering pipelines behind a single intelligent runtime version router (`libemesis_renderer.so`):
+**Emesis Renderer** is a unified, zero-configuration Android launcher renderer plugin APK created by **Entitybrian**. It bundles two isolated native OpenGL-over-GLES rendering pipelines behind a single intelligent runtime version router (`libemesis_renderer.so`):
 
 | Minecraft Version Range | Active Native Pipeline | Graphics Profile |
 | :--- | :--- | :--- |
@@ -52,7 +52,7 @@ Emesis Renderer implements the native Android renderer plugin contract (`fclPlug
 
 ### Installation & Usage
 
-1. Download and install [**`EmesisRenderer-Universal-v1.0.0.apk`**](https://github.com/entitybrian69-bit/Emesis-renderer-/raw/arena/fac24748-emesis-renderer/EmesisRenderer-Universal-v1.0.0.apk) on your Android device.
+1. Download and install [**`EmesisRenderer-Universal-v1.0.0.apk`**](https://github.com/entitybrian69-bit/Emesis-renderer-/releases/download/v1.0.0/EmesisRenderer-Universal-v1.0.0.apk) on your Android device.
 2. Open your launcher's **Renderer Settings** and select **`Emesis Renderer (All Versions — Made by Entitybrian)`**.
 3. Launch **any** Minecraft version (`<= 1.16.5` or `> 1.16.5`) — Emesis Renderer detects the version automatically at startup and activates the matching rendering core.
 4. *(Optional)* Open the **Emesis Renderer** app from your app drawer to inspect device ABI status, test version routing, or set a manual routing policy in `/sdcard/EmesisRenderer/config.json`.

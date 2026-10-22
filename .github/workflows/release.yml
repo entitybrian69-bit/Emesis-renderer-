@@ -1,0 +1,80 @@
+name: Publish Emesis Renderer Release
+
+on:
+  push:
+    branches:
+      - "arena/fac24748-emesis-renderer"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Emesis Renderer
+        uses: actions/checkout@v4
+
+      - name: Verify Universal Plugin APK
+        run: |
+          test -f EmesisRenderer-Universal-v1.0.0.apk
+          ls -lh EmesisRenderer-Universal-v1.0.0.apk
+          sha256sum EmesisRenderer-Universal-v1.0.0.apk
+
+      - name: Create or Update GitHub Release v1.0.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - << 'PY'
+          import hashlib, pathlib, textwrap
+
+          apk = pathlib.Path("EmesisRenderer-Universal-v1.0.0.apk")
+          sha256 = hashlib.sha256(apk.read_bytes()).hexdigest()
+
+          notes = textwrap.dedent(f"""\
+          <div align="center">
+            <img src="https://raw.githubusercontent.com/entitybrian69-bit/Emesis-renderer-/arena/fac24748-emesis-renderer/assets/emesis_logo.png" alt="Emesis Renderer — Made by Entitybrian" width="240" />
+
+            # Emesis Renderer v1.0.0
+            ### **Made by Entitybrian**
+          </div>
+
+          **Emesis Renderer** is a universal all-in-one Android Minecraft: Java Edition launcher renderer plugin APK created by **Entitybrian**.
+
+          ---
+
+          ### Highlights
+          - **Automatic All-Versions Rendering:** Detects the active Minecraft version at launch and routes to the matching native rendering pipeline in one go:
+            - **Minecraft `> 1.16.5`** *(1.17 – 1.21.x, 26.x+)* — **Emesis Modern Core** (`libemesis_modern.so`, OpenGL 3.2+ Core Profile over OpenGL ES 3.x)
+            - **Minecraft `<= 1.16.5`** *(Classic, Beta, 1.7.10, 1.8.9, 1.12.2, 1.16.5)* — **Emesis Compatibility Core** (`libemesis_legacy.so`, OpenGL 2.1 / GLSL-SPIRV Pipeline with automatic 32-bit GLES 2.0 / 3.x fallback)
+          - **Universal Android Architecture Support (Including 32-bit Devices):**
+            - `armeabi-v7a` (32-bit ARM)
+            - `arm64-v8a` (64-bit ARM)
+            - `x86` (32-bit Intel/AMD)
+            - `x86_64` (64-bit Intel/AMD)
+          - **Launcher Plugin Integration:** Automatically discovered as a native renderer plugin in **FoldCraftLauncher (FCL)**, **ZalithLauncher 1 & 2**, **PojavLauncher Glow Worm**, and compatible forks (`fclPlugin=true`, `zalithRendererPlugin=true`, `pgwRendererPlugin=true`).
+          - **Companion App Included:** Verify device ABI support, test live version routing, and configure manual routing overrides (`/sdcard/EmesisRenderer/config.json`).
+
+          ---
+
+          ### Package Details
+          - **Asset:** `EmesisRenderer-Universal-v1.0.0.apk`
+          - **Application ID:** `com.entitybrian.emesis` (`minSdkVersion 21`, `targetSdkVersion 34`, signed v1 + v2 + v3)
+          - **SHA-256:** `{sha256}`
+          """)
+
+          pathlib.Path("/tmp/release_notes.md").write_text(notes, encoding="utf-8")
+          PY
+
+          if gh release view v1.0.0 >/dev/null 2>&1; then
+            gh release edit v1.0.0 \
+              --title "Emesis Renderer v1.0.0 — Made by Entitybrian" \
+              --notes-file /tmp/release_notes.md
+            gh release upload v1.0.0 EmesisRenderer-Universal-v1.0.0.apk --clobber
+          else
+            gh release create v1.0.0 EmesisRenderer-Universal-v1.0.0.apk \
+              --target "${GITHUB_SHA}" \
+              --title "Emesis Renderer v1.0.0 — Made by Entitybrian" \
+              --notes-file /tmp/release_notes.md
+          fi
