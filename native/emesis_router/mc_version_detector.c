@@ -47,7 +47,7 @@ int emesis_classify_mc_version_string(const char* raw) {
         return EMESIS_ENGINE_LEGACY;
     }
 
-    /* Strip common prefixes like "fabric-loader-0.16.9-1.20.1", "forge-1.12.2-...", "neoforge-21.1...", "mc-" */
+    /* Strip common prefixes like "fabric-loader-0.16.9-1.20.1", "quilt-loader-...", "mc-" */
     if (starts_with_ci(s, "fabric-loader-") || starts_with_ci(s, "quilt-loader-")) {
         const char* last_dash = strrchr(s, '-');
         if (last_dash && isdigit((unsigned char)last_dash[1])) {
@@ -161,7 +161,12 @@ static bool parse_json_str_field(const char* json, const char* key, char* out, s
     return i > 0;
 }
 
-/* Inspects `version.json` inside a Minecraft client .jar (supports stored & deflate ZIP entries) */
+/*
+ * Inspects a Minecraft client .jar across all Pojav variants:
+ * - Minecraft 1.14+ (18w47b+) ships `version.json` with `world_version` and `id`.
+ * - Minecraft <= 1.13.2 (Classic, Beta, 1.0..1.13.2, including Cleanroom 1.12.2 on Java 21)
+ *   contains `net/minecraft/client/Minecraft.class` or `com/mojang/minecraft/` WITHOUT `version.json`.
+ */
 static bool inspect_jar_version_json(const char* jar_path, emesis_route_decision_t* out) {
     if (!jar_path || !*jar_path) return false;
     FILE* f = fopen(jar_path, "rb");
@@ -230,6 +235,8 @@ static bool inspect_jar_version_json(const char* jar_path, emesis_route_decision
     }
 
     bool found = false;
+    bool has_version_json = false;
+    bool is_mc_client_jar = false;
     size_t pos = 0;
     while (pos + 46 <= cd_size) {
         if (!(cd[pos] == 0x50 && cd[pos + 1] == 0x4b && cd[pos + 2] == 0x01 && cd[pos + 3] == 0x02)) {
@@ -248,8 +255,18 @@ static bool inspect_jar_version_json(const char* jar_path, emesis_route_decision
 
         if (pos + 46 + name_len > cd_size) break;
         const char* entry_name = (const char*)(cd + pos + 46);
+
+        if (!is_mc_client_jar) {
+            if ((name_len == 36 && memcmp(entry_name, "net/minecraft/client/Minecraft.class", 36) == 0) ||
+                (name_len == 36 && memcmp(entry_name, "net/minecraft/client/main/Main.class", 36) == 0) ||
+                (name_len >= 21 && memcmp(entry_name, "com/mojang/minecraft/", 21) == 0)) {
+                is_mc_client_jar = true;
+            }
+        }
+
         if (name_len == 12 && memcmp(entry_name, "version.json", 12) == 0 &&
             uncomp_size > 0 && uncomp_size < 65536 && comp_size < 65536) {
+            has_version_json = true;
             uint8_t lfh[30];
             if (fseek(f, (long)lfh_offset, SEEK_SET) == 0 && fread(lfh, 1, 30, f) == 30 &&
                 lfh[0] == 0x50 && lfh[1] == 0x4b && lfh[2] == 0x03 && lfh[3] == 0x04) {
@@ -313,6 +330,15 @@ static bool inspect_jar_version_json(const char* jar_path, emesis_route_decision
         pos += 46 + name_len + extra_len + comment_len;
     }
 
+    if (!found && is_mc_client_jar && !has_version_json) {
+        out->engine = EMESIS_ENGINE_LEGACY;
+        out->world_version = 0;
+        snprintf(out->detected_version, sizeof(out->detected_version), "<= 1.13.2");
+        snprintf(out->detection_source, sizeof(out->detection_source),
+                 "client.jar (pre-1.14 archive without version.json)");
+        found = true;
+    }
+
     free(cd);
     fclose(f);
     return found;
@@ -325,7 +351,6 @@ static bool scan_classpath_for_mc(const char* cp, emesis_route_decision_t* out) 
 
     char* saveptr = NULL;
     for (char* tok = strtok_r(copy, ":;", &saveptr); tok != NULL; tok = strtok_r(NULL, ":;", &saveptr)) {
-        /* Focus on paths inside /versions/<ver>/<ver>.jar or client.jar */
         if (strstr(tok, "/versions/") || strstr(tok, "minecraft") || strstr(tok, "client")) {
             if (inspect_jar_version_json(tok, out)) {
                 free(copy);
@@ -374,25 +399,23 @@ static bool detect_via_jvm(emesis_route_decision_t* out) {
         (*env)->ExceptionClear(env);
         return false;
     }
-    jmethodID get_prop = (*env)->GetStaticMethodID(env, sys_cls, "getProperty", "(Ljava/lang/String;)Ljava/lang/String;");
+    jmethodID get_prop = (*env)->GetStaticMethodID(
+        env, sys_cls, "getProperty", "(Ljava/lang/String;)Ljava/lang/String;");
     if (!get_prop) {
         (*env)->ExceptionClear(env);
+        (*env)->DeleteLocalRef(env, sys_cls);
         return false;
     }
 
     const char* prop_keys[] = {
-        "emesis.mc.version",
         "fml.mcVersion",
         "fabric.gameVersion",
-        "loader.gameVersion",
         "quilt.gameVersion",
         "minecraft.version",
-        "org.prismlauncher.version",
-        "pojav.mc.version",
+        "org.lwjgl.glfw.checkThread0",
         NULL
     };
-
-    for (int i = 0; prop_keys[i]; i++) {
+    for (int i = 0; prop_keys[i] != NULL; i++) {
         jstring jkey = (*env)->NewStringUTF(env, prop_keys[i]);
         jstring jval = (jstring)(*env)->CallStaticObjectMethod(env, sys_cls, get_prop, jkey);
         (*env)->DeleteLocalRef(env, jkey);
@@ -402,117 +425,70 @@ static bool detect_via_jvm(emesis_route_decision_t* out) {
         }
         if (jval) {
             const char* cval = (*env)->GetStringUTFChars(env, jval, NULL);
-            if (cval) {
-                int cls = emesis_classify_mc_version_string(cval);
-                if (cls >= 0) {
-                    out->engine = (emesis_engine_t)cls;
-                    snprintf(out->detected_version, sizeof(out->detected_version), "%s", cval);
-                    snprintf(out->detection_source, sizeof(out->detection_source), "JVM property %s", prop_keys[i]);
-                    (*env)->ReleaseStringUTFChars(env, jval, cval);
-                    (*env)->DeleteLocalRef(env, jval);
-                    return true;
-                }
+            int cls = emesis_classify_mc_version_string(cval);
+            if (cls >= 0) {
+                out->engine = (emesis_engine_t)cls;
+                snprintf(out->detected_version, sizeof(out->detected_version), "%s", cval);
+                snprintf(out->detection_source, sizeof(out->detection_source), "JVM property %s", prop_keys[i]);
                 (*env)->ReleaseStringUTFChars(env, jval, cval);
-            }
-            (*env)->DeleteLocalRef(env, jval);
-        }
-    }
-
-    /* Check sun.java.command (--version <ver> or --fml.mcVersion <ver>) */
-    {
-        jstring jkey = (*env)->NewStringUTF(env, "sun.java.command");
-        jstring jval = (jstring)(*env)->CallStaticObjectMethod(env, sys_cls, get_prop, jkey);
-        (*env)->DeleteLocalRef(env, jkey);
-        if (!(*env)->ExceptionCheck(env) && jval) {
-            const char* cmd = (*env)->GetStringUTFChars(env, jval, NULL);
-            if (cmd) {
-                const char* flags[] = {"--fml.mcVersion ", "--version ", NULL};
-                for (int f = 0; flags[f]; f++) {
-                    const char* p = strstr(cmd, flags[f]);
-                    if (p) {
-                        p += strlen(flags[f]);
-                        while (*p && isspace((unsigned char)*p)) p++;
-                        char tok[64] = {0};
-                        size_t k = 0;
-                        while (*p && !isspace((unsigned char)*p) && k + 1 < sizeof(tok)) {
-                            tok[k++] = *p++;
-                        }
-                        tok[k] = '\0';
-                        int cls = emesis_classify_mc_version_string(tok);
-                        if (cls >= 0) {
-                            out->engine = (emesis_engine_t)cls;
-                            snprintf(out->detected_version, sizeof(out->detected_version), "%s", tok);
-                            snprintf(out->detection_source, sizeof(out->detection_source), "sun.java.command (%s)", flags[f]);
-                            (*env)->ReleaseStringUTFChars(env, jval, cmd);
-                            (*env)->DeleteLocalRef(env, jval);
-                            return true;
-                        }
-                    }
-                }
-                (*env)->ReleaseStringUTFChars(env, jval, cmd);
-            }
-            (*env)->DeleteLocalRef(env, jval);
-        } else {
-            (*env)->ExceptionClear(env);
-        }
-    }
-
-    /* Check java.class.path for client.jar!/version.json or /versions/<ver>/ */
-    {
-        jstring jkey = (*env)->NewStringUTF(env, "java.class.path");
-        jstring jval = (jstring)(*env)->CallStaticObjectMethod(env, sys_cls, get_prop, jkey);
-        (*env)->DeleteLocalRef(env, jkey);
-        if (!(*env)->ExceptionCheck(env) && jval) {
-            const char* cp = (*env)->GetStringUTFChars(env, jval, NULL);
-            if (cp && scan_classpath_for_mc(cp, out)) {
-                (*env)->ReleaseStringUTFChars(env, jval, cp);
                 (*env)->DeleteLocalRef(env, jval);
+                (*env)->DeleteLocalRef(env, sys_cls);
                 return true;
             }
-            if (cp) (*env)->ReleaseStringUTFChars(env, jval, cp);
+            (*env)->ReleaseStringUTFChars(env, jval, cval);
             (*env)->DeleteLocalRef(env, jval);
-        } else {
-            (*env)->ExceptionClear(env);
         }
     }
 
-    /* Fallback on JVM specification version: MC <= 1.16.5 runs on Java 8 ("1.8"); MC 1.17+ requires Java 16/17/21+ */
+    /* Check minecraft.client.jar property directly if set by Pojav/ModLoaders */
     {
-        jstring jkey = (*env)->NewStringUTF(env, "java.specification.version");
-        jstring jval = (jstring)(*env)->CallStaticObjectMethod(env, sys_cls, get_prop, jkey);
+        jstring jkey = (*env)->NewStringUTF(env, "minecraft.client.jar");
+        jstring jjar = (jstring)(*env)->CallStaticObjectMethod(env, sys_cls, get_prop, jkey);
         (*env)->DeleteLocalRef(env, jkey);
-        if (!(*env)->ExceptionCheck(env) && jval) {
-            const char* jver = (*env)->GetStringUTFChars(env, jval, NULL);
-            if (jver) {
-                int jmajor = (strncmp(jver, "1.", 2) == 0) ? atoi(jver + 2) : atoi(jver);
-                if (jmajor > 0) {
-                    out->engine = (jmajor >= 16) ? EMESIS_ENGINE_MODERN : EMESIS_ENGINE_LEGACY;
-                    snprintf(out->detected_version, sizeof(out->detected_version), "Java %d", jmajor);
-                    snprintf(out->detection_source, sizeof(out->detection_source), "JVM specification version (%s)", jver);
-                    (*env)->ReleaseStringUTFChars(env, jval, jver);
-                    (*env)->DeleteLocalRef(env, jval);
-                    return true;
-                }
-                (*env)->ReleaseStringUTFChars(env, jval, jver);
+        if (!(*env)->ExceptionCheck(env) && jjar) {
+            const char* cjar = (*env)->GetStringUTFChars(env, jjar, NULL);
+            bool ok = inspect_jar_version_json(cjar, out);
+            (*env)->ReleaseStringUTFChars(env, jjar, cjar);
+            (*env)->DeleteLocalRef(env, jjar);
+            if (ok) {
+                (*env)->DeleteLocalRef(env, sys_cls);
+                return true;
             }
-            (*env)->DeleteLocalRef(env, jval);
         } else {
             (*env)->ExceptionClear(env);
         }
     }
 
+    jstring cp_key = (*env)->NewStringUTF(env, "java.class.path");
+    jstring jcp = (jstring)(*env)->CallStaticObjectMethod(env, sys_cls, get_prop, cp_key);
+    (*env)->DeleteLocalRef(env, cp_key);
+    if (!(*env)->ExceptionCheck(env) && jcp) {
+        const char* ccp = (*env)->GetStringUTFChars(env, jcp, NULL);
+        bool ok = scan_classpath_for_mc(ccp, out);
+        (*env)->ReleaseStringUTFChars(env, jcp, ccp);
+        (*env)->DeleteLocalRef(env, jcp);
+        if (ok) {
+            (*env)->DeleteLocalRef(env, sys_cls);
+            return true;
+        }
+    } else {
+        (*env)->ExceptionClear(env);
+    }
+
+    (*env)->DeleteLocalRef(env, sys_cls);
     return false;
 }
 
 static bool detect_via_proc_cmdline(emesis_route_decision_t* out) {
+    size_t cap = 131072;
+    char* buf = (char*)malloc(cap);
+    if (!buf) return false;
     FILE* f = fopen("/proc/self/cmdline", "rb");
-    if (!f) return false;
-    char* buf = (char*)malloc(65536);
-    if (!buf) {
-        fclose(f);
+    if (!f) {
+        free(buf);
         return false;
     }
-    size_t n = fread(buf, 1, 65535, f);
+    size_t n = fread(buf, 1, cap - 1, f);
     fclose(f);
     if (n == 0) {
         free(buf);
@@ -520,8 +496,8 @@ static bool detect_via_proc_cmdline(emesis_route_decision_t* out) {
     }
     buf[n] = '\0';
 
-    const char* game_dir = NULL;
     const char* prev = NULL;
+    const char* game_dir = NULL;
     size_t i = 0;
     while (i < n) {
         const char* arg = buf + i;
@@ -545,7 +521,15 @@ static bool detect_via_proc_cmdline(emesis_route_decision_t* out) {
                 game_dir = arg;
             }
         }
-        if (strncmp(arg, "-Dfml.mcVersion=", 16) == 0 || strncmp(arg, "-Dfabric.gameVersion=", 21) == 0) {
+        if (strncmp(arg, "-Dminecraft.client.jar=", 23) == 0) {
+            if (inspect_jar_version_json(arg + 23, out)) {
+                free(buf);
+                return true;
+            }
+        }
+        if (strncmp(arg, "-Dfml.mcVersion=", 16) == 0 ||
+            strncmp(arg, "-Dfabric.gameVersion=", 21) == 0 ||
+            strncmp(arg, "-Dquilt.gameVersion=", 20) == 0) {
             const char* eq = strchr(arg, '=');
             if (eq && eq[1]) {
                 int cls = emesis_classify_mc_version_string(eq + 1);
@@ -594,9 +578,9 @@ void emesis_detect_runtime_route(emesis_route_decision_t* out) {
     snprintf(out->detected_version, sizeof(out->detected_version), "1.20+");
     snprintf(out->detection_source, sizeof(out->detection_source), "default (> 1.16.5 modern pipeline)");
 
-    /* 1. Environment variable override */
+    /* 1. Explicit environment variable override (supports V2 plugin SelectableEnv "auto"|"modern"|"legacy") */
     const char* force_env = getenv("EMESIS_FORCE_CORE");
-    if (force_env && *force_env) {
+    if (force_env && *force_env && !starts_with_ci(force_env, "auto")) {
         if (starts_with_ci(force_env, "legacy") || strcmp(force_env, "0") == 0) {
             out->engine = EMESIS_ENGINE_LEGACY;
             snprintf(out->detected_version, sizeof(out->detected_version), "forced <= 1.16.5");
@@ -631,13 +615,37 @@ void emesis_detect_runtime_route(emesis_route_decision_t* out) {
         }
     }
 
-    /* 3. Active OpenJDK JVM system properties & client.jar!/version.json */
+    /* 3. Pojav / Zalith / FCL / Boat version environment variables */
+    const char* mc_env_keys[] = {
+        "INST_MC_VER",
+        "MC_VERSION",
+        "GAME_VERSION",
+        "POJAV_MC_VERSION",
+        "ZALITH_MC_VERSION",
+        "FCL_MC_VERSION",
+        "MINECRAFT_VERSION",
+        NULL
+    };
+    for (int i = 0; mc_env_keys[i] != NULL; i++) {
+        const char* val = getenv(mc_env_keys[i]);
+        if (val && *val) {
+            int cls = emesis_classify_mc_version_string(val);
+            if (cls >= 0) {
+                out->engine = (emesis_engine_t)cls;
+                snprintf(out->detected_version, sizeof(out->detected_version), "%s", val);
+                snprintf(out->detection_source, sizeof(out->detection_source), "env %s", mc_env_keys[i]);
+                return;
+            }
+        }
+    }
+
+    /* 4. Active OpenJDK JVM system properties & client.jar!/version.json */
     if (detect_via_jvm(out)) return;
 
-    /* 4. /proc/self/cmdline arguments & gameDir options.txt */
+    /* 5. /proc/self/cmdline arguments & gameDir options.txt */
     if (detect_via_proc_cmdline(out)) return;
 
-    /* 5. JAVA_HOME/release fallback */
+    /* 6. JAVA_HOME/release fallback */
     const char* java_home = getenv("JAVA_HOME");
     if (java_home && *java_home) {
         char rel_path[512];

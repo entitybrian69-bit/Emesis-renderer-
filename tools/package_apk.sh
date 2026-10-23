@@ -8,7 +8,7 @@ KEYTOOL_BIN="${KEYTOOL_BIN:-$($PY_BIN -c 'import jdk4py; print(jdk4py.JAVA.paren
 AAPT2_BIN="${AAPT2_BIN:-/tmp/toolchain/npm_tools/aaptjs3-2.0.2/bin/x64/linux/aapt2}"
 ANDROID_JAR="${ANDROID_JAR:-/tmp/toolchain/android-platforms/android-34/android.jar}"
 ECJ_JAR="${ECJ_JAR:-/tmp/toolchain/ecj.jar}"
-D8_JAR="${D8_JAR:-/tmp/toolchain/drozer/src/drozer/lib/d8.jar}"
+D8_JAR="${D8_JAR:-$(find /tmp/toolchain/venv -name 'd8.jar' | head -n 1)}"
 APKSIGNER_JAR="${APKSIGNER_JAR:-/tmp/toolchain/npm_tools/postar-apktool-node-0.3.4/lib/apksigner.jar}"
 JNILIBS_DIR="${EMESIS_JNILIBS_OUT:-/tmp/emesis_build/jniLibs}"
 OUT_APK="${ROOT_DIR}/EmesisRenderer-Universal-v1.0.0.apk"
@@ -23,25 +23,43 @@ echo "=== [0/6] Generating Android launcher icons & hero logo ==="
 echo "=== [1/6] Compiling Android resources with aapt2 ==="
 "${AAPT2_BIN}" compile --dir "${ROOT_DIR}/app/src/main/res" -o "${WORK_DIR}/compiled_res/res.zip"
 
-echo "=== [2/6] Linking base APK & generating R.java ==="
+echo "=== [2/6] Preparing standalone aapt2 manifest & linking base APK ==="
+ROOT_ENV="${ROOT_DIR}" WORK_ENV="${WORK_DIR}" "${PY_BIN}" - << 'PY'
+import os, pathlib
+
+src = pathlib.Path(os.environ["ROOT_ENV"]) / "app/src/main/AndroidManifest.xml"
+dst = pathlib.Path(os.environ["WORK_ENV"]) / "AndroidManifest.xml"
+xml = src.read_text(encoding="utf-8")
+
+needle = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+replacement = (
+    '<manifest xmlns:android="http://schemas.android.com/apk/res/android"\n'
+    '    package="com.entitybrian.emesis"\n'
+    '    android:versionCode="101"\n'
+    '    android:versionName="1.0.0">\n\n'
+    '    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />'
+)
+assert needle in xml, "Expected manifest root tag not found"
+dst.write_text(xml.replace(needle, replacement, 1), encoding="utf-8")
+PY
+
 "${AAPT2_BIN}" link \
     -o "${WORK_DIR}/base.apk" \
     -I "${ANDROID_JAR}" \
-    --manifest "${ROOT_DIR}/app/src/main/AndroidManifest.xml" \
+    --manifest "${WORK_DIR}/AndroidManifest.xml" \
     --java "${WORK_DIR}/gen" \
     "${WORK_DIR}/compiled_res/res.zip"
 
 echo "=== [3/6] Compiling Java sources ==="
+JAVA_SOURCES=$(find "${WORK_DIR}/gen" "${ROOT_DIR}/app/src/main/java" -name "*.java" | sort)
 "${JAVA_BIN}" -cp "${ECJ_JAR}" org.eclipse.jdt.internal.compiler.batch.Main \
     -source 1.7 -target 1.7 \
     -bootclasspath "${ANDROID_JAR}" \
     -d "${WORK_DIR}/classes" \
-    "${WORK_DIR}/gen/com/entitybrian/emesis/R.java" \
-    "${ROOT_DIR}/app/src/main/java/com/entitybrian/emesis/EmesisNative.java" \
-    "${ROOT_DIR}/app/src/main/java/com/entitybrian/emesis/MainActivity.java"
+    ${JAVA_SOURCES}
 
 echo "=== [4/6] Compiling DEX bytecode with d8 (min-api 21) ==="
-CLASS_FILES=$(find "${WORK_DIR}/classes" -name "*.class")
+CLASS_FILES=$(find "${WORK_DIR}/classes" -name "*.class" | sort)
 "${JAVA_BIN}" -cp "${D8_JAR}" com.android.tools.r8.D8 \
     --release \
     --min-api 21 \

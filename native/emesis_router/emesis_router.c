@@ -5,6 +5,7 @@
 #include "mc_version_detector.h"
 
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
 #include <GLES3/gl32.h>
 #include <android/log.h>
 #include <dlfcn.h>
@@ -19,6 +20,16 @@ typedef double GLdouble;
 #define GL_GLEXT_PROTOTYPES
 #include "../emesis_modern/GL/gl.h"
 #include "../emesis_modern/GL/glext.h"
+
+#ifndef EGL_OPENGL_ES3_BIT_KHR
+#define EGL_OPENGL_ES3_BIT_KHR 0x00000040
+#endif
+#ifndef EGL_CONTEXT_MAJOR_VERSION_KHR
+#define EGL_CONTEXT_MAJOR_VERSION_KHR 0x3098
+#endif
+#ifndef EGL_CONTEXT_MINOR_VERSION_KHR
+#define EGL_CONTEXT_MINOR_VERSION_KHR 0x30FB
+#endif
 
 #define EMESIS_LOGI(...) __android_log_print(ANDROID_LOG_INFO, "EmesisRenderer", __VA_ARGS__)
 #define EMESIS_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "EmesisRenderer", __VA_ARGS__)
@@ -35,8 +46,10 @@ static void* g_sys_egl_handle = NULL;
 static pfn_eglGetProcAddress_t g_sys_eglGetProcAddress = NULL;
 static pfn_eglGetProcAddress_t g_modern_eglGetProcAddress = NULL;
 static pfn_glXGetProcAddress_t g_legacy_glXGetProcAddress = NULL;
+static char g_self_path[1024] = {0};
+static char g_self_dir[1024] = {0};
 
-/* Launcher bridge callbacks registered prior to deferred engine open */
+/* Launcher bridge callbacks registered prior to or after deferred engine open */
 static pfn_getmainfbsize_cb_t g_saved_fbsize_cb = NULL;
 static pfn_getprocaddress_cb_t g_saved_procaddr_cb = NULL;
 
@@ -79,14 +92,51 @@ static EGLContext (*g_mod_eglCreateContext)(EGLDisplay, EGLConfig, EGLContext, c
 static EGLBoolean (*g_mod_eglDestroyContext)(EGLDisplay, EGLContext) = NULL;
 static EGLBoolean (*g_mod_eglMakeCurrent)(EGLDisplay, EGLSurface, EGLSurface, EGLContext) = NULL;
 
+static void emesis_discover_self_paths(void) {
+    if (g_self_dir[0]) return;
+    Dl_info self_info;
+    if (dladdr((void*)&emesis_discover_self_paths, &self_info) && self_info.dli_fname) {
+        snprintf(g_self_path, sizeof(g_self_path), "%s", self_info.dli_fname);
+        const char* slash = strrchr(self_info.dli_fname, '/');
+        if (slash) {
+            size_t dir_len = (size_t)(slash - self_info.dli_fname);
+            if (dir_len + 1 < sizeof(g_self_dir)) {
+                memcpy(g_self_dir, self_info.dli_fname, dir_len);
+                g_self_dir[dir_len] = '\0';
+            }
+        }
+    }
+}
+
+__attribute__((constructor))
+static void emesis_router_on_load(void) {
+    emesis_discover_self_paths();
+
+    /* Prevent self-referential LIBGL_EGL loops across all Pojav variants */
+    const char* libgl_egl = getenv("LIBGL_EGL");
+    if (libgl_egl && strstr(libgl_egl, "emesis")) {
+        unsetenv("LIBGL_EGL");
+    }
+
+    /* Ensure SDL-based LWJGL3 paths in Pojav/Amethyst forks point to our full library path */
+    if (g_self_path[0] == '/') {
+        const char* pojav_egl = getenv("POJAVEXEC_EGL");
+        if (pojav_egl && strstr(pojav_egl, "emesis")) {
+            setenv("SDL_OPENGL_LIBRARY", g_self_path, 0);
+            setenv("SDL_EGL_LIBRARY", g_self_path, 0);
+        }
+    }
+}
+
 static void emesis_load_sys_egl(void) {
     if (g_sys_egl_handle) return;
-    g_sys_egl_handle = dlopen("libEGL.so", RTLD_LAZY | RTLD_LOCAL);
+#if defined(__aarch64__) || defined(__x86_64__)
+    g_sys_egl_handle = dlopen("/system/lib64/libEGL.so", RTLD_LAZY | RTLD_LOCAL);
+#else
+    g_sys_egl_handle = dlopen("/system/lib/libEGL.so", RTLD_LAZY | RTLD_LOCAL);
+#endif
     if (!g_sys_egl_handle) {
-        g_sys_egl_handle = dlopen("/system/lib64/libEGL.so", RTLD_LAZY | RTLD_LOCAL);
-    }
-    if (!g_sys_egl_handle) {
-        g_sys_egl_handle = dlopen("/system/lib/libEGL.so", RTLD_LAZY | RTLD_LOCAL);
+        g_sys_egl_handle = dlopen("libEGL.so", RTLD_LAZY | RTLD_LOCAL);
     }
     if (!g_sys_egl_handle) {
         EMESIS_LOGE("Failed to open Android system libEGL.so: %s", dlerror());
@@ -130,7 +180,42 @@ static void emesis_load_sys_egl(void) {
     g_sys_eglGetProcAddress = (pfn_eglGetProcAddress_t)dlsym(g_sys_egl_handle, "eglGetProcAddress");
 }
 
+/*
+ * Built-in framebuffer dimension query for Pojav variants whose PojavRendererInit
+ * only registers set_getmainfbsize for hardcoded built-in filenames.
+ */
+static void emesis_default_getmainfbsize(int* width, int* height) {
+    if (!width || !height) return;
+    emesis_load_sys_egl();
+    if (g_eglGetCurrentDisplay && g_eglGetCurrentSurface && g_eglQuerySurface) {
+        EGLDisplay dpy = g_eglGetCurrentDisplay();
+        EGLSurface surf = g_eglGetCurrentSurface(EGL_DRAW);
+        if (dpy != EGL_NO_DISPLAY && surf != EGL_NO_SURFACE) {
+            EGLint w = 0, h = 0;
+            if (g_eglQuerySurface(dpy, surf, EGL_WIDTH, &w) == EGL_TRUE &&
+                g_eglQuerySurface(dpy, surf, EGL_HEIGHT, &h) == EGL_TRUE &&
+                w > 0 && h > 0) {
+                *width = (int)w;
+                *height = (int)h;
+                return;
+            }
+        }
+    }
+    const char* awt_w = getenv("AWTSTUB_WIDTH");
+    const char* awt_h = getenv("AWTSTUB_HEIGHT");
+    if (awt_w && awt_h) {
+        int w = atoi(awt_w);
+        int h = atoi(awt_h);
+        if (w > 0 && h > 0) {
+            *width = w;
+            *height = h;
+            return;
+        }
+    }
+}
+
 static void emesis_init_engine_once(void) {
+    emesis_discover_self_paths();
     emesis_load_sys_egl();
     emesis_detect_runtime_route(&g_decision);
 
@@ -139,17 +224,8 @@ static void emesis_init_engine_once(void) {
                                     : "libemesis_legacy.so";
 
     char full_path[1024] = {0};
-    Dl_info self_info;
-    if (dladdr((void*)&emesis_init_engine_once, &self_info) && self_info.dli_fname) {
-        const char* slash = strrchr(self_info.dli_fname, '/');
-        if (slash) {
-            size_t dir_len = (size_t)(slash - self_info.dli_fname);
-            if (dir_len + strlen(target_soname) + 2 < sizeof(full_path)) {
-                memcpy(full_path, self_info.dli_fname, dir_len);
-                full_path[dir_len] = '/';
-                strcpy(full_path + dir_len + 1, target_soname);
-            }
-        }
+    if (g_self_dir[0]) {
+        snprintf(full_path, sizeof(full_path), "%s/%s", g_self_dir, target_soname);
     }
 
     /* Isolate backend symbols via RTLD_LOCAL so Modern and Legacy never collide! */
@@ -169,16 +245,17 @@ static void emesis_init_engine_once(void) {
                 target_soname, g_decision.detected_version, g_decision.detection_source);
 
     if (g_decision.engine == EMESIS_ENGINE_MODERN) {
+        setenv("LIBGL_ES", "3", 1);
         g_modern_eglGetProcAddress = (pfn_eglGetProcAddress_t)dlsym(g_engine_handle, "eglGetProcAddress");
         g_mod_eglCreateContext = (__typeof__(g_mod_eglCreateContext))dlsym(g_engine_handle, "eglCreateContext");
         g_mod_eglDestroyContext = (__typeof__(g_mod_eglDestroyContext))dlsym(g_engine_handle, "eglDestroyContext");
         g_mod_eglMakeCurrent = (__typeof__(g_mod_eglMakeCurrent))dlsym(g_engine_handle, "eglMakeCurrent");
     } else {
         g_legacy_glXGetProcAddress = (pfn_glXGetProcAddress_t)dlsym(g_engine_handle, "glXGetProcAddress");
-        if (g_saved_fbsize_cb) {
-            void (*set_fb)(pfn_getmainfbsize_cb_t) =
-                (void (*)(pfn_getmainfbsize_cb_t))dlsym(g_engine_handle, "set_getmainfbsize");
-            if (set_fb) set_fb(g_saved_fbsize_cb);
+        void (*set_fb)(pfn_getmainfbsize_cb_t) =
+            (void (*)(pfn_getmainfbsize_cb_t))dlsym(g_engine_handle, "set_getmainfbsize");
+        if (set_fb) {
+            set_fb(g_saved_fbsize_cb ? g_saved_fbsize_cb : &emesis_default_getmainfbsize);
         }
         if (g_saved_procaddr_cb) {
             void (*set_pa)(pfn_getprocaddress_cb_t) =
@@ -219,13 +296,13 @@ void* emesis_resolve_gl_symbol(const char* name) {
     return (void*)&emesis_noop_stub;
 }
 
-/* Launcher bridge callbacks (Pojav / FCL / Zalith) */
+/* Launcher bridge callbacks (all Pojav / FCL / Zalith variants) */
 __attribute__((visibility("default"))) void set_getmainfbsize(pfn_getmainfbsize_cb_t cb) {
     g_saved_fbsize_cb = cb;
     if (g_engine_handle && g_decision.engine == EMESIS_ENGINE_LEGACY) {
         void (*set_fb)(pfn_getmainfbsize_cb_t) =
             (void (*)(pfn_getmainfbsize_cb_t))dlsym(g_engine_handle, "set_getmainfbsize");
-        if (set_fb) set_fb(cb);
+        if (set_fb) set_fb(cb ? cb : &emesis_default_getmainfbsize);
     }
 }
 
@@ -238,7 +315,7 @@ __attribute__((visibility("default"))) void set_getprocaddress(pfn_getprocaddres
     }
 }
 
-/* Exported EGL Functions (called directly OR via eglGetProcAddress("egl...") by FCL/Zalith egl_loader.c) */
+/* Exported EGL Functions (called directly OR via eglGetProcAddress("egl...") by Pojav/FCL/Zalith egl_loader.c) */
 __attribute__((visibility("default"))) EGLDisplay eglGetDisplay(EGLNativeDisplayType display_id) {
     emesis_load_sys_egl();
     return g_eglGetDisplay ? g_eglGetDisplay(display_id) : EGL_NO_DISPLAY;
@@ -267,27 +344,30 @@ __attribute__((visibility("default"))) EGLBoolean eglGetConfigs(EGLDisplay dpy, 
 __attribute__((visibility("default"))) EGLBoolean eglChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs, EGLint config_size, EGLint* num_config) {
     emesis_load_sys_egl();
     if (!g_eglChooseConfig) return EGL_FALSE;
-    EGLBoolean ok = g_eglChooseConfig(dpy, attrib_list, configs, config_size, num_config);
-    /* Automatic fallback for older 32-bit GLES 2.0-only GPUs if EGL_OPENGL_ES3_BIT_KHR was requested */
-    if ((!ok || (num_config && *num_config == 0)) && attrib_list) {
-        EGLint patched[64];
-        int n = 0;
-        bool changed = false;
-        while (attrib_list[n] != EGL_NONE && n < 62) {
-            patched[n] = attrib_list[n];
-            patched[n + 1] = attrib_list[n + 1];
-            if (patched[n] == EGL_RENDERABLE_TYPE && (patched[n + 1] & 0x0040)) {
-                patched[n + 1] = EGL_OPENGL_ES2_BIT;
-                changed = true;
+
+    /* Prefer ES3-capable configs when Pojav's gl_bridge requests EGL_OPENGL_ES2_BIT, with seamless ES2 fallback for 32-bit GPUs */
+    if (attrib_list) {
+        int count = 0;
+        int rt_val_idx = -1;
+        while (attrib_list[count] != EGL_NONE && count < 60) {
+            if (attrib_list[count] == EGL_RENDERABLE_TYPE && attrib_list[count + 1] == EGL_OPENGL_ES2_BIT) {
+                rt_val_idx = count + 1;
             }
-            n += 2;
+            count += 2;
         }
-        patched[n] = EGL_NONE;
-        if (changed) {
-            ok = g_eglChooseConfig(dpy, patched, configs, config_size, num_config);
+        if (rt_val_idx >= 0) {
+            EGLint upgraded[64];
+            for (int i = 0; i <= count; i++) upgraded[i] = attrib_list[i];
+            upgraded[rt_val_idx] = EGL_OPENGL_ES3_BIT_KHR;
+            EGLint matched = 0;
+            if (g_eglChooseConfig(dpy, upgraded, configs, config_size, &matched) == EGL_TRUE && matched > 0) {
+                if (num_config) *num_config = matched;
+                return EGL_TRUE;
+            }
         }
     }
-    return ok;
+
+    return g_eglChooseConfig(dpy, attrib_list, configs, config_size, num_config);
 }
 
 __attribute__((visibility("default"))) EGLBoolean eglGetConfigAttrib(EGLDisplay dpy, EGLConfig config, EGLint attribute, EGLint* value) {
@@ -322,6 +402,10 @@ __attribute__((visibility("default"))) EGLBoolean eglQuerySurface(EGLDisplay dpy
 
 __attribute__((visibility("default"))) EGLBoolean eglBindAPI(EGLenum api) {
     emesis_load_sys_egl();
+    /* Always bind EGL_OPENGL_ES_API on Android hardware drivers even if a desktop-GL Pojav mode requested EGL_OPENGL_API */
+    if (api == EGL_OPENGL_API) {
+        api = EGL_OPENGL_ES_API;
+    }
     return g_eglBindAPI ? g_eglBindAPI(api) : EGL_FALSE;
 }
 
@@ -363,10 +447,26 @@ __attribute__((visibility("default"))) EGLBoolean eglSwapInterval(EGLDisplay dpy
 __attribute__((visibility("default"))) EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_context, const EGLint* attrib_list) {
     emesis_ensure_engine();
     if (g_decision.engine == EMESIS_ENGINE_MODERN && g_mod_eglCreateContext) {
+        /*
+         * Promote context request to OpenGL ES 3.2 -> 3.1 -> 3.0 even if a PojavLauncher
+         * variant passed LIBGL_ES=2 / EGL_CONTEXT_CLIENT_VERSION=2!
+         */
+        const EGLint es32_attribs[] = {EGL_CONTEXT_MAJOR_VERSION_KHR, 3, EGL_CONTEXT_MINOR_VERSION_KHR, 2, EGL_NONE};
+        const EGLint es31_attribs[] = {EGL_CONTEXT_MAJOR_VERSION_KHR, 3, EGL_CONTEXT_MINOR_VERSION_KHR, 1, EGL_NONE};
+        const EGLint es30_attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+
+        EGLContext ctx = g_mod_eglCreateContext(dpy, config, share_context, es32_attribs);
+        if (ctx != EGL_NO_CONTEXT) return ctx;
+        ctx = g_mod_eglCreateContext(dpy, config, share_context, es31_attribs);
+        if (ctx != EGL_NO_CONTEXT) return ctx;
+        ctx = g_mod_eglCreateContext(dpy, config, share_context, es30_attribs);
+        if (ctx != EGL_NO_CONTEXT) return ctx;
         return g_mod_eglCreateContext(dpy, config, share_context, attrib_list);
     }
+
     if (!g_eglCreateContext) return EGL_NO_CONTEXT;
-    EGLContext ctx = g_eglCreateContext(dpy, config, share_context, attrib_list);
+    const EGLint es3_default[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+    EGLContext ctx = g_eglCreateContext(dpy, config, share_context, attrib_list ? attrib_list : es3_default);
     /* Fallback to GLES 2 context for older 32-bit GPUs on MC <= 1.16.5 */
     if (ctx == EGL_NO_CONTEXT && g_decision.engine == EMESIS_ENGINE_LEGACY) {
         const EGLint es2_attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
@@ -478,6 +578,12 @@ __attribute__((visibility("default"))) __eglMustCastToProperFunctionPointerType 
         emesis_load_sys_egl();
         return g_sys_eglGetProcAddress ? g_sys_eglGetProcAddress(procname) : NULL;
     }
+    if (strcmp(procname, "set_getmainfbsize") == 0) {
+        return (__eglMustCastToProperFunctionPointerType)&set_getmainfbsize;
+    }
+    if (strcmp(procname, "set_getprocaddress") == 0) {
+        return (__eglMustCastToProperFunctionPointerType)&set_getprocaddress;
+    }
     return (__eglMustCastToProperFunctionPointerType)emesis_resolve_gl_symbol(procname);
 }
 
@@ -516,7 +622,7 @@ Java_com_entitybrian_emesis_EmesisNative_simulateRoute(JNIEnv* env, jclass cls, 
                  cver);
     } else {
         snprintf(msg, sizeof(msg),
-                 "Unrecognized tag '%s' -> Auto-inspects client.jar!/version.json & JVM runtime at launch",
+                 "Unrecognized tag '%s' -> Auto-inspects client.jar & JVM runtime at launch",
                  cver);
     }
     (*env)->ReleaseStringUTFChars(env, jver, cver);
