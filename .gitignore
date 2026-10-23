@@ -8,6 +8,7 @@ app/src/main/jniLibs/
 *.aab
 *.idsig
 *.jks
+!tools/emesis-release.jks
 *.keystore
 local.properties
 .cxx/

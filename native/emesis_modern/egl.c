@@ -15,6 +15,7 @@ unordered_map* context_map;
 EGLContext (*host_eglCreateContext)(EGLDisplay dpy, EGLConfig config, EGLContext share_context, const EGLint *attrib_list);
 EGLBoolean (*host_eglDestroyContext)(EGLDisplay dpy, EGLContext ctx);
 EGLBoolean (*host_eglMakeCurrent) (EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);
+EGLContext (*host_eglGetCurrentContext)(void);
 
 void init_egl() {
     context_map = alloc_intmap();
@@ -24,6 +25,7 @@ void init_egl() {
             "eglDestroyContext");
     host_eglMakeCurrent = (EGLBoolean (*)(EGLDisplay, EGLSurface, EGLSurface,
                                           EGLContext)) host_eglGetProcAddress("eglMakeCurrent");
+    host_eglGetCurrentContext = (EGLContext (*)(void)) host_eglGetProcAddress("eglGetCurrentContext");
 }
 
 static bool init_context(context_t* tw_context) {
@@ -252,9 +254,38 @@ EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_c
 EGLBoolean eglDestroyContext (EGLDisplay dpy, EGLContext ctx) {
     if(!host_eglDestroyContext(dpy, ctx)) return EGL_FALSE;
     context_t* old_ctx = unordered_map_remove(context_map, ctx);
-    free_context(old_ctx);
-    free(old_ctx);
+    if(old_ctx) {
+        free_context(old_ctx);
+        free(old_ctx);
+    }
     return EGL_TRUE;
+}
+
+static context_t* adopt_or_get_context(EGLContext ctx) {
+    if(ctx == EGL_NO_CONTEXT || !context_map) return NULL;
+    context_t* tw_context = unordered_map_get(context_map, ctx);
+    if(tw_context == NULL) {
+        tw_context = calloc(1, sizeof(context_t));
+        if(tw_context == NULL || !init_context(tw_context)) {
+            if(tw_context) free(tw_context);
+            return NULL;
+        }
+        tw_context->phys_context = ctx;
+        unordered_map_put(context_map, ctx, tw_context);
+    }
+    if(!tw_context->context_rdy) {
+        init_incontext(tw_context);
+        tw_context->context_rdy = true;
+    }
+    return tw_context;
+}
+
+void emesis_ensure_current_context() {
+    if(current_context) return;
+    if(!host_eglGetCurrentContext) return;
+    EGLContext hw_ctx = host_eglGetCurrentContext();
+    if(hw_ctx == EGL_NO_CONTEXT) return;
+    current_context = adopt_or_get_context(hw_ctx);
 }
 
 EGLBoolean eglMakeCurrent (EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
@@ -263,14 +294,10 @@ EGLBoolean eglMakeCurrent (EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGL
         current_context = NULL;
         return EGL_TRUE;
     }
-    context_t* tw_context = unordered_map_get(context_map, ctx);
+    context_t* tw_context = adopt_or_get_context(ctx);
     if(tw_context == NULL) {
-        printf("EmesisEGL: Failed to find context %p\n", ctx);
-        abort();
-    }
-    if(!tw_context->context_rdy) {
-        init_incontext(tw_context);
-        tw_context->context_rdy = true;
+        printf("EmesisEGL: Failed to initialize context %p\n", ctx);
+        return EGL_FALSE;
     }
     current_context = tw_context;
     return EGL_TRUE;

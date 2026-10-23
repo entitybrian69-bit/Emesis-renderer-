@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """
-Generates typed C forwarder thunks (gl_forwards.inc) for all desktop OpenGL
-and OpenGL ES entry points exported by libemesis_modern.so and libemesis_legacy.so.
+Generates typed C forwarder thunks (gl_forwards.inc) strictly for the universal
+OpenGL 1.1–3.1 core functions implemented by BOTH libemesis_modern.so and
+libemesis_legacy.so.
+
+All backend-specific extensions (e.g., GL 1.x immediate-mode in Legacy, or
+GL 3.3+/4.x overrides in Modern) are resolved dynamically via glXGetProcAddress /
+glXGetProcAddressARB / eglGetProcAddress so LWJGL's dlsym() fallback never sees
+phantom GL 4.x / DSA / compute symbols when running <= 1.16.5 Mods (Sodium, Iris,
+OptiFine, Angelica, Oculus).
 """
 import pathlib
 import re
@@ -19,6 +26,81 @@ PROTO_RE = re.compile(
     r"(?:GLAPIENTRY|APIENTRY)\s+(gl[A-Z][A-Za-z0-9_]*)\s*\(([^;]*)\)\s*;"
 )
 
+# Exact intersection of OpenGL 1.1-3.1 core entry points implemented by BOTH
+# libemesis_legacy.so and libemesis_modern.so / GLES 3.x.
+UNIVERSAL_CORE_GL_SYMBOLS = {
+    "glActiveTexture", "glAttachShader", "glBeginQuery", "glBindAttribLocation",
+    "glBindBuffer", "glBindBufferBase", "glBindBufferRange", "glBindFragDataLocation",
+    "glBindFramebuffer", "glBindRenderbuffer", "glBindSampler", "glBindTexture",
+    "glBindVertexArray", "glBlendColor", "glBlendEquation", "glBlendEquationSeparate",
+    "glBlendFunc", "glBlendFuncSeparate", "glBlitFramebuffer", "glBufferData",
+    "glBufferSubData", "glCheckFramebufferStatus", "glClear", "glClearBufferfi",
+    "glClearBufferfv", "glClearBufferiv", "glClearBufferuiv", "glClearColor",
+    "glClearDepth", "glClearDepthf", "glClearStencil", "glClientWaitSync",
+    "glColorMask", "glCompileShader", "glCompressedTexImage2D", "glCompressedTexImage3D",
+    "glCompressedTexSubImage2D", "glCompressedTexSubImage3D", "glCopyBufferSubData",
+    "glCopyTexImage2D", "glCopyTexSubImage2D", "glCopyTexSubImage3D", "glCreateProgram",
+    "glCreateShader", "glCullFace", "glDeleteBuffers", "glDeleteFramebuffers",
+    "glDeleteProgram", "glDeleteQueries", "glDeleteRenderbuffers", "glDeleteSamplers",
+    "glDeleteShader", "glDeleteSync", "glDeleteTextures", "glDeleteVertexArrays",
+    "glDepthFunc", "glDepthMask", "glDepthRange", "glDepthRangef", "glDetachShader",
+    "glDisable", "glDisableVertexAttribArray", "glDrawArrays", "glDrawArraysInstanced",
+    "glDrawBuffer", "glDrawBuffers", "glDrawElements", "glDrawElementsBaseVertex",
+    "glDrawElementsInstanced", "glDrawRangeElements", "glEnable",
+    "glEnableVertexAttribArray", "glEndQuery", "glFenceSync", "glFinish", "glFlush",
+    "glFlushMappedBufferRange", "glFramebufferRenderbuffer", "glFramebufferTexture2D",
+    "glFramebufferTextureLayer", "glFrontFace", "glGenBuffers", "glGenFramebuffers",
+    "glGenQueries", "glGenRenderbuffers", "glGenSamplers", "glGenTextures",
+    "glGenVertexArrays", "glGenerateMipmap", "glGetActiveAttrib", "glGetActiveUniform",
+    "glGetAttachedShaders", "glGetAttribLocation", "glGetBooleanv",
+    "glGetBufferParameteriv", "glGetBufferPointerv", "glGetError", "glGetFloatv",
+    "glGetFramebufferAttachmentParameteriv", "glGetIntegerv", "glGetProgramBinary",
+    "glGetProgramInfoLog", "glGetProgramiv", "glGetQueryObjecti64v",
+    "glGetQueryObjectiv", "glGetQueryObjectui64v", "glGetQueryObjectuiv",
+    "glGetQueryiv", "glGetRenderbufferParameteriv", "glGetSamplerParameterfv",
+    "glGetSamplerParameteriv", "glGetShaderInfoLog", "glGetShaderPrecisionFormat",
+    "glGetShaderSource", "glGetShaderiv", "glGetString", "glGetStringi", "glGetSynciv",
+    "glGetTexImage", "glGetTexLevelParameterfv", "glGetTexLevelParameteriv",
+    "glGetTexParameterfv", "glGetTexParameteriv", "glGetUniformBlockIndex",
+    "glGetUniformLocation", "glGetUniformfv", "glGetUniformiv", "glGetVertexAttribIiv",
+    "glGetVertexAttribIuiv", "glGetVertexAttribPointerv", "glGetVertexAttribfv",
+    "glGetVertexAttribiv", "glHint", "glIsBuffer", "glIsEnabled", "glIsFramebuffer",
+    "glIsProgram", "glIsQuery", "glIsRenderbuffer", "glIsSampler", "glIsShader",
+    "glIsSync", "glIsTexture", "glIsVertexArray", "glLineWidth", "glLinkProgram",
+    "glMapBuffer", "glMapBufferRange", "glMultiDrawArrays", "glMultiDrawElements",
+    "glMultiDrawElementsBaseVertex", "glPixelStorei", "glPolygonOffset",
+    "glProgramBinary", "glQueryCounter", "glReadBuffer", "glReadPixels",
+    "glReleaseShaderCompiler", "glRenderbufferStorage",
+    "glRenderbufferStorageMultisample", "glSampleCoverage", "glSamplerParameterf",
+    "glSamplerParameterfv", "glSamplerParameteri", "glSamplerParameteriv", "glScissor",
+    "glShaderBinary", "glShaderSource", "glStencilFunc", "glStencilFuncSeparate",
+    "glStencilMask", "glStencilMaskSeparate", "glStencilOp", "glStencilOpSeparate",
+    "glTexBuffer", "glTexImage2D", "glTexImage3D", "glTexParameterf",
+    "glTexParameterfv", "glTexParameteri", "glTexParameteriv", "glTexStorage2D",
+    "glTexStorage3D", "glTexSubImage2D", "glTexSubImage3D", "glUniform1f",
+    "glUniform1fv", "glUniform1i", "glUniform1iv", "glUniform2f", "glUniform2fv",
+    "glUniform2i", "glUniform2iv", "glUniform3f", "glUniform3fv", "glUniform3i",
+    "glUniform3iv", "glUniform4f", "glUniform4fv", "glUniform4i", "glUniform4iv",
+    "glUniformBlockBinding", "glUniformMatrix2fv", "glUniformMatrix3fv",
+    "glUniformMatrix4fv", "glUnmapBuffer", "glUseProgram", "glValidateProgram",
+    "glVertexAttrib1d", "glVertexAttrib1dv", "glVertexAttrib1f", "glVertexAttrib1fv",
+    "glVertexAttrib1s", "glVertexAttrib1sv", "glVertexAttrib2d", "glVertexAttrib2dv",
+    "glVertexAttrib2f", "glVertexAttrib2fv", "glVertexAttrib2s", "glVertexAttrib2sv",
+    "glVertexAttrib3d", "glVertexAttrib3dv", "glVertexAttrib3f", "glVertexAttrib3fv",
+    "glVertexAttrib3s", "glVertexAttrib3sv", "glVertexAttrib4Nbv",
+    "glVertexAttrib4Niv", "glVertexAttrib4Nsv", "glVertexAttrib4Nub",
+    "glVertexAttrib4Nubv", "glVertexAttrib4Nuiv", "glVertexAttrib4Nusv",
+    "glVertexAttrib4d", "glVertexAttrib4dv", "glVertexAttrib4f", "glVertexAttrib4fv",
+    "glVertexAttrib4s", "glVertexAttrib4sv", "glVertexAttribDivisor",
+    "glVertexAttribI1i", "glVertexAttribI1iv", "glVertexAttribI1ui",
+    "glVertexAttribI1uiv", "glVertexAttribI2i", "glVertexAttribI2iv",
+    "glVertexAttribI2ui", "glVertexAttribI2uiv", "glVertexAttribI3i",
+    "glVertexAttribI3iv", "glVertexAttribI3ui", "glVertexAttribI3uiv",
+    "glVertexAttribI4i", "glVertexAttribI4iv", "glVertexAttribI4ui",
+    "glVertexAttribI4uiv", "glVertexAttribIPointer", "glVertexAttribPointer",
+    "glViewport", "glWaitSync",
+}
+
 
 def split_params(param_str: str):
     s = param_str.strip()
@@ -27,17 +109,14 @@ def split_params(param_str: str):
     parts = [p.strip() for p in s.split(",")]
     result = []
     for idx, p in enumerate(parts):
-        # Handle array brackets like `const GLfloat v[4]` -> `const GLfloat *a0`
         arr_m = re.match(r"^(.*?)([A-Za-z_][A-Za-z0-9_]*)\s*\[[^\]]*\]\s*$", p)
         if arr_m:
             base = arr_m.group(1).strip()
             result.append((f"{base} *", f"a{idx}"))
             continue
-        # Extract trailing identifier if present
         m = re.match(r"^(.*?(?:[\s*]))([A-Za-z_][A-Za-z0-9_]*)$", p)
         if m:
             ptype = m.group(1).strip()
-            # Ensure type isn't empty (e.g. unnamed single-word type like `GLenum`)
             if ptype:
                 result.append((ptype, f"a{idx}"))
             else:
@@ -59,22 +138,18 @@ def main():
             ret_type = " ".join(m.group(1).split())
             name = m.group(2)
             raw_params = m.group(3)
-            if name in seen:
+            if name not in UNIVERSAL_CORE_GL_SYMBOLS or name in seen:
                 continue
-            # Restrict to core/ARB/EXT/KHR/OES/NV/ATI/AMD symbols commonly queried by LWJGL/Minecraft
-            if len(seen) >= 1600:
-                break
             params = split_params(raw_params)
             seen[name] = (ret_type, params)
 
-    # Ensure critical Minecraft / LWJGL2 / LWJGL3 functions are always present
     out_lines = [
         "/* Auto-generated by tools/gen_gl_forwards.py — DO NOT EDIT MANUALLY */",
-        f"/* Total typed OpenGL forwarders: {len(seen)} */",
+        f"/* Total universal core OpenGL forwarders: {len(seen)} */",
         "",
     ]
 
-    for idx, (name, (ret_type, params)) in enumerate(sorted(seen.items())):
+    for name, (ret_type, params) in sorted(seen.items()):
         sig_params = ", ".join(f"{pt} {pn}" for pt, pn in params) if params else "void"
         call_args = ", ".join(pn for _, pn in params)
         fn_ptr_params = ", ".join(pt for pt, _ in params) if params else "void"
@@ -98,7 +173,7 @@ def main():
     out_path = ROOT / "native" / "emesis_router" / "gl_forwards.inc"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(out_lines), encoding="utf-8")
-    print(f"Wrote {len(seen)} typed GL forwarders to {out_path}")
+    print(f"Wrote {len(seen)} universal core GL forwarders to {out_path}")
 
 
 if __name__ == "__main__":

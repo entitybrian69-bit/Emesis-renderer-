@@ -38,6 +38,9 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
         </intent>
+        <intent>
+            <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+        </intent>
     </queries>
 
     <application
@@ -98,7 +101,7 @@
         <!-- Plugin Display Description & Native GL/EGL Entrypoints (leading '/' resolves full nativeLibraryDir for EGL) -->
         <meta-data
             android:name="des"
-            android:value="Emesis Renderer v1.1.0 (All Versions — Made by Entitybrian)" />
+            android:value="Emesis Renderer v1.1.1 (All Versions — Made by Entitybrian)" />
         <meta-data
             android:name="renderer"
             android:value="EmesisRenderer:libemesis_renderer.so:/libemesis_renderer.so" />

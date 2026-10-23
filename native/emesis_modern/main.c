@@ -310,6 +310,7 @@ void glFlushMappedBufferRange( 	GLenum target,
 }
 
 const GLubyte* glGetStringi(GLenum name, GLuint index) {
+    emesis_ensure_current_context();
     if(!current_context || name != GL_EXTENSIONS) return NULL;
     if(index >= current_context->nextras) {
         return es3_functions.glGetStringi(name, index - current_context->nextras);
@@ -323,6 +324,7 @@ const GLubyte* glGetStringi(GLenum name, GLuint index) {
 static char* gl_version;
 
 const GLubyte* glGetString(GLenum name) {
+    emesis_ensure_current_context();
     if(!current_context) return NULL;
     switch(name) {
         case GL_VERSION:
@@ -333,7 +335,7 @@ const GLubyte* glGetString(GLenum name) {
         case GL_SHADING_LANGUAGE_VERSION:
             return (const GLubyte*)"4.60 Emesis Renderer";
         case GL_VENDOR:
-            return (const GLubyte*)"MojoLauncher";
+            return (const GLubyte*)"Entitybrian";
         case GL_EXTENSIONS:
             if(current_context->extensions_string != NULL) return (const GLubyte*)current_context->extensions_string;
             return (const GLubyte*)es3_functions.glGetString(GL_EXTENSIONS);
@@ -437,6 +439,7 @@ void glUseProgram(GLuint program) {
 }
 
 void glGetIntegerv(GLenum pname, GLint* data) {
+    emesis_ensure_current_context();
     if(!current_context) return;
     switch (pname) {
         case GL_MAJOR_VERSION:

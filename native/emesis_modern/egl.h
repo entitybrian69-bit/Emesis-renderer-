@@ -95,6 +95,7 @@ typedef struct {
 
 extern thread_local context_t *current_context;
 extern void init_egl();
+extern void emesis_ensure_current_context();
 extern GLenum get_textarget_query_param(GLenum target);
 
 #endif //EMESIS_MODERN_EGL_H

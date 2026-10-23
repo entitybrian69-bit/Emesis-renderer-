@@ -4,6 +4,7 @@
         egl*;
         set_getmainfbsize;
         set_getprocaddress;
+        initialize_gl4es;
         Java_com_entitybrian_emesis_*;
     local:
         *;

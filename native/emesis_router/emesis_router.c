@@ -15,6 +15,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 typedef double GLdouble;
 #define GL_GLEXT_PROTOTYPES
@@ -31,8 +33,8 @@ typedef double GLdouble;
 #define EGL_CONTEXT_MINOR_VERSION_KHR 0x30FB
 #endif
 
-#define EMESIS_LOGI(...) __android_log_print(ANDROID_LOG_INFO, "EmesisRenderer", __VA_ARGS__)
-#define EMESIS_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "EmesisRenderer", __VA_ARGS__)
+#define EMESIS_LOGI(...) __android_log_print(ANDROID_LOG_INFO, "LIBGL", "[EmesisRenderer] " __VA_ARGS__)
+#define EMESIS_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "LIBGL", "[EmesisRenderer] " __VA_ARGS__)
 
 typedef __eglMustCastToProperFunctionPointerType (*pfn_eglGetProcAddress_t)(const char*);
 typedef void* (*pfn_glXGetProcAddress_t)(const char*);
@@ -91,6 +93,7 @@ static EGLint (*g_eglGetError)(void) = NULL;
 static EGLContext (*g_mod_eglCreateContext)(EGLDisplay, EGLConfig, EGLContext, const EGLint*) = NULL;
 static EGLBoolean (*g_mod_eglDestroyContext)(EGLDisplay, EGLContext) = NULL;
 static EGLBoolean (*g_mod_eglMakeCurrent)(EGLDisplay, EGLSurface, EGLSurface, EGLContext) = NULL;
+static volatile int g_lwjgl_hijacked = 0;
 
 static void emesis_discover_self_paths(void) {
     if (g_self_dir[0]) return;
@@ -106,6 +109,148 @@ static void emesis_discover_self_paths(void) {
             }
         }
     }
+}
+
+static bool emesis_is_gl_candidate_lib(const char* filename) {
+    if (!filename || !*filename) return false;
+    if (strstr(filename, "emesis")) return false;
+    const char* base = strrchr(filename, '/');
+    base = base ? (base + 1) : filename;
+    if (strncmp(base, "libgl4es", 8) == 0 ||
+        strncmp(base, "libng_gl4es", 11) == 0 ||
+        strncmp(base, "libtinywrapper", 14) == 0 ||
+        strncmp(base, "libGLMojo", 9) == 0 ||
+        strncmp(base, "libGLESv2", 9) == 0 ||
+        strncmp(base, "libGLESv3", 9) == 0 ||
+        strncmp(base, "libGL.so", 8) == 0 ||
+        strncmp(base, "libGLX.so", 9) == 0 ||
+        strncmp(base, "libvgpu", 7) == 0) {
+        return true;
+    }
+    /* Catch any other built-in renderer library loaded from POJAV_NATIVEDIR */
+    const char* pojav_ndir = getenv("POJAV_NATIVEDIR");
+    if (pojav_ndir && *pojav_ndir && strncmp(filename, pojav_ndir, strlen(pojav_ndir)) == 0) {
+        if (!strstr(base, "openal") && !strstr(base, "glfw") && !strstr(base, "lwjgl") &&
+            !strstr(base, "freetype") && !strstr(base, "shaderc") && !strstr(base, "pojav") &&
+            !strstr(base, "awt") && !strstr(base, "vulkan")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static jlong JNICALL emesis_lwjgl_ndlopen_hook(JNIEnv* env, jclass cls, jlong filename_ptr, jint jmode) {
+    (void)env;
+    (void)cls;
+    const char* filename = (const char*)(uintptr_t)filename_ptr;
+    if (!filename) return 0;
+
+    const char* base = strrchr(filename, '/');
+    base = base ? (base + 1) : filename;
+
+    /* Preserve custom Vulkan driver loader hooks across Pojav & Mojo variants */
+    if (strncmp(base, "libvulkan.so", 12) == 0) {
+        void* (*acq_vk)(void) = (void* (*)(void))dlsym(RTLD_DEFAULT, "mojoexec_acq_vulkan_handle");
+        if (acq_vk) {
+            void* h = acq_vk();
+            if (h) return (jlong)(uintptr_t)h;
+        }
+        void* (*maybe_vk)(void) = (void* (*)(void))dlsym(RTLD_DEFAULT, "maybe_load_vulkan");
+        if (maybe_vk) {
+            void* h = maybe_vk();
+            if (h) return (jlong)(uintptr_t)h;
+        }
+    }
+
+    if (g_self_path[0] == '/' && emesis_is_gl_candidate_lib(filename)) {
+        EMESIS_LOGI("Intercepted LWJGL dlopen('%s') -> '%s'", filename, g_self_path);
+        void* self_h = dlopen(g_self_path, RTLD_LAZY | RTLD_GLOBAL);
+        if (self_h) return (jlong)(uintptr_t)self_h;
+    }
+
+    return (jlong)(uintptr_t)dlopen(filename, (int)jmode);
+}
+
+/*
+ * Ensures LWJGL 2 & LWJGL 3 bind OpenGL to libemesis_renderer.so whenever Emesis is active as
+ * POJAVEXEC_EGL, even if a Pojav variant overwrote -Dorg.lwjgl.opengl.libname on the CLI with
+ * libgl4es_114.so, libGLESv2.so, or libGLMojo.so.
+ */
+static void emesis_hijack_lwjgl_gl_lib(void) {
+    if (__atomic_load_n(&g_lwjgl_hijacked, __ATOMIC_ACQUIRE)) return;
+    emesis_discover_self_paths();
+    if (g_self_path[0] != '/') return;
+    if (!getenv("JAVA_HOME") && !getenv("POJAV_RENDERER") && !getenv("POJAVEXEC_EGL")) return;
+
+    typedef jint (*JNI_GetCreatedJavaVMs_t)(JavaVM**, jsize, jsize*);
+    JNI_GetCreatedJavaVMs_t get_vms =
+        (JNI_GetCreatedJavaVMs_t)dlsym(RTLD_DEFAULT, "JNI_GetCreatedJavaVMs");
+    if (!get_vms) return;
+
+    JavaVM* vm = NULL;
+    jsize count = 0;
+    if (get_vms(&vm, 1, &count) != JNI_OK || count <= 0 || !vm) return;
+
+    JNIEnv* env = NULL;
+    if ((*vm)->GetEnv(vm, (void**)&env, JNI_VERSION_1_6) != JNI_OK || !env) return;
+    if ((*env)->ExceptionCheck(env)) return;
+
+    jstring jpath = (*env)->NewStringUTF(env, g_self_path);
+    if (!jpath) {
+        (*env)->ExceptionClear(env);
+        return;
+    }
+
+    /* 1. Override System.setProperty("org.lwjgl.opengl.libname", g_self_path) */
+    jclass sys_cls = (*env)->FindClass(env, "java/lang/System");
+    if (sys_cls) {
+        jmethodID set_prop = (*env)->GetStaticMethodID(
+            env, sys_cls, "setProperty", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+        if (set_prop) {
+            jstring jkey = (*env)->NewStringUTF(env, "org.lwjgl.opengl.libname");
+            if (jkey) {
+                jobject prev = (*env)->CallStaticObjectMethod(env, sys_cls, set_prop, jkey, jpath);
+                if (prev) (*env)->DeleteLocalRef(env, prev);
+                (*env)->DeleteLocalRef(env, jkey);
+            }
+        }
+        (*env)->DeleteLocalRef(env, sys_cls);
+    }
+    (*env)->ExceptionClear(env);
+
+    /* 2. Update org.lwjgl.system.Configuration.OPENGL_LIBRARY_NAME.set(g_self_path) if LWJGL3 present */
+    jclass cfg_cls = (*env)->FindClass(env, "org/lwjgl/system/Configuration");
+    if (cfg_cls) {
+        jfieldID gl_lib_fid = (*env)->GetStaticFieldID(
+            env, cfg_cls, "OPENGL_LIBRARY_NAME", "Lorg/lwjgl/system/Configuration;");
+        jmethodID set_mid = (*env)->GetMethodID(env, cfg_cls, "set", "(Ljava/lang/Object;)V");
+        if (gl_lib_fid && set_mid) {
+            jobject opt_obj = (*env)->GetStaticObjectField(env, cfg_cls, gl_lib_fid);
+            if (opt_obj) {
+                (*env)->CallVoidMethod(env, opt_obj, set_mid, jpath);
+                (*env)->DeleteLocalRef(env, opt_obj);
+            }
+        }
+        (*env)->DeleteLocalRef(env, cfg_cls);
+    }
+    (*env)->ExceptionClear(env);
+
+    /* 3. Hook org.lwjgl.system.linux.DynamicLinkLoader.ndlopen(JI)J as a 100% catch-all */
+    jclass dll_cls = (*env)->FindClass(env, "org/lwjgl/system/linux/DynamicLinkLoader");
+    if (dll_cls) {
+        JNINativeMethod hook_method = {
+            (char*)"ndlopen",
+            (char*)"(JI)J",
+            (void*)&emesis_lwjgl_ndlopen_hook
+        };
+        (*env)->RegisterNatives(env, dll_cls, &hook_method, 1);
+        (*env)->DeleteLocalRef(env, dll_cls);
+    }
+    (*env)->ExceptionClear(env);
+
+    (*env)->DeleteLocalRef(env, jpath);
+    __atomic_store_n(&g_lwjgl_hijacked, 1, __ATOMIC_RELEASE);
+    EMESIS_LOGI("Bound LWJGL OpenGL library target -> %s", g_self_path);
 }
 
 __attribute__((constructor))
@@ -230,6 +375,23 @@ static void emesis_init_engine_once(void) {
         if (!force_es2 || strcmp(force_es2, "1") != 0) {
             setenv("LIBGL_ES", "3", 1);
         }
+        const char* cache_dir = getenv("EMESIS_SHADER_CACHE_DIR");
+        bool cache_ok = false;
+        if (cache_dir && *cache_dir) {
+            mkdir(cache_dir, 0775);
+            cache_ok = (access(cache_dir, W_OK | X_OK) == 0);
+        }
+        if (!cache_ok) {
+            const char* tmp_dir = getenv("TMPDIR");
+            if (tmp_dir && *tmp_dir) {
+                char fallback_cache[1024];
+                snprintf(fallback_cache, sizeof(fallback_cache), "%s/emesis_shadercache", tmp_dir);
+                mkdir(fallback_cache, 0775);
+                if (access(fallback_cache, W_OK | X_OK) == 0) {
+                    setenv("EMESIS_SHADER_CACHE_DIR", fallback_cache, 1);
+                }
+            }
+        }
     }
 
     char full_path[1024] = {0};
@@ -250,7 +412,7 @@ static void emesis_init_engine_once(void) {
         return;
     }
 
-    EMESIS_LOGI("Emesis Renderer v1.0.0 (Made by Entitybrian) -> Selected [%s] for MC [%s] via [%s]",
+    EMESIS_LOGI("Emesis Renderer v1.1.1 (Made by Entitybrian) -> Selected [%s] for MC [%s] via [%s]",
                 target_soname, g_decision.detected_version, g_decision.detection_source);
 
     if (g_decision.engine == EMESIS_ENGINE_MODERN) {
@@ -282,23 +444,37 @@ static inline void emesis_ensure_engine(void) {
 
 static void emesis_noop_stub(void) {}
 
-void* emesis_resolve_gl_symbol(const char* name) {
+/*
+ * Dynamic ProcAddress lookup for glXGetProcAddress / glXGetProcAddressARB / eglGetProcAddress.
+ * Returns NULL when the active backend does not implement `name`, so LWJGL GLCapabilities,
+ * Sodium, Iris, OptiFine, Angelica, and Oculus never enable unsupported GL 4.x / DSA / compute paths.
+ */
+static void* emesis_query_gl_proc(const char* name) {
     if (!name || !*name) return NULL;
     emesis_ensure_engine();
-    if (!g_engine_handle) return (void*)&emesis_noop_stub;
+    if (!g_engine_handle) return NULL;
 
-    void* sym = dlsym(g_engine_handle, name);
-    if (sym) return sym;
-
-    if (g_decision.engine == EMESIS_ENGINE_MODERN && g_modern_eglGetProcAddress) {
-        sym = (void*)g_modern_eglGetProcAddress(name);
-        if (sym) return sym;
-    } else if (g_decision.engine == EMESIS_ENGINE_LEGACY && g_legacy_glXGetProcAddress) {
-        sym = g_legacy_glXGetProcAddress(name);
-        if (sym) return sym;
+    if (g_decision.engine == EMESIS_ENGINE_MODERN) {
+        if (g_modern_eglGetProcAddress) {
+            void* sym = (void*)g_modern_eglGetProcAddress(name);
+            if (sym) return sym;
+        }
+        return dlsym(g_engine_handle, name);
     }
 
-    if (g_sys_eglGetProcAddress) {
+    /* EMESIS_ENGINE_LEGACY (<= 1.16.5): query Legacy engine strictly without falling back to raw GLES */
+    if (g_legacy_glXGetProcAddress) {
+        void* sym = g_legacy_glXGetProcAddress(name);
+        if (sym) return sym;
+    }
+    return dlsym(g_engine_handle, name);
+}
+
+/* Direct C export resolver used by universal core forwarders in gl_forwards.inc */
+void* emesis_resolve_gl_symbol(const char* name) {
+    void* sym = emesis_query_gl_proc(name);
+    if (sym) return sym;
+    if (g_decision.engine == EMESIS_ENGINE_MODERN && g_sys_eglGetProcAddress) {
         sym = (void*)g_sys_eglGetProcAddress(name);
         if (sym) return sym;
     }
@@ -324,14 +500,21 @@ __attribute__((visibility("default"))) void set_getprocaddress(pfn_getprocaddres
     }
 }
 
+__attribute__((visibility("default"))) void initialize_gl4es(void) {
+    emesis_ensure_engine();
+    emesis_hijack_lwjgl_gl_lib();
+}
+
 /* Exported EGL Functions (called directly OR via eglGetProcAddress("egl...") by Pojav/FCL/Zalith egl_loader.c) */
 __attribute__((visibility("default"))) EGLDisplay eglGetDisplay(EGLNativeDisplayType display_id) {
     emesis_load_sys_egl();
+    emesis_hijack_lwjgl_gl_lib();
     return g_eglGetDisplay ? g_eglGetDisplay(display_id) : EGL_NO_DISPLAY;
 }
 
 __attribute__((visibility("default"))) EGLBoolean eglInitialize(EGLDisplay dpy, EGLint* major, EGLint* minor) {
     emesis_load_sys_egl();
+    emesis_hijack_lwjgl_gl_lib();
     return g_eglInitialize ? g_eglInitialize(dpy, major, minor) : EGL_FALSE;
 }
 
@@ -509,6 +692,7 @@ __attribute__((visibility("default"))) EGLBoolean eglDestroyContext(EGLDisplay d
 
 __attribute__((visibility("default"))) EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
     emesis_ensure_engine();
+    emesis_hijack_lwjgl_gl_lib();
     if (g_decision.engine == EMESIS_ENGINE_MODERN && g_mod_eglMakeCurrent) {
         return g_mod_eglMakeCurrent(dpy, draw, read, ctx);
     }
@@ -607,7 +791,10 @@ __attribute__((visibility("default"))) __eglMustCastToProperFunctionPointerType 
     if (strcmp(procname, "set_getprocaddress") == 0) {
         return (__eglMustCastToProperFunctionPointerType)&set_getprocaddress;
     }
-    return (__eglMustCastToProperFunctionPointerType)emesis_resolve_gl_symbol(procname);
+    if (strcmp(procname, "initialize_gl4es") == 0) {
+        return (__eglMustCastToProperFunctionPointerType)&initialize_gl4es;
+    }
+    return (__eglMustCastToProperFunctionPointerType)emesis_query_gl_proc(procname);
 }
 
 __attribute__((visibility("default"))) void* glXGetProcAddress(const char* procname) {
@@ -625,7 +812,7 @@ __attribute__((visibility("default"))) void* glXGetProcAddressARB(const char* pr
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL
 Java_com_entitybrian_emesis_EmesisNative_getEngineVersion(JNIEnv* env, jclass cls) {
     (void)cls;
-    return (*env)->NewStringUTF(env, "Emesis Renderer v1.1.0 (Shader Accelerator) — Made by Entitybrian");
+    return (*env)->NewStringUTF(env, "Emesis Renderer v1.1.1 (Shader Accelerator) — Made by Entitybrian");
 }
 
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL

@@ -3,15 +3,23 @@ package com.entitybrian.emesis;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.UriPermission;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ProviderInfo;
+import android.content.pm.ResolveInfo;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
+import android.provider.DocumentsContract;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -24,37 +32,41 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends Activity {
 
+    private static final int REQ_OPEN_POJAV_TREE = 1101;
+
     private TextView simOutputText;
     private TextView policyStatusText;
     private TextView bridgeStatusText;
+    private String activeCustomEnvContent;
 
     private static final String[][] KNOWN_POJAV_VARIANTS = new String[][] {
-        {"net.kdt.pojavlaunch",              "PojavLauncher (Official)",        "custom_env"},
-        {"net.kdt.pojavlaunch.debug",        "PojavLauncher (Debug / Nightly)", "custom_env"},
-        {"net.kdt.pojavlaunch.firefly",      "Pojav Firefly / PGW",             "plugin"},
-        {"net.kdt.pojavlaunch.beta",         "PojavLauncher Beta / Zink",       "plugin"},
-        {"com.movtery.pojavzh",              "Pojav Glow Worm (PojavZH)",       "plugin"},
-        {"com.movtery.pojavzh.debug",        "Pojav Glow Worm (Debug)",         "plugin"},
-        {"com.movtery.zalithlauncher",       "ZalithLauncher 1",                "plugin"},
-        {"com.movtery.zalithlauncher.debug", "ZalithLauncher 1 (Debug)",        "plugin"},
-        {"com.movtery.zalithlauncher.v2",    "ZalithLauncher 2 (Plugin V2)",    "plugin"},
-        {"com.movtery.zalithlauncher.v2.debug", "ZalithLauncher 2 (Debug)",     "plugin"},
-        {"org.angelauramc.amethyst",         "Amethyst (Pojav Continuation)",   "custom_env"},
-        {"org.angelauramc.amethyst.debug",   "Amethyst (Debug)",                "custom_env"},
-        {"git.artdeell.mojo",                "MojoLauncher",                    "custom_env"},
-        {"git.artdeell.mojo.debug",          "MojoLauncher (Debug)",            "custom_env"},
-        {"git.artdeell.solcraft",            "SolCraftLauncher",                "custom_env"},
-        {"com.soldev.solcraft",              "SolCraftLauncher",                "custom_env"},
-        {"com.tungsten.fcl",                 "FoldCraftLauncher (Plugin V1/V2)","plugin"},
-        {"com.tungsten.fcm",                 "FoldCraftLauncher Variant",       "plugin"},
-        {"com.tungsten.fcl.ngg",             "FoldCraftLauncher Custom",        "plugin"},
-        {"org.fcl.enchantnet",               "EnchantNet Launcher",             "plugin"},
-        {"com.qcxr.qcxr",                    "QuestCraft (VR Pojav)",           "custom_env"}
+        {"net.kdt.pojavlaunch",                 "PojavLauncher (Official)",          "custom_env"},
+        {"net.kdt.pojavlaunch.debug",           "PojavLauncher (Debug / Nightly)",   "custom_env"},
+        {"net.kdt.pojavlaunch.firefly",         "Pojav Firefly / PGW",               "plugin"},
+        {"net.kdt.pojavlaunch.beta",            "PojavLauncher Beta / Zink",         "plugin"},
+        {"com.movtery.pojavzh",                 "Pojav Glow Worm (PojavZH)",         "plugin"},
+        {"com.movtery.pojavzh.debug",           "Pojav Glow Worm (Debug)",           "plugin"},
+        {"com.movtery.zalithlauncher",          "ZalithLauncher 1",                  "plugin"},
+        {"com.movtery.zalithlauncher.debug",    "ZalithLauncher 1 (Debug)",          "plugin"},
+        {"com.movtery.zalithlauncher.v2",       "ZalithLauncher 2 (Plugin V2)",      "plugin"},
+        {"com.movtery.zalithlauncher.v2.debug", "ZalithLauncher 2 (Debug)",          "plugin"},
+        {"org.angelauramc.amethyst",            "Amethyst (Pojav Continuation)",     "custom_env"},
+        {"org.angelauramc.amethyst.debug",      "Amethyst (Debug)",                  "custom_env"},
+        {"git.artdeell.mojo",                   "MojoLauncher",                      "custom_env"},
+        {"git.artdeell.mojo.debug",             "MojoLauncher (Debug)",              "custom_env"},
+        {"git.artdeell.solcraft",               "SolCraftLauncher",                  "custom_env"},
+        {"com.soldev.solcraft",                 "SolCraftLauncher",                  "custom_env"},
+        {"com.tungsten.fcl",                    "FoldCraftLauncher (Plugin V1/V2)",  "plugin"},
+        {"com.tungsten.fcm",                    "FoldCraftLauncher Variant",         "plugin"},
+        {"com.tungsten.fcl.ngg",                "FoldCraftLauncher Custom",          "plugin"},
+        {"org.fcl.enchantnet",                  "EnchantNet Launcher",               "plugin"},
+        {"com.qcxr.qcxr",                       "QuestCraft (VR Pojav)",             "custom_env"}
     };
 
     @Override
@@ -82,7 +94,7 @@ public class MainActivity extends Activity {
         heroCard.addView(logoView, logoLp);
 
         TextView titleView = new TextView(this);
-        titleView.setText("EMESIS RENDERER v1.1.0");
+        titleView.setText("EMESIS RENDERER v1.1.1");
         titleView.setTextColor(Color.parseColor("#F3F7FA"));
         titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 23);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
@@ -93,6 +105,7 @@ public class MainActivity extends Activity {
         authorView.setText("Made by Entitybrian • <1.17 Shader Accelerator");
         authorView.setTextColor(Color.parseColor("#00FF88"));
         authorView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        titleView.setIncludeFontPadding(false);
         authorView.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
         authorView.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams authorLp = new LinearLayout.LayoutParams(
@@ -128,7 +141,7 @@ public class MainActivity extends Activity {
                 : ("JNI Error: " + EmesisNative.getLoadError());
 
         statusCard.addView(infoLine("Plugin Protocols",
-                "Plugin V2 (fclPlugin_V2) • Plugin V1 (PGW / Zalith / FCL / Boat) • Vanilla Pojav custom_env Bridge"));
+                "Plugin V2 (fclPlugin_V2) • Plugin V1 (PGW / Zalith / FCL / Boat) • Scoped Storage Pojav SAF Installer"));
         statusCard.addView(infoLine("Engine Build", engineVer));
         statusCard.addView(infoLine("Device ABIs", abiList));
         statusCard.addView(infoLine("Bundled Targets",
@@ -139,20 +152,21 @@ public class MainActivity extends Activity {
                 + " • legacy=" + (hasLegacy ? "OK" : "MISSING")));
         root.addView(statusCard, cardParams());
 
-        // 3. All Pojav Variants Compatibility & One-Tap Bridge Card
+        // 3. All Pojav Variants Compatibility & Scoped-Storage SAF Installer Card
         LinearLayout pojavCard = createCard("#101820", "#1F2937");
         pojavCard.addView(sectionHeader("ALL POJAV VARIANTS COMPATIBILITY"));
 
         pojavCard.addView(infoLine("Detected Launchers on This Device", scanInstalledLaunchers()));
         pojavCard.addView(infoLine("Plugin-Aware Pojav Variants (Zero Config)",
                 "Pojav Glow Worm (PGW), Pojav Beta-Zink, Pojav Firefly, ZalithLauncher 1 & 2, and FoldCraftLauncher automatically list 'Emesis Renderer' in Renderer Settings."));
-        pojavCard.addView(infoLine("Vanilla Pojav / Amethyst / QuestCraft Bridge",
-                "Official PojavLauncher and Amethyst load external renderers via custom_env.txt. Keep the launcher's built-in renderer on default OpenGL ES 2.0 and apply the generated custom_env.txt below:"));
+        pojavCard.addView(infoLine("Official PojavLauncher / Debug / Amethyst / Mojo Setup",
+                "1) Tap 'Install to Pojav' below and tap 'Use this folder' -> 'Allow' when PojavLauncher's folder opens.\n"
+                + "2) In Official PojavLauncher Video Settings, keep Renderer on default 'Holy GL4ES (OpenGL ES 2)' — do NOT select raw 'OpenGL ES 3 (DesktopGL)'. Emesis automatically promotes the context to GLES 3.2/3.1/3.0 + Shader Accelerator!"));
 
-        final String customEnvContent = buildPojavCustomEnv(routerPath);
+        activeCustomEnvContent = buildPojavCustomEnv(routerPath);
 
         TextView envPreview = new TextView(this);
-        envPreview.setText(customEnvContent);
+        envPreview.setText(activeCustomEnvContent);
         envPreview.setTextColor(Color.parseColor("#CBD5E1"));
         envPreview.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         envPreview.setTypeface(Typeface.MONOSPACE);
@@ -167,19 +181,19 @@ public class MainActivity extends Activity {
         LinearLayout bridgeBtnRow = new LinearLayout(this);
         bridgeBtnRow.setOrientation(LinearLayout.HORIZONTAL);
 
-        Button copyEnvBtn = createButton("Copy custom_env");
-        Button applyEnvBtn = createButton("Write to Pojav");
-        Button shareEnvBtn = createButton("Share");
+        Button installEnvBtn = createButton("Install to Pojav");
+        Button pickFolderBtn = createButton("Pick Folder");
+        Button copyEnvBtn = createButton("Copy");
 
-        LinearLayout.LayoutParams bLp1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.15f);
+        LinearLayout.LayoutParams bLp1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.35f);
         bLp1.rightMargin = dp(6);
-        LinearLayout.LayoutParams bLp2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.15f);
+        LinearLayout.LayoutParams bLp2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
         bLp2.rightMargin = dp(6);
-        LinearLayout.LayoutParams bLp3 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.75f);
+        LinearLayout.LayoutParams bLp3 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.70f);
 
-        bridgeBtnRow.addView(copyEnvBtn, bLp1);
-        bridgeBtnRow.addView(applyEnvBtn, bLp2);
-        bridgeBtnRow.addView(shareEnvBtn, bLp3);
+        bridgeBtnRow.addView(installEnvBtn, bLp1);
+        bridgeBtnRow.addView(pickFolderBtn, bLp2);
+        bridgeBtnRow.addView(copyEnvBtn, bLp3);
         pojavCard.addView(bridgeBtnRow, marginTop(10));
 
         bridgeStatusText = new TextView(this);
@@ -188,33 +202,41 @@ public class MainActivity extends Activity {
         bridgeStatusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         pojavCard.addView(bridgeStatusText, marginTop(8));
 
+        // Automatically keep linked Pojav SAF folders synced whenever this app opens (even after APK updates)
+        List<String> autoSynced = syncPersistedSafTrees(activeCustomEnvContent);
+        if (!autoSynced.isEmpty()) {
+            StringBuilder sb = new StringBuilder("Auto-synced custom_env.txt to linked launcher folder(s):\n");
+            for (int i = 0; i < autoSynced.size(); i++) {
+                if (i > 0) sb.append("\n");
+                sb.append("• ").append(autoSynced.get(i));
+            }
+            bridgeStatusText.setText(sb.toString());
+            bridgeStatusText.setTextColor(Color.parseColor("#00FF88"));
+        }
+
+        installEnvBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                installToPojavLauncher(activeCustomEnvContent);
+            }
+        });
+
+        pickFolderBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openPojavSafFolderPicker();
+            }
+        });
+
         copyEnvBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 if (cm != null) {
-                    cm.setPrimaryClip(ClipData.newPlainText("custom_env.txt", customEnvContent));
-                    bridgeStatusText.setText("Copied custom_env.txt lines to clipboard! Paste into your Pojav custom_env.txt.");
+                    cm.setPrimaryClip(ClipData.newPlainText("custom_env.txt", activeCustomEnvContent));
+                    bridgeStatusText.setText("Copied custom_env.txt lines to clipboard! Ensure there are no blank lines when pasting into custom_env.txt.");
                     bridgeStatusText.setTextColor(Color.parseColor("#00FF88"));
                 }
-            }
-        });
-
-        applyEnvBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                writePojavCustomEnvFiles(customEnvContent);
-            }
-        });
-
-        shareEnvBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Intent send = new Intent(Intent.ACTION_SEND);
-                send.setType("text/plain");
-                send.putExtra(Intent.EXTRA_SUBJECT, "custom_env.txt");
-                send.putExtra(Intent.EXTRA_TEXT, customEnvContent);
-                startActivity(Intent.createChooser(send, "Export custom_env.txt for Pojav"));
             }
         });
 
@@ -226,7 +248,7 @@ public class MainActivity extends Activity {
         archCard.addView(infoLine("Minecraft > 1.16.5 (1.17 – 1.21.x, 26.x+)",
                 "Emesis Modern Core — OpenGL 3.2+ Core Profile over GLES 3.x (auto-promotes GLES 3.2/3.1/3.0 context)"));
         archCard.addView(infoLine("Minecraft <= 1.16.5 (Classic – 1.7.10 – 1.8.9 – 1.12.2 – 1.16.5)",
-                "Emesis Compatibility Core — GLES 3.2/3.1/3.0 + SPIR-V ESSL Shader Accelerator (ShadersMod, OptiFine, Angelica, Oculus) with Persistent Two-Tier Shader & GPU Binary Cache, 16-MRT FBO State-Diffing, GPU Quad IBO & Hardware PCF Shadows"));
+                "Emesis Compatibility Core — GLES 3.2/3.1/3.0 + SPIR-V ESSL Shader Accelerator (Sodium, Iris, OptiFine, ShadersMod, Angelica, Oculus) with Persistent Two-Tier Shader & GPU Binary Cache, 16-MRT FBO State-Diffing, GPU Quad IBO & Hardware PCF Shadows"));
         root.addView(archCard, cardParams());
 
         // 5. Interactive Native C Version Router Simulator
@@ -320,8 +342,10 @@ public class MainActivity extends Activity {
     }
 
     private String buildPojavCustomEnv(String routerPath) {
-        return "POJAVEXEC_EGL=" + routerPath + "\n"
+        return "POJAV_RENDERER=opengles2\n"
+             + "POJAVEXEC_EGL=" + routerPath + "\n"
              + "LIBGL_ES=3\n"
+             + "LIBGL_GL=31\n"
              + "LIBGL_MIPMAP=3\n"
              + "LIBGL_NORMALIZE=1\n"
              + "LIBGL_NOERROR=1\n"
@@ -342,7 +366,7 @@ public class MainActivity extends Activity {
             try {
                 PackageInfo pi = pm.getPackageInfo(pkg, 0);
                 if (pi != null) {
-                    String badge = "plugin".equals(mode) ? "[Auto Plugin]" : "[custom_env Bridge]";
+                    String badge = "plugin".equals(mode) ? "[Auto Plugin]" : "[SAF custom_env]";
                     found.add("• " + title + " " + badge);
                 }
             } catch (Throwable ignored) {
@@ -359,47 +383,276 @@ public class MainActivity extends Activity {
         return sb.toString();
     }
 
-    private void writePojavCustomEnvFiles(String content) {
-        String[] candidateDirs = new String[] {
-            "/sdcard/games/PojavLauncher",
-            "/sdcard/Android/data/net.kdt.pojavlaunch/files",
-            "/sdcard/Android/data/net.kdt.pojavlaunch.debug/files",
-            "/sdcard/Android/data/org.angelauramc.amethyst/files",
-            "/sdcard/Android/data/git.artdeell.mojo/files",
-            "/sdcard/EmesisRenderer"
-        };
-        List<String> written = new ArrayList<String>();
-        for (int i = 0; i < candidateDirs.length; i++) {
-            try {
-                File dir = new File(candidateDirs[i]);
-                if (i == candidateDirs.length - 1 && !dir.exists()) {
-                    dir.mkdirs();
-                }
-                if (dir.exists() && dir.isDirectory()) {
-                    File out = new File(dir, "custom_env.txt");
-                    FileOutputStream fos = new FileOutputStream(out);
-                    fos.write((content + "\n").getBytes("UTF-8"));
-                    fos.close();
-                    written.add(out.getAbsolutePath());
-                }
-            } catch (Throwable ignored) {
-            }
-        }
+    private void installToPojavLauncher(String content) {
         ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (cm != null) {
             cm.setPrimaryClip(ClipData.newPlainText("custom_env.txt", content));
         }
+
+        List<String> written = new ArrayList<String>();
+        written.addAll(syncPersistedSafTrees(content));
+        written.addAll(writeDirectLegacyLauncherDirs(content));
+
         if (!written.isEmpty()) {
-            StringBuilder sb = new StringBuilder("Wrote custom_env.txt (& copied to clipboard):\n");
+            StringBuilder sb = new StringBuilder("Installed custom_env.txt to PojavLauncher (& copied to clipboard):\n");
             for (int i = 0; i < written.size(); i++) {
                 if (i > 0) sb.append("\n");
                 sb.append("• ").append(written.get(i));
             }
+            sb.append("\nReady! Launch Minecraft in PojavLauncher (keep Renderer on Holy GL4ES / OpenGL ES 2).");
             bridgeStatusText.setText(sb.toString());
             bridgeStatusText.setTextColor(Color.parseColor("#00FF88"));
-        } else {
-            bridgeStatusText.setText("Copied custom_env.txt to clipboard! On Android 11+ scoped storage, paste into your launcher's custom_env.txt or tap Share.");
+            return;
+        }
+
+        // On Android 11+ Scoped Storage, open PojavLauncher's FolderProvider SAF root directly
+        openPojavSafFolderPicker();
+    }
+
+    private List<String> writeDirectLegacyLauncherDirs(String content) {
+        String[] legacyLauncherDirs = new String[] {
+            "/sdcard/games/PojavLauncher",
+            "/sdcard/Android/data/net.kdt.pojavlaunch/files",
+            "/sdcard/Android/data/net.kdt.pojavlaunch.debug/files",
+            "/sdcard/Android/data/org.angelauramc.amethyst/files",
+            "/sdcard/Android/data/org.angelauramc.amethyst.debug/files",
+            "/sdcard/Android/data/git.artdeell.mojo/files",
+            "/sdcard/Android/data/git.artdeell.mojo.debug/files"
+        };
+        List<String> written = new ArrayList<String>();
+        byte[] bytes;
+        try {
+            bytes = content.getBytes("UTF-8");
+        } catch (Throwable t) {
+            return written;
+        }
+        for (int i = 0; i < legacyLauncherDirs.length; i++) {
+            try {
+                File dir = new File(legacyLauncherDirs[i]);
+                if (dir.exists() && dir.isDirectory() && dir.canWrite()) {
+                    File out = new File(dir, "custom_env.txt");
+                    FileOutputStream fos = new FileOutputStream(out, false);
+                    fos.write(bytes);
+                    fos.flush();
+                    fos.close();
+                    if (out.exists() && out.length() == bytes.length) {
+                        written.add(out.getAbsolutePath());
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return written;
+    }
+
+    private List<String> syncPersistedSafTrees(String content) {
+        List<String> synced = new ArrayList<String>();
+        if (Build.VERSION.SDK_INT < 21) return synced;
+        try {
+            ContentResolver cr = getContentResolver();
+            List<UriPermission> perms = cr.getPersistedUriPermissions();
+            if (perms == null) return synced;
+            for (int i = 0; i < perms.size(); i++) {
+                UriPermission perm = perms.get(i);
+                if (perm != null && perm.isWritePermission() && perm.getUri() != null) {
+                    String saved = writeCustomEnvToTreeUri(perm.getUri(), content);
+                    if (saved != null) {
+                        synced.add(saved);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return synced;
+    }
+
+    private Uri discoverPojavInitialSafUri() {
+        if (Build.VERSION.SDK_INT < 21) return null;
+        PackageManager pm = getPackageManager();
+        try {
+            Intent probe = new Intent("android.content.action.DOCUMENTS_PROVIDER");
+            List<ResolveInfo> providers = pm.queryIntentContentProviders(probe, 0);
+            if (providers != null) {
+                for (int i = 0; i < providers.size(); i++) {
+                    ProviderInfo pi = providers.get(i).providerInfo;
+                    if (pi == null || pi.authority == null || pi.packageName == null) continue;
+                    String pkg = pi.packageName;
+                    if (pkg.contains("pojav") || pkg.contains("amethyst")
+                            || pkg.contains("mojo") || pkg.contains("solcraft")
+                            || pkg.contains("qcxr")) {
+                        String rootDocId = "/storage/emulated/0/Android/data/" + pkg + "/files";
+                        return DocumentsContract.buildDocumentUri(pi.authority, rootDocId);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        // Explicit fallback authority table for Official PojavLauncher, Debug, Amethyst, and Mojo
+        String[][] fallbackAuthorities = new String[][] {
+            {"net.kdt.pojavlaunch.debug",     "net.kdt.pojavlaunch.scoped.gamefolder.debug"},
+            {"net.kdt.pojavlaunch",           "net.kdt.pojavlaunch.scoped.gamefolder"},
+            {"org.angelauramc.amethyst",      "org.angelauramc.amethyst.scoped.gamefolder"},
+            {"org.angelauramc.amethyst.debug","org.angelauramc.amethyst.scoped.gamefolder.debug"},
+            {"git.artdeell.mojo",             "git.artdeell.mojo.scoped.gamefolder"},
+            {"git.artdeell.mojo.debug",       "git.artdeell.mojo.scoped.gamefolder.debug"}
+        };
+        for (int i = 0; i < fallbackAuthorities.length; i++) {
+            String pkg = fallbackAuthorities[i][0];
+            String auth = fallbackAuthorities[i][1];
+            try {
+                if (pm.getPackageInfo(pkg, 0) != null) {
+                    String rootDocId = "/storage/emulated/0/Android/data/" + pkg + "/files";
+                    return DocumentsContract.buildDocumentUri(auth, rootDocId);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
+    }
+
+    private void openPojavSafFolderPicker() {
+        if (Build.VERSION.SDK_INT < 21) {
+            bridgeStatusText.setText("Copied custom_env.txt to clipboard! Paste into your PojavLauncher custom_env.txt.");
             bridgeStatusText.setTextColor(Color.parseColor("#FBBF24"));
+            return;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+
+            Uri initialUri = discoverPojavInitialSafUri();
+            if (initialUri != null && Build.VERSION.SDK_INT >= 26) {
+                intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri);
+            }
+
+            bridgeStatusText.setText(
+                "Select PojavLauncher's root folder (or pick PojavLauncher from the top-left menu) and tap 'Use this folder' -> 'Allow' to auto-write custom_env.txt.");
+            bridgeStatusText.setTextColor(Color.parseColor("#FBBF24"));
+            startActivityForResult(intent, REQ_OPEN_POJAV_TREE);
+        } catch (Throwable t) {
+            bridgeStatusText.setText("Could not open folder picker (" + t.getMessage() + "). Copied custom_env.txt to clipboard.");
+            bridgeStatusText.setTextColor(Color.parseColor("#FBBF24"));
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_OPEN_POJAV_TREE) {
+            if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
+                Uri treeUri = data.getData();
+                try {
+                    int takeFlags = data.getFlags()
+                            & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    if (takeFlags == 0) {
+                        takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+                    }
+                    getContentResolver().takePersistableUriPermission(treeUri, takeFlags);
+                } catch (Throwable ignored) {
+                }
+
+                String writtenDesc = writeCustomEnvToTreeUri(treeUri, activeCustomEnvContent);
+                if (writtenDesc != null) {
+                    bridgeStatusText.setText(
+                        "Successfully wrote custom_env.txt -> " + writtenDesc
+                        + "\nPermission saved! Future Emesis updates auto-sync automatically. Keep Pojav Renderer on 'Holy GL4ES (OpenGL ES 2)' and launch Minecraft!");
+                    bridgeStatusText.setTextColor(Color.parseColor("#00FF88"));
+                } else {
+                    bridgeStatusText.setText(
+                        "Could not write custom_env.txt into selected folder (" + treeUri + "). Please select PojavLauncher's root folder from the top-left menu.");
+                    bridgeStatusText.setTextColor(Color.parseColor("#EF4444"));
+                }
+            }
+        }
+    }
+
+    private String writeCustomEnvToTreeUri(Uri treeUri, String content) {
+        if (Build.VERSION.SDK_INT < 21 || treeUri == null || content == null) return null;
+        ContentResolver cr = getContentResolver();
+        Cursor cursor = null;
+        try {
+            String treeDocId = DocumentsContract.getTreeDocumentId(treeUri);
+            Uri parentDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocId);
+            Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, treeDocId);
+
+            Uri targetDocUri = null;
+            cursor = cr.query(
+                    childrenUri,
+                    new String[] {
+                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                    },
+                    null,
+                    null,
+                    null);
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    String docId = cursor.getString(0);
+                    String name = cursor.getString(1);
+                    if ("custom_env.txt".equals(name) && docId != null) {
+                        targetDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId);
+                        break;
+                    }
+                }
+            }
+            if (cursor != null) {
+                cursor.close();
+                cursor = null;
+            }
+
+            if (targetDocUri == null) {
+                targetDocUri = DocumentsContract.createDocument(cr, parentDocUri, "text/plain", "custom_env.txt");
+            }
+            if (targetDocUri == null) return null;
+
+            byte[] bytes = content.getBytes("UTF-8");
+            boolean wrote = false;
+            try {
+                ParcelFileDescriptor pfd = cr.openFileDescriptor(targetDocUri, "rwt");
+                if (pfd == null) {
+                    pfd = cr.openFileDescriptor(targetDocUri, "wt");
+                }
+                if (pfd != null) {
+                    FileOutputStream fos = new FileOutputStream(pfd.getFileDescriptor());
+                    try {
+                        fos.getChannel().truncate(0);
+                    } catch (Throwable ignored) {
+                    }
+                    fos.write(bytes);
+                    fos.flush();
+                    fos.close();
+                    pfd.close();
+                    wrote = true;
+                }
+            } catch (Throwable ignored) {
+            }
+
+            if (!wrote) {
+                OutputStream os = cr.openOutputStream(targetDocUri, "wt");
+                if (os == null) {
+                    os = cr.openOutputStream(targetDocUri);
+                }
+                if (os == null) return null;
+                os.write(bytes);
+                os.flush();
+                os.close();
+            }
+
+            String authority = treeUri.getAuthority() != null ? treeUri.getAuthority() : "SAF";
+            return authority + " :: " + treeDocId + "/custom_env.txt";
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            if (cursor != null) {
+                try {
+                    cursor.close();
+                } catch (Throwable ignored) {
+                }
+            }
         }
     }
 

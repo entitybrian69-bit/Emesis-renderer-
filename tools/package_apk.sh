@@ -12,7 +12,7 @@ D8_JAR="${D8_JAR:-$(find /tmp/toolchain/venv -name 'd8.jar' 2>/dev/null | head -
 DX_JAR="${DX_JAR:-/tmp/toolchain/dx.jar}"
 APKSIGNER_JAR="${APKSIGNER_JAR:-/tmp/toolchain/npm_tools/postar-apktool-node-0.3.4/lib/apksigner.jar}"
 JNILIBS_DIR="${EMESIS_JNILIBS_OUT:-/tmp/emesis_build/jniLibs}"
-OUT_APK="${ROOT_DIR}/EmesisRenderer-Universal-v1.1.0.apk"
+OUT_APK="${ROOT_DIR}/EmesisRenderer-Universal-v1.1.1.apk"
 
 WORK_DIR="/tmp/emesis_apk_build"
 rm -rf "${WORK_DIR}"
@@ -36,8 +36,8 @@ needle = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
 replacement = (
     '<manifest xmlns:android="http://schemas.android.com/apk/res/android"\n'
     '    package="com.entitybrian.emesis"\n'
-    '    android:versionCode="110"\n'
-    '    android:versionName="1.1.0">\n\n'
+    '    android:versionCode="111"\n'
+    '    android:versionName="1.1.1">\n\n'
     '    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />'
 )
 assert needle in xml, "Expected manifest root tag not found"

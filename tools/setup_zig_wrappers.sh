@@ -33,6 +33,21 @@ __END_DECLS
 EOF
 fi
 
+if [ -f "${NDK_HEADERS}/vulkan/vulkan.h" ] && [ ! -f "${NDK_HEADERS}/vulkan/vulkan_core.h" ]; then
+    cat > "${NDK_HEADERS}/vulkan/vulkan_core.h" <<'EOF'
+#ifndef VULKAN_CORE_H_
+#define VULKAN_CORE_H_ 1
+#include "vulkan.h"
+#ifndef VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK
+#define VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK ((VkDescriptorType)1000138000)
+#endif
+#ifndef VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR
+#define VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR ((VkDescriptorType)1000150000)
+#endif
+#endif
+EOF
+fi
+
 cat > "$WRAP_DIR/bionic_api21_compat.h" <<'EOF'
 #ifndef EMESIS_BIONIC_API21_COMPAT_H
 #define EMESIS_BIONIC_API21_COMPAT_H
