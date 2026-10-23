@@ -10,6 +10,9 @@ typedef struct hack_s {
 } hack_t;
 
 static const hack_t gl4es_hacks[] = {
+    // Auto-heal Iris 1.4.5 CenterDepthSampler upstream syntax typo on GL < 3.2 fallback branch
+    {"mix(, currentDepth, decay2)", 1, {"mix(oldDepth, currentDepth, decay2)"}},
+
     // this is for Guacamelee (yep, there is a lot of hacks, only int -> float conversions)
     // 1
     {"float edgeGlow = step ( 0.2 , pow ( clamp ( ( dot ( vec2 ( 1 * sign ( v_texcoord3 . z ) , 1 ) , normalize ( "
@@ -553,5 +556,6 @@ char* ShaderHacks(char* shader) {
             }
         }
     }
+    if (Tmp != shader) return Tmp;
     return strdup(Tmp);
 }

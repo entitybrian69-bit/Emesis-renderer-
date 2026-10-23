@@ -113,10 +113,10 @@ static void proxy_glEnable(GLenum cap, bool enable, void (APIENTRY_GLES *next)(G
         proxy_GO(GL_DEPTH_TEST, depth_test);
         proxy_GO(GL_STENCIL_TEST, stencil_test);
         // texgen
-        GOFPE(GL_TEXTURE_GEN_S, texgen_s[glstate->texture.active], fpe_changetexgen_s(glstate->texture.active, enable)); //TODO: FPE stuffs
-        GOFPE(GL_TEXTURE_GEN_T, texgen_t[glstate->texture.active], fpe_changetexgen_t(glstate->texture.active, enable));
-        GOFPE(GL_TEXTURE_GEN_R, texgen_r[glstate->texture.active], fpe_changetexgen_r(glstate->texture.active, enable));
-        GOFPE(GL_TEXTURE_GEN_Q, texgen_q[glstate->texture.active], fpe_changetexgen_q(glstate->texture.active, enable));
+        GOFPE(GL_TEXTURE_GEN_S, texgen_s[glstate->texture.active], if (glstate->texture.active < MAX_TEX) fpe_changetexgen_s(glstate->texture.active, enable)); //TODO: FPE stuffs
+        GOFPE(GL_TEXTURE_GEN_T, texgen_t[glstate->texture.active], if (glstate->texture.active < MAX_TEX) fpe_changetexgen_t(glstate->texture.active, enable));
+        GOFPE(GL_TEXTURE_GEN_R, texgen_r[glstate->texture.active], if (glstate->texture.active < MAX_TEX) fpe_changetexgen_r(glstate->texture.active, enable));
+        GOFPE(GL_TEXTURE_GEN_Q, texgen_q[glstate->texture.active], if (glstate->texture.active < MAX_TEX) fpe_changetexgen_q(glstate->texture.active, enable));
         GO(GL_LINE_STIPPLE, line_stipple);
 
         // clip plane
@@ -204,7 +204,7 @@ static void proxy_glEnable(GLenum cap, bool enable, void (APIENTRY_GLES *next)(G
             else
                 glstate->enable.texture[glstate->texture.active] &= ~(1<<ENABLED_TEX1D);
             gl_changetex(glstate->texture.active);
-            if(glstate->fpe_state)
+            if(glstate->fpe_state && glstate->texture.active < MAX_TEX)
                 fpe_changetex(glstate->texture.active);
             break;
         case GL_TEXTURE_2D:
@@ -216,9 +216,9 @@ static void proxy_glEnable(GLenum cap, bool enable, void (APIENTRY_GLES *next)(G
             else
                 glstate->enable.texture[glstate->texture.active] &= ~(1<<ENABLED_TEX2D);
             gl_changetex(glstate->texture.active);
-            if(glstate->fpe_state)
-                fpe_changetex(glstate->texture.active);
-            else {
+            if(glstate->fpe_state) {
+                if (glstate->texture.active < MAX_TEX) fpe_changetex(glstate->texture.active);
+            } else {
                 realize_active();
                 next(cap);
             }
@@ -230,7 +230,7 @@ static void proxy_glEnable(GLenum cap, bool enable, void (APIENTRY_GLES *next)(G
             else
                 glstate->enable.texture[glstate->texture.active] &= ~(1<<ENABLED_TEX3D);
             gl_changetex(glstate->texture.active);
-            if(glstate->fpe_state)
+            if(glstate->fpe_state && glstate->texture.active < MAX_TEX)
                 fpe_changetex(glstate->texture.active);
             break;
         case GL_TEXTURE_RECTANGLE_ARB:
@@ -240,7 +240,7 @@ static void proxy_glEnable(GLenum cap, bool enable, void (APIENTRY_GLES *next)(G
             else
                 glstate->enable.texture[glstate->texture.active] &= ~(1<<ENABLED_TEXTURE_RECTANGLE);
             gl_changetex(glstate->texture.active);
-            if(glstate->fpe_state)
+            if(glstate->fpe_state && glstate->texture.active < MAX_TEX)
                 fpe_changetex(glstate->texture.active);
             break;
         case GL_TEXTURE_CUBE_MAP:
@@ -250,9 +250,9 @@ static void proxy_glEnable(GLenum cap, bool enable, void (APIENTRY_GLES *next)(G
             else
                 glstate->enable.texture[glstate->texture.active] &= ~(1<<ENABLED_CUBE_MAP);
             gl_changetex(glstate->texture.active);
-            if(glstate->fpe_state)
-                fpe_changetex(glstate->texture.active);
-            else {
+            if(glstate->fpe_state) {
+                if (glstate->texture.active < MAX_TEX) fpe_changetex(glstate->texture.active);
+            } else {
                 realize_active();
                 next(cap);
             }

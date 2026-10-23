@@ -208,6 +208,11 @@ void APIENTRY_GL4ES gl4es_glBindAttribLocation(GLuint program, GLuint index, con
     LOAD_GLES2(glBindAttribLocation);
     if (gles_glBindAttribLocation) {
         gles_glBindAttribLocation(glprogram->id, index, attribloc->name);
+        if (strcmp(attribloc->name, "texture") == 0) {
+            gles_glBindAttribLocation(glprogram->id, index, "vgpu_texture");
+        } else if (strcmp(attribloc->name, "sample") == 0) {
+            gles_glBindAttribLocation(glprogram->id, index, "vgpu_Sample");
+        }
         errorGL();
     } else
         noerrorShim();
@@ -446,10 +451,6 @@ void APIENTRY_GL4ES gl4es_glGetActiveUniform(GLuint program, GLuint index, GLsiz
         return;
     }
     noerrorShim();
-    if (strncmp(name, "gl_", 3) == 0) {
-        DBG(SHUT_LOGD(" internal uniform\n"))
-        return;
-    }
 
     // look in uniform cache, that is filled when program is linked
     if (glprogram->uniform) {
@@ -585,6 +586,12 @@ GLint APIENTRY_GL4ES gl4es_glGetUniformLocation(GLuint program, const GLchar* na
         DBG(SHUT_LOGD(" internal uniform: -1\n"))
         return -1;
     }
+    if (strncmp(name, "vgpu_texture", 12) == 0 &&
+        (name[12] == '\0' || name[12] == '[' || name[12] == '.')) {
+        name += 5; // "vgpu_texture..." -> "texture..."
+    } else if (strcmp(name, "vgpu_Sample") == 0) {
+        name = "sample";
+    }
 
     /* O(1) hash lookup for both scalar ("gbufferModelViewInverse") and array ("arr[3]") uniforms */
     if (glprogram->uniform_by_name) {
@@ -717,6 +724,16 @@ static void fill_program(program_t* glprogram) {
             if (name[strlen(name) - 1] == ']' && strrchr(name, '[')) (*strrchr(name, '[')) = '\0';
             GLint id = gles_glGetUniformLocation(glprogram->id, name);
             if (id != -1) {
+                /* Unmap vgpu_texture / vgpu_Sample back to original GLSL 120 names ("texture" / "sample")
+                   so Iris ProgramSamplers / OptiFine Shaders / GL20.glGetUniformLocation find them */
+                if (strncmp(name, "vgpu_texture", 12) == 0 &&
+                    (name[12] == '\0' || name[12] == '[' || name[12] == '.')) {
+                    memmove(name, name + 5, strlen(name + 5) + 1);
+                } else if (strncmp(name, "vgpu_Sample", 11) == 0 &&
+                           (name[11] == '\0' || name[11] == '[' || name[11] == '.')) {
+                    name[5] = 's';
+                    memmove(name, name + 5, strlen(name + 5) + 1);
+                }
                 for (int j = 0; j < size; j++) {
                     k = kh_put(uniformlist, uniforms, id, &ret);
                     gluniform = kh_value(uniforms, k) = malloc(sizeof(uniform_t));
@@ -739,26 +756,30 @@ static void fill_program(program_t* glprogram) {
                     gluniform->cache_size = uniformsize(type) * (size - j);
                     gluniform->builtin = builtin_CheckUniform(glprogram, name, id, size - j);
                     // TextureUnit grabbing...
-                    if (type == GL_SAMPLER_CUBE) {
-                        glprogram->texunits[tu_idx].id = id;
-                        glprogram->texunits[tu_idx].type = TU_CUBE;
-                        glprogram->texunits[tu_idx].req_tu = glprogram->texunits[tu_idx].act_tu = 0;
-                        ++tu_idx;
-                    } else if (type == GL_SAMPLER_2D) {
-                        glprogram->texunits[tu_idx].id = id;
-                        glprogram->texunits[tu_idx].type = TU_TEX2D;
-                        glprogram->texunits[tu_idx].req_tu = glprogram->texunits[tu_idx].act_tu = 0;
-                        ++tu_idx;
-                    } else if (type == GL_SAMPLER_2D_SHADOW) {
-                        glprogram->texunits[tu_idx].id = id;
-                        glprogram->texunits[tu_idx].type = TU_TEX2DSH;
-                        glprogram->texunits[tu_idx].req_tu = glprogram->texunits[tu_idx].act_tu = 0;
-                        ++tu_idx;
-                    } else if (type == GL_SAMPLER_3D) {
-                        glprogram->texunits[tu_idx].id = id;
-                        glprogram->texunits[tu_idx].type = TU_TEX3D;
-                        glprogram->texunits[tu_idx].req_tu = glprogram->texunits[tu_idx].act_tu = 0;
-                        ++tu_idx;
+                    if (tu_idx < MAX_TEX_UNITS) {
+                        if (type == GL_SAMPLER_CUBE) {
+                            glprogram->texunits[tu_idx].id = id;
+                            glprogram->texunits[tu_idx].type = TU_CUBE;
+                            glprogram->texunits[tu_idx].req_tu = glprogram->texunits[tu_idx].act_tu = 0;
+                            ++tu_idx;
+                        } else if (type == GL_SAMPLER_2D || type == GL_INT_SAMPLER_2D ||
+                                   type == GL_UNSIGNED_INT_SAMPLER_2D) {
+                            glprogram->texunits[tu_idx].id = id;
+                            glprogram->texunits[tu_idx].type = TU_TEX2D;
+                            glprogram->texunits[tu_idx].req_tu = glprogram->texunits[tu_idx].act_tu = 0;
+                            ++tu_idx;
+                        } else if (type == GL_SAMPLER_2D_SHADOW) {
+                            glprogram->texunits[tu_idx].id = id;
+                            glprogram->texunits[tu_idx].type = TU_TEX2DSH;
+                            glprogram->texunits[tu_idx].req_tu = glprogram->texunits[tu_idx].act_tu = 0;
+                            ++tu_idx;
+                        } else if (type == GL_SAMPLER_3D || type == GL_INT_SAMPLER_3D ||
+                                   type == GL_UNSIGNED_INT_SAMPLER_3D) {
+                            glprogram->texunits[tu_idx].id = id;
+                            glprogram->texunits[tu_idx].type = TU_TEX3D;
+                            glprogram->texunits[tu_idx].req_tu = glprogram->texunits[tu_idx].act_tu = 0;
+                            ++tu_idx;
+                        }
                     }
                     DBG(SHUT_LOGD(" uniform #%d : \"%s\"%s type=%s size=%d\n", id, gluniform->name,
                                   gluniform->builtin ? " (builtin) " : "", PrintEnum(gluniform->type), gluniform->size))
@@ -779,13 +800,15 @@ static void fill_program(program_t* glprogram) {
     if (glprogram->cache.cache && glprogram->cache.cap > 0) {
         memset(glprogram->cache.cache, 0, glprogram->cache.cap);
     }
-    // Maybe Sampler uniform should not be initialized to 0, but to -1, to be sure the value is initialized?
+    // Initialize all sampler & image uniform cache slots to 0xff (-1) so initial glUniform1i(loc, 0) is never skipped
     if (glprogram->uniform) {
         uniform_t* m;
         khint_t k;
         kh_foreach(glprogram->uniform, k, m,
-                   if (m->type == GL_SAMPLER_2D || m->type == GL_SAMPLER_CUBE || m->type == GL_SAMPLER_2D_SHADOW ||
-                       m->type == GL_SAMPLER_3D)
+                   if ((m->type >= GL_SAMPLER_2D && m->type <= GL_SAMPLER_CUBE) ||
+                       m->type == GL_SAMPLER_3D || m->type == GL_SAMPLER_2D_SHADOW ||
+                       (m->type >= 0x8DC0 && m->type <= 0x8DDD) ||
+                       (m->type >= 0x904C && m->type <= 0x906C))
                        memset((char*)glprogram->cache.cache + m->cache_offs, 0xff, m->cache_size);)
     }
 
@@ -810,7 +833,13 @@ static void fill_program(program_t* glprogram) {
                 }
                 memset(glattribloc, 0, sizeof(attribloc_t));
                 glattribloc->name = strdup(name);
-                glattribloc->glname = builtinAttribGLName(glattribloc->name);
+                if (strcmp(glattribloc->name, "vgpu_texture") == 0) {
+                    glattribloc->glname = "texture";
+                } else if (strcmp(glattribloc->name, "vgpu_Sample") == 0) {
+                    glattribloc->glname = "sample";
+                } else {
+                    glattribloc->glname = builtinAttribGLName(glattribloc->name);
+                }
                 glattribloc->size = size;
                 glattribloc->type = type;
                 glattribloc->index = id;

@@ -245,23 +245,23 @@ typedef struct {
     GLint builtin_clipplanes[MAX_CLIP_PLANES];
     int has_builtin_clipplanes;
     builtin_pointsprite_t builtin_pointsprite;
-    GLint builtin_texenvcolor[MAX_TEX];
+    GLint builtin_texenvcolor[MAX_TEX_UNITS];
     int has_builtin_texenv;
-    GLint builtin_eye[4][MAX_TEX];
-    GLint builtin_obj[4][MAX_TEX];
+    GLint builtin_eye[4][MAX_TEX_UNITS];
+    GLint builtin_obj[4][MAX_TEX_UNITS];
     int has_builtin_texgen;
     builtin_fog_t builtin_fog;
     GLint builtin_instanceID;
     // fpe uniform
     GLint fpe_alpharef;
     int has_fpe;
-    GLint builtin_texsampler[MAX_TEX];
+    GLint builtin_texsampler[MAX_TEX_UNITS];
     int has_builtin_texsampler;
-    GLint builtin_texenvrgbscale[MAX_TEX];
-    GLint builtin_texenvalphascale[MAX_TEX];
-    GLint builtin_texadjust[MAX_TEX];
+    GLint builtin_texenvrgbscale[MAX_TEX_UNITS];
+    GLint builtin_texenvalphascale[MAX_TEX_UNITS];
+    GLint builtin_texadjust[MAX_TEX_UNITS];
     int has_builtin_texadjust;
-    texunit_t texunits[MAX_TEX];
+    texunit_t texunits[MAX_TEX_UNITS];
     int has_builtin_blendcolor;
     GLint builtin_blendcolor;
     // ARB_shaders (oldprograms) uniforms
@@ -274,13 +274,13 @@ typedef struct {
     int has_frg_progloc;
     GLint frg_progloc[MAX_FRG_PROG_LOC_PARAMS];
     int has_samplers1d;
-    GLint samplers1d[MAX_TEX];
+    GLint samplers1d[MAX_TEX_UNITS];
     int has_samplers2d;
-    GLint samplers2d[MAX_TEX];
+    GLint samplers2d[MAX_TEX_UNITS];
     int has_samplers3d;
-    GLint samplers3d[MAX_TEX];
+    GLint samplers3d[MAX_TEX_UNITS];
     int has_samplersCube;
-    GLint samplersCube[MAX_TEX];
+    GLint samplersCube[MAX_TEX_UNITS];
     // that will be an fpe_cache_t*
     void* fpe_cache;
 

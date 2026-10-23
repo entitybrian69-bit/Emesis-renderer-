@@ -382,13 +382,21 @@ static const char* gl4es_VertexAttrib = "_gl4es_VertexAttrib_";
 char gl_VA[MAX_VATTRIB][32] = {0};
 char gl4es_VA[MAX_VATTRIB][32] = {0};
 
+static int is_ident_cont_char(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+}
+
 static int compute_after_directives_headline(char* src) {
     int line_idx = 0;
     int after_directives_line = 0;
+    int if_depth = 0;
+    int ext_in_if = 0;
     const char* p = src;
     while (*p) {
-        if (p[0] == '/' && p[1] == '*') {
-            p += 2;
+        const char* s = p;
+        while (*s == ' ' || *s == '\t' || *s == '\r') s++;
+        if (s[0] == '/' && s[1] == '*') {
+            p = s + 2;
             while (*p && !(p[0] == '*' && p[1] == '/')) {
                 if (*p == '\n') line_idx++;
                 p++;
@@ -396,17 +404,61 @@ static int compute_after_directives_headline(char* src) {
             if (*p) p += 2;
             continue;
         }
-        const char* s = p;
-        while (*s == ' ' || *s == '\t') s++;
+        if (s[0] == '/' && s[1] == '/') {
+            p = s + 2;
+            while (*p && *p != '\n') p++;
+            if (*p == '\n') {
+                line_idx++;
+                p++;
+            }
+            continue;
+        }
+        if (*s == '\n') {
+            line_idx++;
+            p = s + 1;
+            continue;
+        }
+        if (*s == '\0') break;
+
         if (*s == '#') {
             s++;
             while (*s == ' ' || *s == '\t') s++;
-            if ((strncmp(s, "version", 7) == 0 && (s[7] == ' ' || s[7] == '\t' || s[7] == '\r' || s[7] == '\n' || s[7] == '\0')) ||
-                (strncmp(s, "extension", 9) == 0 && (s[9] == ' ' || s[9] == '\t'))) {
-                after_directives_line = line_idx + 1;
+            if ((strncmp(s, "ifdef", 5) == 0 && !is_ident_cont_char(s[5])) ||
+                (strncmp(s, "ifndef", 6) == 0 && !is_ident_cont_char(s[6])) ||
+                (strncmp(s, "if", 2) == 0 && !is_ident_cont_char(s[2]))) {
+                if_depth++;
+            } else if (strncmp(s, "endif", 5) == 0 && !is_ident_cont_char(s[5])) {
+                if (if_depth > 0) if_depth--;
+                if (if_depth == 0 && ext_in_if) {
+                    after_directives_line = line_idx + 1;
+                    ext_in_if = 0;
+                }
+            } else if ((strncmp(s, "version", 7) == 0 && !is_ident_cont_char(s[7])) ||
+                       (strncmp(s, "extension", 9) == 0 && !is_ident_cont_char(s[9]))) {
+                if (if_depth == 0) {
+                    after_directives_line = line_idx + 1;
+                } else {
+                    ext_in_if = 1;
+                }
             }
+        } else if (if_depth == 0) {
+            /* Reached first top-level GLSL declaration/statement */
+            break;
         }
-        while (*p && *p != '\n') p++;
+
+        p = s;
+        while (*p && *p != '\n') {
+            if (p[0] == '/' && p[1] == '*') {
+                p += 2;
+                while (*p && !(p[0] == '*' && p[1] == '/')) {
+                    if (*p == '\n') line_idx++;
+                    p++;
+                }
+                if (*p) p += 2;
+                continue;
+            }
+            p++;
+        }
         if (*p == '\n') {
             line_idx++;
             p++;

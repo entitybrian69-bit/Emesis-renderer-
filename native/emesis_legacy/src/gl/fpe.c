@@ -1151,7 +1151,7 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
     // Texture Unit managements
     int need_hackfbo = 0;
     int tu_idx = 0;
-    while (tu_idx < MAX_TEX && glprogram->texunits[tu_idx].type) {
+    while (tu_idx < MAX_TEX_UNITS && glprogram->texunits[tu_idx].type) {
         // grab the uniform value
         glprogram->texunits[tu_idx].req_tu = GetUniformi(glprogram, glprogram->texunits[tu_idx].id);
         glprogram->texunits[tu_idx].act_tu = glprogram->texunits[tu_idx].req_tu;
@@ -1162,8 +1162,11 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
         tu_idx = 0;
         int need = 0;
         gltexture_t* tex = NULL;
-        while (tu_idx < MAX_TEX && glprogram->texunits[tu_idx].type && !need) {
-            tex = glstate->texture.bound[glprogram->texunits[tu_idx].req_tu][glprogram->texunits[tu_idx].type - 1];
+        while (tu_idx < MAX_TEX_UNITS && glprogram->texunits[tu_idx].type && !need) {
+            int rtu = glprogram->texunits[tu_idx].req_tu;
+            tex = (rtu >= 0 && rtu < MAX_TEX_UNITS)
+                      ? glstate->texture.bound[rtu][glprogram->texunits[tu_idx].type - 1]
+                      : NULL;
             if (tex && tex->binded_fbo == glstate->fbo.current_fb->id) {
                 DBG(DBGLOGD("Texture %d is used on Uniform %s (%d) and binded on FBO %d Attachement=%s\n", tex->glname,
                             GetUniformName(glprogram, glprogram->texunits[tu_idx].id), glprogram->texunits[tu_idx].id,

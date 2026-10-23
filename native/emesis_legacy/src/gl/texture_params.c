@@ -177,12 +177,13 @@ void APIENTRY_GL4ES gl4es_glBindTexture(GLenum target, GLuint texture) {
                   PrintEnum(target), texture, glstate->texture.active, glstate->texture.client, glstate->list.active,
                   glstate->list.compiling, glstate->list.pending);)
     if (target == GL_TEXTURE_BUFFER || target == GL_TEXTURE_3D) {
+        gltexture_t* tex = texture ? gl4es_getTexture(target, texture) : glstate->texture.zero;
         if (target == GL_TEXTURE_3D) {
-            glstate->texture.bound[glstate->texture.active][ENABLED_TEX3D] = gl4es_getTexture(target, texture);
+            glstate->texture.bound[glstate->texture.active][ENABLED_TEX3D] = tex;
         }
         LOAD_GLES(glBindTexture);
         realize_active();
-        gles_glBindTexture(target, texture);
+        gles_glBindTexture(target, (texture && tex) ? tex->glname : 0);
         return;
     }
 
@@ -234,8 +235,18 @@ void APIENTRY_GL4ES gl4es_glBindImageTexture(GLuint unit, GLuint texture, GLint 
     noerrorShim();
     DBG(SHUT_LOGD("glBindImageTexture(%u, %u, %d, %d, %d, %s, %s)\n", unit, texture, level, layered, layer,
                   PrintEnum(access), PrintEnum(format)););
+    GLuint real_tex = texture;
+    if (texture && glstate && glstate->texture.list) {
+        khint_t k = kh_get(tex, glstate->texture.list, texture);
+        if (k != kh_end(glstate->texture.list)) {
+            gltexture_t* t = kh_value(glstate->texture.list, k);
+            if (t && t->glname) real_tex = t->glname;
+        }
+    }
     LOAD_GLES3(glBindImageTexture);
-    gles_glBindImageTexture(unit, texture, level, layered, layer, access, format);
+    if (gles_glBindImageTexture) {
+        gles_glBindImageTexture(unit, real_tex, level, layered, layer, access, format);
+    }
 }
 
 int is_mipmap_needed(glsampler_t* sampler) {
@@ -495,7 +506,7 @@ void APIENTRY_GL4ES gl4es_glDeleteTextures(GLsizei n, const GLuint* textures) {
             if (k != kh_end(list)) {
                 tex = kh_value(list, k);
                 int a;
-                for (a = 0; a < MAX_TEX; a++) {
+                for (a = 0; a < MAX_TEX_UNITS; a++) {
                     int found = 0;
                     for (int j = 0; j < ENABLED_TEXTURE_LAST; j++)
                         if (tex == glstate->texture.bound[a][j]) {
@@ -592,10 +603,12 @@ void APIENTRY_GL4ES gl4es_glGetTexLevelParameterfv(GLenum target, GLint level, G
     // simplification: (mostly) not taking "target" into account here
     FLUSH_BEGINEND;
 
-    if (target == GL_TEXTURE_BUFFER || target == target == GL_TEXTURE_3D) {
+    if (target == GL_TEXTURE_BUFFER || target == GL_TEXTURE_3D) {
         LOAD_GLES(glGetTexLevelParameterfv);
-        gles_glGetTexLevelParameterfv(target, level, pname, params);
-        return;
+        if (gles_glGetTexLevelParameterfv) {
+            gles_glGetTexLevelParameterfv(target, level, pname, params);
+            return;
+        }
     }
 
     *params = 0;
@@ -734,7 +747,7 @@ void APIENTRY_GL4ES gl4es_glActiveTexture(GLenum texture) {
         return;
     }
 
-    if ((tmu < 0) || (tmu >= hardext.maxtex)) {
+    if ((tmu < 0) || (tmu >= hardext.maxcombinedtex)) {
         errorShim(GL_INVALID_ENUM);
         return;
     }
@@ -1019,7 +1032,7 @@ void realize_textures(int drawing) {
         GLenum target = map_tex_target(to_target(tgt));
         gltexture_t* tex = glstate->texture.bound[i][tgt];
         GLuint t = tex->glname;
-        if (tgt != ENABLED_CUBE_MAP) { // CUBE MAP are immediately bound
+        if (tgt != ENABLED_CUBE_MAP && tgt != ENABLED_TEX3D) { // CUBE MAP & 3D are immediately bound
 #ifdef TEXSTREAM
             if (glstate->bound_stream[i]) {
                 realize_active();

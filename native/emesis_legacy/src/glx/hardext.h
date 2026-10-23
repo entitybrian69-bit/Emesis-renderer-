@@ -55,6 +55,7 @@ typedef struct _hardext {
     int esversion;        // 1 is ES1.1 backend, 2 is ES2
     int maxvattrib;       // GL_MAX_VERTEX_ATTRIBS (or 0 if not using es2)
     int maxteximage;      // GL_MAX_TEXTURE_IMAGE_UNITS for es2
+    int maxcombinedtex;   // GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS clamped to MAX_TEX_UNITS
     int maxvarying;       // GL_MAX_VARYING_VECTORS for es2
     int maxcolorattach;   // GL_MAX_COLOR_ATTACHMENTS_EXT or 1 if GL_EXT_draw_buffers not supported
     int maxdrawbuffers;   // GL_MAX_DRAW_BUFFERS_EXT or 1 if GL_EXT_draw_buffers not supported

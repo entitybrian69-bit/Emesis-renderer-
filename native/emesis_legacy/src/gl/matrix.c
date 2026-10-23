@@ -79,7 +79,7 @@ DBG(SHUT_LOGD("init_matrix(%p)\n", glstate);)
     alloc_matrix(&glstate->modelview_matrix, MAX_STACK_MODELVIEW);
     set_identity(TOP(modelview_matrix));
 	glstate->modelview_matrix->identity = 1;
-	glstate->texture_matrix = (matrixstack_t**)malloc(sizeof(matrixstack_t*)*MAX_TEX);
+	glstate->texture_matrix = (matrixstack_t**)malloc(sizeof(matrixstack_t*)*MAX_TEX_UNITS);
 	glstate->arb_matrix = (matrixstack_t**)malloc(sizeof(matrixstack_t*)*MAX_ARB_MATRIX);
 	set_identity(glstate->mvp_matrix);
 	glstate->mvp_matrix_dirty = 0;
@@ -89,7 +89,7 @@ DBG(SHUT_LOGD("init_matrix(%p)\n", glstate);)
 	memset(glstate->normal_matrix, 0, 9*sizeof(GLfloat));
 	glstate->normal_matrix[0] = glstate->normal_matrix[4] = glstate->normal_matrix[8] = 1.0f;
 	glstate->normal_matrix_dirty = 1;
-    for (int i=0; i<MAX_TEX; i++) {
+    for (int i=0; i<MAX_TEX_UNITS; i++) {
         alloc_matrix(&glstate->texture_matrix[i], MAX_STACK_TEXTURE);
         set_identity(TOP(texture_matrix[i]));
 		glstate->texture_matrix[i]->identity = 1;

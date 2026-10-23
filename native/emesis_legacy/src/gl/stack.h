@@ -28,7 +28,7 @@ typedef struct _glstack_t {
 
     // point sprite
     GLboolean pointsprite;
-    GLint     pscoordreplace[MAX_TEX];
+    GLint     pscoordreplace[MAX_TEX_UNITS];
 
     GLboolean color_logic_op;
     GLint logic_op;
@@ -60,11 +60,11 @@ typedef struct _glstack_t {
     GLboolean normalize;
     GLboolean polygon_offset_fill;
     GLboolean stencil_test;
-    GLuint    tex_enabled[MAX_TEX];
-    GLboolean texgen_s[MAX_TEX];
-    GLboolean texgen_r[MAX_TEX];
-    GLboolean texgen_t[MAX_TEX];
-    GLboolean texgen_q[MAX_TEX];
+    GLuint    tex_enabled[MAX_TEX_UNITS];
+    GLboolean texgen_s[MAX_TEX_UNITS];
+    GLboolean texgen_r[MAX_TEX_UNITS];
+    GLboolean texgen_t[MAX_TEX_UNITS];
+    GLboolean texgen_q[MAX_TEX_UNITS];
     GLboolean colormaterial;
     GLboolean autonormal;
 
@@ -128,8 +128,8 @@ typedef struct _glstack_t {
     GLenum stencil_dppass;
 
     // GL_TEXTURE_BIT
-    GLint texture[MAX_TEX][ENABLED_TEXTURE_LAST];
-    texgen_state_t texgen[MAX_TEX];
+    GLint texture[MAX_TEX_UNITS][ENABLED_TEXTURE_LAST];
+    texgen_state_t texgen[MAX_TEX_UNITS];
     GLint active;
 
     // GL_TRANSFORM_BIT

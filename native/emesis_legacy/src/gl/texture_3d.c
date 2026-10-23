@@ -70,26 +70,13 @@ void APIENTRY_GL4ES gl4es_glTexImage3D(GLenum target, GLint level, GLint interna
         DBG(SHUT_LOGE("Error: width, height or depth is zero."))
         return;
     }
-    if (format == GL_DEPTH_COMPONENT) {
-        internalformat = GL_DEPTH_COMPONENT;
-        type = GL_UNSIGNED_INT;
-    }
-    if (internalformat == GL_RGBA16) {
-        internalformat = GL_RGBA16F;
-        type = GL_FLOAT;
-#ifdef GL_RGBA16_SNORM
-    } else if (internalformat == GL_RGBA16_SNORM) {
-        internalformat = GL_RGBA;
-#endif
-    }
 
+    int is_rt = (data == NULL && (!glstate || !glstate->vao || !glstate->vao->unpack));
     internal_convert(&internalformat, &type, &format);
+    promote_es3_internalformat(&internalformat, &format, &type, is_rt);
 
-    if (data == NULL && (internalformat == GL_RGB16F || internalformat == GL_RGBA16F))
-        internal2format_type(&internalformat, &format, &type);
-    if (internalformat == GL_R16F) internal2format_type(&internalformat, &format, &type);
-    if (data == NULL && (internalformat == GL_RED || internalformat == GL_RGB))
-        internal2format_type(&internalformat, &format, &type);
+    if (is_rt && (internalformat == GL_RED || internalformat == GL_RGB))
+        internal2format_type((GLenum*)&internalformat, &format, &type);
 
     if (internalformat == GL_DEPTH32F_STENCIL8 && type == GL_FLOAT_32_UNSIGNED_INT_24_8_REV) {
         internalformat = GL_DEPTH24_STENCIL8;
@@ -122,7 +109,7 @@ void APIENTRY_GL4ES gl4es_glTexImage3D(GLenum target, GLint level, GLint interna
         PUSH_IF_COMPILING(glTexImage3D);
     }
 
-    if (type == GL_HALF_FLOAT) type = GL_HALF_FLOAT_OES;
+    if (type == GL_HALF_FLOAT_OES) type = GL_HALF_FLOAT;
 
     gltexture_t* bound = glstate->texture.bound[glstate->texture.active][itarget];
     bound->alpha = pixel_hasalpha(format);
@@ -227,8 +214,17 @@ void APIENTRY_GL4ES gl4es_glTexImage3D(GLenum target, GLint level, GLint interna
     if (level == 0) bound->valid = 1;
 
     noerrorShim();
+    glbuffer_t* unpack = glstate->vao ? glstate->vao->unpack : NULL;
+    const GLvoid* upload_data = data;
+    if (unpack) {
+        upload_data = (const char*)data + (uintptr_t)unpack->data;
+        glstate->vao->unpack = NULL;
+    }
     LOAD_GLES3(glTexImage3D);
-    gles_glTexImage3D(target, level, internalformat, width, height, depth, border, format, type, data);
+    if (gles_glTexImage3D) {
+        gles_glTexImage3D(target, level, internalformat, width, height, depth, border, format, type, upload_data);
+    }
+    if (unpack) glstate->vao->unpack = unpack;
 
     if (glstate->bound_changed < glstate->texture.active + 1) glstate->bound_changed = glstate->texture.active + 1;
 }
@@ -249,10 +245,15 @@ void APIENTRY_GL4ES gl4es_glTexSubImage3D(GLenum target, GLint level, GLint xoff
 
     realize_bound(glstate->texture.active, target);
 
+    glbuffer_t* unpack = glstate->vao ? glstate->vao->unpack : NULL;
+    if (unpack) {
+        data = (const char*)data + (uintptr_t)unpack->data;
+    }
     if (!data) {
         DBG(SHUT_LOGD("LIBGL: glTexSubImage3D called with NULL data\n");)
         return;
     }
+    if (type == GL_HALF_FLOAT_OES) type = GL_HALF_FLOAT;
     int pixelSize = pixel_sizeof(format, type);
     if (pixelSize <= 0) {
         DBG(SHUT_LOGD("LIBGL: invalid pixel size (format/type) in glTexSubImage3D\n");)
@@ -309,9 +310,13 @@ void APIENTRY_GL4ES gl4es_glTexSubImage3D(GLenum target, GLint level, GLint xoff
         pixels_src = (const GLubyte*)temp_pixels;
     }
 
+    if (unpack) glstate->vao->unpack = NULL;
     LOAD_GLES3(glTexSubImage3D);
-    gles_glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type,
-                         (const GLvoid*)pixels_src);
+    if (gles_glTexSubImage3D) {
+        gles_glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type,
+                             (const GLvoid*)pixels_src);
+    }
+    if (unpack) glstate->vao->unpack = unpack;
 
     if (temp_pixels) free(temp_pixels);
 }

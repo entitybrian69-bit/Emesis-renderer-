@@ -538,23 +538,34 @@ void internal2format_type(GLenum* internalformat, GLenum* format, GLenum* type) 
             *format = GL_RGBA;
         *type = GL_UNSIGNED_BYTE;
         break;
+
     case GL_DEPTH_COMPONENT16:
-        if (type) *type = GL_UNSIGNED_SHORT;
+        if (format) *format = GL_DEPTH_COMPONENT;
+        if (type && *type != GL_UNSIGNED_SHORT && *type != GL_UNSIGNED_INT) *type = GL_UNSIGNED_SHORT;
         break;
 
     case GL_DEPTH_COMPONENT24:
+        if (format) *format = GL_DEPTH_COMPONENT;
         if (type) *type = GL_UNSIGNED_INT;
         break;
 
     case GL_DEPTH_COMPONENT32:
-        *internalformat = GL_DEPTH_COMPONENT;
-        if (type) *type = GL_UNSIGNED_INT;
+        if (hardext.esversion >= 3) {
+            *internalformat = GL_DEPTH_COMPONENT32F;
+            if (format) *format = GL_DEPTH_COMPONENT;
+            if (type) *type = GL_FLOAT;
+        } else {
+            *internalformat = GL_DEPTH_COMPONENT;
+            if (type) *type = GL_UNSIGNED_INT;
+        }
         break;
 
     case GL_DEPTH_COMPONENT32F:
-        if (type) *type = GL_UNSIGNED_INT;
+        if (format) *format = GL_DEPTH_COMPONENT;
+        if (type) *type = GL_FLOAT;
         break;
     case GL_DEPTH_COMPONENT:
+        if (hardext.esversion >= 3) *internalformat = GL_DEPTH_COMPONENT24;
         *format = GL_DEPTH_COMPONENT;
         *type = GL_UNSIGNED_INT;
         break;
@@ -1344,6 +1355,239 @@ GLenum minmag_float(GLenum filt) {
     }
 }
 
+void promote_es3_internalformat(GLint* internalformat, GLenum* format, GLenum* type, int is_render_target) {
+    if (!internalformat) return;
+    /* Depth / depth-stencil normalization (never clobber sized depth formats on ES 3.x) */
+    if (*internalformat == GL_DEPTH_COMPONENT || (*internalformat == 1 && format && *format == GL_DEPTH_COMPONENT)) {
+        if (hardext.esversion >= 3) {
+            *internalformat = GL_DEPTH_COMPONENT24;
+        } else {
+            *internalformat = GL_DEPTH_COMPONENT;
+        }
+        if (format) *format = GL_DEPTH_COMPONENT;
+        if (type) *type = GL_UNSIGNED_INT;
+        return;
+    }
+    if (*internalformat == GL_DEPTH_COMPONENT16) {
+        if (format) *format = GL_DEPTH_COMPONENT;
+        if (type && *type != GL_UNSIGNED_SHORT && *type != GL_UNSIGNED_INT) *type = GL_UNSIGNED_SHORT;
+        return;
+    }
+    if (*internalformat == GL_DEPTH_COMPONENT24) {
+        if (format) *format = GL_DEPTH_COMPONENT;
+        if (type) *type = GL_UNSIGNED_INT;
+        return;
+    }
+    if (*internalformat == GL_DEPTH_COMPONENT32) {
+        if (hardext.esversion >= 3) {
+            *internalformat = GL_DEPTH_COMPONENT32F;
+            if (format) *format = GL_DEPTH_COMPONENT;
+            if (type) *type = GL_FLOAT;
+        } else {
+            *internalformat = GL_DEPTH_COMPONENT;
+            if (format) *format = GL_DEPTH_COMPONENT;
+            if (type) *type = GL_UNSIGNED_INT;
+        }
+        return;
+    }
+    if (*internalformat == GL_DEPTH_COMPONENT32F) {
+        if (format) *format = GL_DEPTH_COMPONENT;
+        if (type) *type = GL_FLOAT;
+        return;
+    }
+    if (*internalformat == GL_DEPTH_STENCIL || *internalformat == GL_DEPTH24_STENCIL8) {
+        if (hardext.esversion >= 3) *internalformat = GL_DEPTH24_STENCIL8;
+        if (format) *format = GL_DEPTH_STENCIL;
+        if (type) *type = GL_UNSIGNED_INT_24_8;
+        return;
+    }
+    if (*internalformat == GL_DEPTH32F_STENCIL8) {
+        if (format) *format = GL_DEPTH_STENCIL;
+        if (type) *type = GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
+        return;
+    }
+
+    if (hardext.esversion < 3) return;
+
+    /* Desktop-only 16-bit normalized formats do not exist in core GLES 3.x */
+    switch (*internalformat) {
+    case 0x822A: /* GL_R16 */
+    case 0x8F98: /* GL_R16_SNORM */
+        *internalformat = GL_R16F;
+        if (is_render_target) {
+            if (format) *format = GL_RED;
+            if (type) *type = GL_HALF_FLOAT;
+        }
+        break;
+    case 0x822C: /* GL_RG16 */
+    case 0x8F99: /* GL_RG16_SNORM */
+        *internalformat = GL_RG16F;
+        if (is_render_target) {
+            if (format) *format = GL_RG;
+            if (type) *type = GL_HALF_FLOAT;
+        }
+        break;
+    case 0x8054: /* GL_RGB16 */
+    case 0x805B: /* GL_RGBA16 */
+    case 0x8F9A: /* GL_RGB16_SNORM */
+    case 0x8F9B: /* GL_RGBA16_SNORM */
+        *internalformat = GL_RGBA16F;
+        if (is_render_target) {
+            if (format) *format = GL_RGBA;
+            if (type) *type = GL_HALF_FLOAT;
+        }
+        break;
+    default:
+        break;
+    }
+
+    if (!is_render_target) return;
+
+    /* Promote non-color-renderable GLES 3.0-3.2 formats (Table 8.13) when allocated as render targets (data == NULL) */
+    switch (*internalformat) {
+    case GL_RGB16F:
+        *internalformat = GL_RGBA16F;
+        if (format) *format = GL_RGBA;
+        if (type) *type = GL_HALF_FLOAT;
+        break;
+    case GL_RGBA16F:
+        if (format) *format = GL_RGBA;
+        if (type) *type = GL_HALF_FLOAT;
+        break;
+    case GL_R16F:
+        if (format) *format = GL_RED;
+        if (type) *type = GL_HALF_FLOAT;
+        break;
+    case GL_RG16F:
+        if (format) *format = GL_RG;
+        if (type) *type = GL_HALF_FLOAT;
+        break;
+    case GL_RGB32F:
+        *internalformat = hardext.floatfbo ? GL_RGBA32F : GL_RGBA16F;
+        if (format) *format = GL_RGBA;
+        if (type) *type = hardext.floatfbo ? GL_FLOAT : GL_HALF_FLOAT;
+        break;
+    case GL_RGBA32F:
+        if (!hardext.floatfbo) {
+            *internalformat = GL_RGBA16F;
+            if (format) *format = GL_RGBA;
+            if (type) *type = GL_HALF_FLOAT;
+        } else {
+            if (format) *format = GL_RGBA;
+            if (type) *type = GL_FLOAT;
+        }
+        break;
+    case GL_R32F:
+        if (!hardext.floatfbo) {
+            *internalformat = GL_R16F;
+            if (format) *format = GL_RED;
+            if (type) *type = GL_HALF_FLOAT;
+        } else {
+            if (format) *format = GL_RED;
+            if (type) *type = GL_FLOAT;
+        }
+        break;
+    case GL_RG32F:
+        if (!hardext.floatfbo) {
+            *internalformat = GL_RG16F;
+            if (format) *format = GL_RG;
+            if (type) *type = GL_HALF_FLOAT;
+        } else {
+            if (format) *format = GL_RG;
+            if (type) *type = GL_FLOAT;
+        }
+        break;
+    case GL_R11F_G11F_B10F:
+        if (!hardext.floatfbo) {
+            *internalformat = GL_RGBA16F;
+            if (format) *format = GL_RGBA;
+            if (type) *type = GL_HALF_FLOAT;
+        } else {
+            if (format) *format = GL_RGB;
+            if (type) *type = GL_FLOAT;
+        }
+        break;
+    case GL_RGB9_E5:
+        if (hardext.floatfbo) {
+            *internalformat = GL_R11F_G11F_B10F;
+            if (format) *format = GL_RGB;
+            if (type) *type = GL_FLOAT;
+        } else {
+            *internalformat = GL_RGBA16F;
+            if (format) *format = GL_RGBA;
+            if (type) *type = GL_HALF_FLOAT;
+        }
+        break;
+    case GL_R8_SNORM:
+        *internalformat = GL_R16F;
+        if (format) *format = GL_RED;
+        if (type) *type = GL_HALF_FLOAT;
+        break;
+    case GL_RG8_SNORM:
+        *internalformat = GL_RG16F;
+        if (format) *format = GL_RG;
+        if (type) *type = GL_HALF_FLOAT;
+        break;
+    case GL_RGB8_SNORM:
+    case GL_RGBA8_SNORM:
+        *internalformat = GL_RGBA16F;
+        if (format) *format = GL_RGBA;
+        if (type) *type = GL_HALF_FLOAT;
+        break;
+    case 0x2A10: /* GL_R3_G3_B2 */
+    case GL_RGB4:
+    case GL_RGB5:
+        *internalformat = GL_RGB565;
+        if (format) *format = GL_RGB;
+        if (type) *type = GL_UNSIGNED_SHORT_5_6_5;
+        break;
+    case GL_RGB10:
+    case 0x8053: /* GL_RGB12 */
+        *internalformat = GL_RGB10_A2;
+        if (format) *format = GL_RGBA;
+        if (type) *type = GL_UNSIGNED_INT_2_10_10_10_REV;
+        break;
+    case 0x8055: /* GL_RGBA2 */
+    case 0x805A: /* GL_RGBA12 */
+        *internalformat = GL_RGBA8;
+        if (format) *format = GL_RGBA;
+        if (type) *type = GL_UNSIGNED_BYTE;
+        break;
+    case GL_RGB8I:
+        *internalformat = GL_RGBA8I;
+        if (format) *format = GL_RGBA_INTEGER;
+        if (type) *type = GL_BYTE;
+        break;
+    case GL_RGB8UI:
+        *internalformat = GL_RGBA8UI;
+        if (format) *format = GL_RGBA_INTEGER;
+        if (type) *type = GL_UNSIGNED_BYTE;
+        break;
+    case GL_RGB16I:
+        *internalformat = GL_RGBA16I;
+        if (format) *format = GL_RGBA_INTEGER;
+        if (type) *type = GL_SHORT;
+        break;
+    case GL_RGB16UI:
+        *internalformat = GL_RGBA16UI;
+        if (format) *format = GL_RGBA_INTEGER;
+        if (type) *type = GL_UNSIGNED_SHORT;
+        break;
+    case GL_RGB32I:
+        *internalformat = GL_RGBA32I;
+        if (format) *format = GL_RGBA_INTEGER;
+        if (type) *type = GL_INT;
+        break;
+    case GL_RGB32UI:
+        *internalformat = GL_RGBA32UI;
+        if (format) *format = GL_RGBA_INTEGER;
+        if (type) *type = GL_UNSIGNED_INT;
+        break;
+    default:
+        break;
+    }
+}
+
 void APIENTRY_GL4ES gl4es_glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
                                        GLint border, GLenum format, GLenum type, const GLvoid* data) {
     DBG(DBGLOGD("glTexImage2D on target=%s with unpack_row_length(%i), size(%i,%i) and skip(%i,%i), "
@@ -1364,25 +1608,13 @@ void APIENTRY_GL4ES gl4es_glTexImage2D(GLenum target, GLint level, GLint interna
         DBG(SHUT_LOGE("Error: width or height is zero."))
         return;
     }
-    // pre-format handling
-    if (format == GL_DEPTH_COMPONENT) {
-        internalformat = GL_DEPTH_COMPONENT;
-        type = GL_UNSIGNED_INT;
-    }
-    if (internalformat == GL_RGBA16) {
-        internalformat = GL_RGBA16F;
-        type = GL_FLOAT;
-    } else if (internalformat == GL_RGBA16_SNORM) {
-        internalformat = GL_RGBA;
-    }
 
+    int is_rt = (data == NULL && (!glstate || !glstate->vao || !glstate->vao->unpack));
     internal_convert(&internalformat, &type, &format);
+    promote_es3_internalformat(&internalformat, &format, &type, is_rt);
 
-    if (data == NULL && (internalformat == GL_RGB16F || internalformat == GL_RGBA16F))
-        internal2format_type(&internalformat, &format, &type);
-    if (internalformat == GL_R16F) internal2format_type(&internalformat, &format, &type);
-    if (data == NULL && (internalformat == GL_RED || internalformat == GL_RGB))
-        internal2format_type(&internalformat, &format, &type);
+    if (is_rt && (internalformat == GL_RED || internalformat == GL_RGB))
+        internal2format_type((GLenum*)&internalformat, &format, &type);
 
     if (internalformat == GL_DEPTH32F_STENCIL8 && type == GL_FLOAT_32_UNSIGNED_INT_24_8_REV) {
         internalformat = GL_DEPTH24_STENCIL8;
@@ -1983,6 +2215,14 @@ void APIENTRY_GL4ES gl4es_glTexImage2D(GLenum target, GLint level, GLint interna
                     gl4es_glTexParameteri(rtarget, GL_TEXTURE_MIN_FILTER,
                                           bound->sampler.min_filter); // forcing min_filter to be recomputed
                 }
+            }
+
+            if (hardext.esversion >= 3 && type == GL_HALF_FLOAT_OES &&
+                internalformat != GL_RGBA && internalformat != GL_RGB &&
+                internalformat != GL_LUMINANCE_ALPHA && internalformat != GL_LUMINANCE &&
+                internalformat != GL_ALPHA) {
+                type = GL_HALF_FLOAT;
+                bound->inter_type = GL_HALF_FLOAT;
             }
 
             if (height != nheight || width != nwidth) {

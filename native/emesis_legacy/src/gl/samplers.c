@@ -52,7 +52,7 @@ void del_sampler(GLuint sampler) {
         kh_del(samplerlist_t, list, k);
     }
     if (s) {
-        for (int i = 0; i < MAX_TEX; ++i)
+        for (int i = 0; i < MAX_TEX_UNITS; ++i)
             if (glstate->samplers.sampler[i] == s) glstate->samplers.sampler[i] = NULL;
         LOAD_GLES(glDeleteSamplers);
         GLuint gles_id = s->glname;
@@ -101,7 +101,7 @@ void gl4es_glGenSamplers(GLsizei n, GLuint* ids) {
 
 void gl4es_glBindSampler(GLuint unit, GLuint sampler) {
     DBG(SHUT_LOGD("gl4es_glBindSampler(%u, %u)\n", unit, sampler);)
-    if (unit > hardext.maxtex) {
+    if (unit >= (GLuint)hardext.maxcombinedtex) {
         errorShim(GL_INVALID_VALUE);
         return;
     }

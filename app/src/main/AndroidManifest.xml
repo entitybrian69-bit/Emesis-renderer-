@@ -97,7 +97,7 @@
         <!-- Plugin Display Description & Native GL/EGL Entrypoints (leading '/' resolves full nativeLibraryDir for EGL) -->
         <meta-data
             android:name="des"
-            android:value="Emesis Renderer v1.1.2 (All Versions — Made by Entitybrian)" />
+            android:value="Emesis Renderer v1.1.3 (All Versions — Made by Entitybrian)" />
         <meta-data
             android:name="renderer"
             android:value="EmesisRenderer:libemesis_renderer.so:/libemesis_renderer.so" />

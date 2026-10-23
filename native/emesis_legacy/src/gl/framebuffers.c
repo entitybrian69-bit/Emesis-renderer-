@@ -1493,6 +1493,38 @@ void deleteMainFBO(void* state) {
     // all done...
 }
 
+void APIENTRY_GL4ES gl4es_glFramebufferTexture(GLenum target, GLenum attachment, GLuint texture, GLint level) {
+    if (texture && glstate && glstate->texture.list) {
+        khint_t k = kh_get(tex, glstate->texture.list, texture);
+        if (k != kh_end(glstate->texture.list)) {
+            gltexture_t* t = kh_value(glstate->texture.list, k);
+            if (t && (t->target == GL_TEXTURE_3D || t->target == GL_TEXTURE_2D_ARRAY ||
+                      t->target == GL_TEXTURE_CUBE_MAP)) {
+                typedef void (*glFramebufferTexture_fn)(GLenum, GLenum, GLuint, GLint);
+                static glFramebufferTexture_fn fn_fbt = NULL;
+                static int checked_fbt = 0;
+                if (!checked_fbt) {
+                    checked_fbt = 1;
+                    if (gles) {
+                        fn_fbt = (glFramebufferTexture_fn)proc_address(gles, "glFramebufferTexture");
+                        if (!fn_fbt) fn_fbt = (glFramebufferTexture_fn)proc_address(gles, "glFramebufferTextureEXT");
+                        if (!fn_fbt) fn_fbt = (glFramebufferTexture_fn)proc_address(gles, "glFramebufferTextureOES");
+                    }
+                }
+                if (fn_fbt && t->glname) {
+                    GLenum ntarget = (target == GL_DRAW_FRAMEBUFFER || target == GL_READ_FRAMEBUFFER)
+                                         ? target
+                                         : GL_FRAMEBUFFER;
+                    errorGL();
+                    fn_fbt(ntarget, attachment, t->glname, level);
+                    return;
+                }
+            }
+        }
+    }
+    gl4es_glFramebufferTexture2D(target, attachment, GL_TEXTURE_2D, texture, level);
+}
+
 void APIENTRY_GL4ES gl4es_glFramebufferTextureLayer(GLenum target, GLenum attachment, GLuint texture, GLint level,
                                                     GLint layer) {
     gl4es_glFramebufferTexture2D(target, attachment, GL_TEXTURE_2D, texture,
@@ -2103,6 +2135,9 @@ AliasExport(void, glGenerateMipmap, , (GLenum target));
 AliasExport(void, glGetFramebufferAttachmentParameteriv, ,
             (GLenum target, GLenum attachment, GLenum pname, GLint* params));
 AliasExport(void, glGetRenderbufferParameteriv, , (GLenum target, GLenum pname, GLint* params));
+AliasExport(void, glFramebufferTexture, , (GLenum target, GLenum attachment, GLuint texture, GLint level));
+AliasExport(void, glFramebufferTexture, ARB, (GLenum target, GLenum attachment, GLuint texture, GLint level));
+AliasExport(void, glFramebufferTexture, EXT, (GLenum target, GLenum attachment, GLuint texture, GLint level));
 AliasExport(void, glFramebufferTextureLayer, ,
             (GLenum target, GLenum attachment, GLuint texture, GLint level, GLint layer));
 AliasExport(void, glBlitFramebuffer, ,

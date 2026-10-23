@@ -140,7 +140,7 @@ void* NewGLState(void* shared_glstate, int es2only) {
     }
     // actual_tex2d
     if (!shared_glstate) {
-        glstate->actual_tex2d = (GLuint*)calloc(MAX_TEX, sizeof(GLuint));
+        glstate->actual_tex2d = (GLuint*)calloc(MAX_TEX_UNITS, sizeof(GLuint));
     }
     // glsl
     glstate->gleshard = (gleshard_t*)calloc(1, sizeof(gleshard_t)); // Not shared!
@@ -228,7 +228,7 @@ void* NewGLState(void* shared_glstate, int es2only) {
         tex->inter_type = GL_UNSIGNED_BYTE;
         // now bind that texture on all unit
         for (int itarget = 0; itarget < ENABLED_TEXTURE_LAST; ++itarget)
-            for (int i = 0; i < MAX_TEX; ++i)
+            for (int i = 0; i < MAX_TEX_UNITS; ++i)
                 glstate->texture.bound[i][itarget] = tex;
     }
 
@@ -501,7 +501,7 @@ void DeleteGLState(void* oldstate) {
     }
     free_matrix(projection_matrix);
     free_matrix(modelview_matrix);
-    for (int i = 0; i < MAX_TEX; i++)
+    for (int i = 0; i < MAX_TEX_UNITS; i++)
         free_matrix(texture_matrix[i]);
     free(state->texture_matrix);
     for (int i = 0; i < MAX_ARB_MATRIX; i++)
@@ -573,7 +573,7 @@ void DeleteGLState(void* oldstate) {
         free(state->extensions_list);
     }
     // helper texture adjust
-    for (int i = 0; i < MAX_TEX; ++i) {
+    for (int i = 0; i < MAX_TEX_UNITS; ++i) {
         if (state->helper_tex[i]) free(state->helper_tex[i]);
         if (state->texgened[i]) free(state->texgened[i]);
     }

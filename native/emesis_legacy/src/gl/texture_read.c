@@ -38,6 +38,31 @@ static int is_depth_format(GLenum format) {
     case GL_DEPTH_COMPONENT24:
     case GL_DEPTH_COMPONENT32:
     case GL_DEPTH_COMPONENT32F:
+    case GL_DEPTH_STENCIL:
+    case GL_DEPTH24_STENCIL8:
+    case GL_DEPTH32F_STENCIL8:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int is_float_color_format(GLenum internalFormat, GLenum type) {
+    if (type == GL_FLOAT || type == GL_HALF_FLOAT || type == GL_HALF_FLOAT_OES ||
+        type == GL_UNSIGNED_INT_10F_11F_11F_REV || type == GL_UNSIGNED_INT_5_9_9_9_REV) {
+        return 1;
+    }
+    switch (internalFormat) {
+    case GL_R16F:
+    case GL_RG16F:
+    case GL_RGB16F:
+    case GL_RGBA16F:
+    case GL_R32F:
+    case GL_RG32F:
+    case GL_RGB32F:
+    case GL_RGBA32F:
+    case GL_R11F_G11F_B10F:
+    case GL_RGB9_E5:
         return 1;
     default:
         return 0;
@@ -225,12 +250,20 @@ void APIENTRY_GL4ES gl4es_glCopyTexSubImage2D(GLenum target, GLint level, GLint 
         }
 
         LOAD_GLES2(glGetTexLevelParameteriv)
-        GLint internalFormat;
-        gles_glGetTexLevelParameteriv(target, level, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
-        copytex = (!is_depth_format(internalFormat)) || (bound->format == glstate->fbo.current_fb->read_format &&
-                                                         bound->type == glstate->fbo.current_fb->read_type);
-        if (copytex || !glstate->colormask[0] || !glstate->colormask[1] || !glstate->colormask[2] ||
-            !glstate->colormask[3]) {
+        GLint internalFormat = (GLint)(bound->internalformat ? bound->internalformat : bound->format);
+        if (hardext.esversion >= 3 && gles_glGetTexLevelParameteriv) {
+            GLint queried = 0;
+            gles_glGetTexLevelParameteriv(target, level, GL_TEXTURE_INTERNAL_FORMAT, &queried);
+            if (queried != 0) internalFormat = queried;
+        }
+        int is_depth = is_depth_format((GLenum)internalFormat) || is_depth_format(bound->format);
+        int is_flt_color = !is_depth && is_float_color_format((GLenum)internalFormat, bound->type);
+        copytex = (!is_depth && !is_flt_color) ||
+                  (!is_depth && !is_flt_color && bound->format == glstate->fbo.current_fb->read_format &&
+                   bound->type == glstate->fbo.current_fb->read_type);
+        if (copytex || (!is_depth && !is_flt_color &&
+                        (!glstate->colormask[0] || !glstate->colormask[1] || !glstate->colormask[2] ||
+                         !glstate->colormask[3]))) {
             gles_glCopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
             if (((((bound->max_level == level) && (level || bound->mipmap_need)) &&
                   (GL4ES_AUTOMIPMAP_PLACEHOLDER != 3) && (bound->mipmap_need != 0))) &&
@@ -241,38 +274,63 @@ void APIENTRY_GL4ES gl4es_glCopyTexSubImage2D(GLenum target, GLint level, GLint 
                 }
             }
         } else {
-            DBG(SHUT_LOGD(" -No use of gles_glCopyTexSubImage2D");)
+            DBG(SHUT_LOGD(" -BlitFBO path for depth/float glCopyTexSubImage2D");)
             LOAD_GLES2(glGetIntegerv)
             LOAD_GLES2(glGenFramebuffers)
             LOAD_GLES2(glBindFramebuffer)
             LOAD_GLES2(glFramebufferTexture2D)
             LOAD_GLES2(glCheckFramebufferStatus)
-            LOAD_GLES2(glDeleteFramebuffers)
             LOAD_GLES2(glBlitFramebuffer)
 
-            GLint prevReadFBO, prevDrawFBO;
-            gles_glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevReadFBO);
-            gles_glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDrawFBO);
+            if (gles_glBlitFramebuffer && gles_glGenFramebuffers && gles_glBindFramebuffer &&
+                gles_glFramebufferTexture2D) {
+                static __thread GLuint s_copyDrawFBO = 0;
+                static __thread void* s_copyDrawOwner = NULL;
+                if (s_copyDrawOwner != (void*)glstate || !s_copyDrawFBO) {
+                    s_copyDrawFBO = 0;
+                    gles_glGenFramebuffers(1, &s_copyDrawFBO);
+                    s_copyDrawOwner = (void*)glstate;
+                }
 
-            GLuint tempDrawFBO;
-            gles_glGenFramebuffers(1, &tempDrawFBO);
-            gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, tempDrawFBO);
+                GLint prevDrawFBO = 0;
+                gles_glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDrawFBO);
+                gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_copyDrawFBO);
 
-            GLint currentTex;
-            gles_glGetIntegerv(get_binding_for_target(target), &currentTex);
-            gles_glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, target, currentTex, level);
+                GLuint dstTex = bound->glname;
+                if (!dstTex) {
+                    GLint currentTex = 0;
+                    gles_glGetIntegerv(get_binding_for_target(target), &currentTex);
+                    dstTex = (GLuint)currentTex;
+                }
+                GLenum attach = is_depth ? GL_DEPTH_ATTACHMENT : GL_COLOR_ATTACHMENT0;
+                GLbitfield mask = is_depth ? GL_DEPTH_BUFFER_BIT : GL_COLOR_BUFFER_BIT;
+                if (internalFormat == GL_DEPTH_STENCIL || internalFormat == GL_DEPTH24_STENCIL8 ||
+                    internalFormat == GL_DEPTH32F_STENCIL8) {
+                    attach = GL_DEPTH_STENCIL_ATTACHMENT;
+                }
 
-            if (gles_glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-                gles_glDeleteFramebuffers(1, &tempDrawFBO);
+                gles_glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+                gles_glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+                gles_glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, attach, target, dstTex, level);
+
+                if (gles_glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+                    gles_glBlitFramebuffer(x, y, x + width, y + height, xoffset, yoffset, xoffset + width,
+                                           yoffset + height, mask, GL_NEAREST);
+                } else if (!is_depth) {
+                    /* Last-resort driver fallback */
+                    gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prevDrawFBO);
+                    gles_glCopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
+                    readfboEnd();
+                    glstate->vao->pack = pack;
+                    glstate->vao->unpack = unpack;
+                    return;
+                }
+
+                gles_glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, attach, target, 0, 0);
                 gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prevDrawFBO);
-                return;
+            } else {
+                gles_glCopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
             }
-
-            gles_glBlitFramebuffer(x, y, x + width, y + height, xoffset, yoffset, xoffset + width, yoffset + height,
-                                   GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-
-            gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prevDrawFBO);
-            gles_glDeleteFramebuffers(1, &tempDrawFBO);
         }
     }
     readfboEnd();
@@ -442,7 +500,122 @@ void APIENTRY_GL4ES gl4es_glCopyTexSubImage1D(GLenum target, GLint level, GLint 
     gl4es_glCopyTexSubImage2D(GL_TEXTURE_1D, level, xoffset, 0, x, y, width, 1);
 }
 
+extern glrenderbuffer_t* find_renderbuffer(GLuint renderbuffer);
+
+void APIENTRY_GL4ES gl4es_glCopyImageSubData(GLuint srcName, GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY,
+                                             GLint srcZ, GLuint dstName, GLenum dstTarget, GLint dstLevel, GLint dstX,
+                                             GLint dstY, GLint dstZ, GLsizei srcWidth, GLsizei srcHeight,
+                                             GLsizei srcDepth) {
+    FLUSH_BEGINEND;
+    noerrorShim();
+
+    GLuint realSrc = srcName;
+    GLuint realDst = dstName;
+    gltexture_t* srcTex = NULL;
+    gltexture_t* dstTex = NULL;
+
+    if (glstate) {
+        if (srcTarget == GL_RENDERBUFFER) {
+            glrenderbuffer_t* rbo = find_renderbuffer(srcName);
+            if (rbo && rbo->renderbuffer) realSrc = rbo->renderbuffer;
+        } else if (srcName && glstate->texture.list) {
+            khint_t k = kh_get(tex, glstate->texture.list, srcName);
+            if (k != kh_end(glstate->texture.list)) {
+                srcTex = kh_value(glstate->texture.list, k);
+                if (srcTex && srcTex->glname) realSrc = srcTex->glname;
+            }
+        }
+        if (dstTarget == GL_RENDERBUFFER) {
+            glrenderbuffer_t* rbo = find_renderbuffer(dstName);
+            if (rbo && rbo->renderbuffer) realDst = rbo->renderbuffer;
+        } else if (dstName && glstate->texture.list) {
+            khint_t k = kh_get(tex, glstate->texture.list, dstName);
+            if (k != kh_end(glstate->texture.list)) {
+                dstTex = kh_value(glstate->texture.list, k);
+                if (dstTex && dstTex->glname) realDst = dstTex->glname;
+            }
+        }
+    }
+
+    typedef void (*glCopyImageSubData_fn)(GLuint, GLenum, GLint, GLint, GLint, GLint, GLuint, GLenum, GLint, GLint,
+                                          GLint, GLint, GLsizei, GLsizei, GLsizei);
+    static glCopyImageSubData_fn fn_copy_image = NULL;
+    static int checked_copy_image = 0;
+    if (!checked_copy_image) {
+        checked_copy_image = 1;
+        if (gles) {
+            fn_copy_image = (glCopyImageSubData_fn)proc_address(gles, "glCopyImageSubData");
+            if (!fn_copy_image) fn_copy_image = (glCopyImageSubData_fn)proc_address(gles, "glCopyImageSubDataEXT");
+            if (!fn_copy_image) fn_copy_image = (glCopyImageSubData_fn)proc_address(gles, "glCopyImageSubDataOES");
+        }
+    }
+
+    if (fn_copy_image) {
+        fn_copy_image(realSrc, srcTarget, srcLevel, srcX, srcY, srcZ, realDst, dstTarget, dstLevel, dstX, dstY, dstZ,
+                      srcWidth, srcHeight, srcDepth);
+        errorGL();
+        return;
+    }
+
+    /* Fallback for ES 3.0 / 3.1 without EXT_copy_image: 2D FBO blit */
+    if (srcTarget == GL_TEXTURE_2D && dstTarget == GL_TEXTURE_2D && srcDepth == 1) {
+        LOAD_GLES2(glGetIntegerv);
+        LOAD_GLES2(glGenFramebuffers);
+        LOAD_GLES2(glBindFramebuffer);
+        LOAD_GLES2(glFramebufferTexture2D);
+        LOAD_GLES2(glCheckFramebufferStatus);
+        LOAD_GLES2(glBlitFramebuffer);
+        if (gles_glBlitFramebuffer && gles_glGenFramebuffers && gles_glBindFramebuffer && gles_glFramebufferTexture2D) {
+            static __thread GLuint s_ciFBO[2] = {0, 0};
+            static __thread void* s_ciOwner = NULL;
+            if (s_ciOwner != (void*)glstate || !s_ciFBO[0]) {
+                s_ciFBO[0] = s_ciFBO[1] = 0;
+                gles_glGenFramebuffers(2, s_ciFBO);
+                s_ciOwner = (void*)glstate;
+            }
+            GLint prevRead = 0, prevDraw = 0;
+            gles_glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
+            gles_glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDraw);
+
+            int is_depth = (srcTex && (is_depth_format(srcTex->internalformat) || is_depth_format(srcTex->format))) ||
+                           (dstTex && (is_depth_format(dstTex->internalformat) || is_depth_format(dstTex->format)));
+            GLenum attach = is_depth ? GL_DEPTH_ATTACHMENT : GL_COLOR_ATTACHMENT0;
+            GLbitfield mask = is_depth ? GL_DEPTH_BUFFER_BIT : GL_COLOR_BUFFER_BIT;
+
+            gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, s_ciFBO[0]);
+            gles_glFramebufferTexture2D(GL_READ_FRAMEBUFFER, attach, GL_TEXTURE_2D, realSrc, srcLevel);
+            gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_ciFBO[1]);
+            gles_glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, attach, GL_TEXTURE_2D, realDst, dstLevel);
+
+            if (gles_glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE &&
+                gles_glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+                gles_glBlitFramebuffer(srcX, srcY, srcX + srcWidth, srcY + srcHeight, dstX, dstY, dstX + srcWidth,
+                                       dstY + srcHeight, mask, GL_NEAREST);
+            }
+            gles_glFramebufferTexture2D(GL_READ_FRAMEBUFFER, attach, GL_TEXTURE_2D, 0, 0);
+            gles_glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, attach, GL_TEXTURE_2D, 0, 0);
+            gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, prevRead);
+            gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prevDraw);
+            errorGL();
+            return;
+        }
+    }
+    errorShim(GL_INVALID_OPERATION);
+}
+
 // Direct wrapper
+AliasExport(void, glCopyImageSubData, ,
+            (GLuint srcName, GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ, GLuint dstName,
+             GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ, GLsizei srcWidth, GLsizei srcHeight,
+             GLsizei srcDepth));
+AliasExport(void, glCopyImageSubData, EXT,
+            (GLuint srcName, GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ, GLuint dstName,
+             GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ, GLsizei srcWidth, GLsizei srcHeight,
+             GLsizei srcDepth));
+AliasExport(void, glCopyImageSubData, NV,
+            (GLuint srcName, GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ, GLuint dstName,
+             GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ, GLsizei srcWidth, GLsizei srcHeight,
+             GLsizei srcDepth));
 AliasExport(void, glGetTexImage, , (GLenum target, GLint level, GLenum format, GLenum type, GLvoid* img));
 AliasExport(void, glReadPixels, ,
             (GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid* data));

@@ -243,7 +243,11 @@ extern "C"
                                    "GL_EXT_texture_array "
                                    "GL_ARB_seamless_cube_map "
                                    "GL_ARB_occlusion_query "
-                                   "GL_ARB_occlusion_query2 ");
+                                   "GL_ARB_occlusion_query2 "
+                                   "GL_ARB_sync "
+                                   "GL_ARB_copy_image "
+                                   "GL_EXT_copy_image "
+                                   "GL_ARB_provoking_vertex ");
             }
             if (hardext.esversion > 1) {
                 strcat(extensions, "GL_EXT_fog_coord ");
@@ -587,7 +591,11 @@ extern "C"
             *params = 1024;
             break;
         case GL_MAX_TEXTURE_IMAGE_UNITS:
-            *params = hardext.maxteximage * TEXTURE_IMAGE_MAGNIFICATION; // Cheating a bit
+        case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS:
+            *params = hardext.maxcombinedtex;
+            break;
+        case 0x9111: /* GL_MAX_SERVER_WAIT_TIMEOUT */
+            *params = 1000000000.0f;
             break;
         case GL_MAX_MODELVIEW_STACK_DEPTH:
             *params = MAX_STACK_MODELVIEW;
@@ -615,27 +623,32 @@ extern "C"
             break;
         case GL_TEXTURE_BINDING_1D:
             *params = glstate->texture.bound[glstate->texture.active][ENABLED_TEX1D]
-                          ? glstate->texture.bound[glstate->texture.active][ENABLED_TEX1D]->glname
+                          ? glstate->texture.bound[glstate->texture.active][ENABLED_TEX1D]->texture
                           : 0;
             break;
         case GL_TEXTURE_BINDING_2D:
             *params = glstate->texture.bound[glstate->texture.active][ENABLED_TEX2D]
-                          ? glstate->texture.bound[glstate->texture.active][ENABLED_TEX2D]->glname
+                          ? glstate->texture.bound[glstate->texture.active][ENABLED_TEX2D]->texture
                           : 0;
             break;
         case GL_TEXTURE_BINDING_3D:
             *params = glstate->texture.bound[glstate->texture.active][ENABLED_TEX3D]
-                          ? glstate->texture.bound[glstate->texture.active][ENABLED_TEX3D]->glname
+                          ? glstate->texture.bound[glstate->texture.active][ENABLED_TEX3D]->texture
                           : 0;
             break;
         case GL_TEXTURE_BINDING_RECTANGLE_ARB:
             *params = glstate->texture.bound[glstate->texture.active][ENABLED_TEXTURE_RECTANGLE]
-                          ? glstate->texture.bound[glstate->texture.active][ENABLED_TEXTURE_RECTANGLE]->glname
+                          ? glstate->texture.bound[glstate->texture.active][ENABLED_TEXTURE_RECTANGLE]->texture
                           : 0;
             break;
         case GL_TEXTURE_BINDING_CUBE_MAP:
             *params = glstate->texture.bound[glstate->texture.active][ENABLED_CUBE_MAP]
-                          ? glstate->texture.bound[glstate->texture.active][ENABLED_CUBE_MAP]->glname
+                          ? glstate->texture.bound[glstate->texture.active][ENABLED_CUBE_MAP]->texture
+                          : 0;
+            break;
+        case GL_TEXTURE_BINDING_2D_ARRAY:
+            *params = glstate->texture.bound[glstate->texture.active][ENABLED_TEX2D]
+                          ? glstate->texture.bound[glstate->texture.active][ENABLED_TEX2D]->texture
                           : 0;
             break;
         case GL_ARRAY_BUFFER_BINDING:
@@ -972,34 +985,47 @@ extern "C"
         GLint dummy;
         LOAD_GLES(glGetIntegerv);
         noerrorShim();
+        gltexture_t* tex;
+        switch (pname) {
+        case GL_TEXTURE_BINDING_1D:
+            tex = glstate->texture.bound[glstate->texture.active][ENABLED_TEX1D];
+            *params = tex ? tex->texture : 0;
+            noerrorShim();
+            return;
+        case GL_TEXTURE_BINDING_2D:
+            tex = glstate->texture.bound[glstate->texture.active][ENABLED_TEX2D];
+            *params = tex ? tex->texture : 0;
+            noerrorShim();
+            return;
+        case GL_TEXTURE_BINDING_3D:
+            tex = glstate->texture.bound[glstate->texture.active][ENABLED_TEX3D];
+            *params = tex ? tex->texture : 0;
+            noerrorShim();
+            return;
+        case GL_TEXTURE_BINDING_CUBE_MAP:
+            tex = glstate->texture.bound[glstate->texture.active][ENABLED_CUBE_MAP];
+            *params = tex ? tex->texture : 0;
+            noerrorShim();
+            return;
+        case GL_TEXTURE_BINDING_RECTANGLE_ARB:
+            tex = glstate->texture.bound[glstate->texture.active][ENABLED_TEXTURE_RECTANGLE];
+            *params = tex ? tex->texture : 0;
+            noerrorShim();
+            return;
+        case GL_TEXTURE_BINDING_2D_ARRAY:
+            tex = glstate->texture.bound[glstate->texture.active][ENABLED_TEX2D];
+            *params = tex ? tex->texture : 0;
+            noerrorShim();
+            return;
+        default:
+            break;
+        }
         GLfloat fparam;
         if (gl4es_commonGet(pname, &fparam)) {
             params[0] = fparam;
             return;
         }
-        gltexture_t* tex;
         switch (pname) {
-        // texture binding only make sense with int
-        case GL_TEXTURE_BINDING_1D:
-            tex = glstate->texture.bound[glstate->texture.active][ENABLED_TEX1D];
-            *params = tex->texture;
-            break;
-        case GL_TEXTURE_BINDING_2D:
-            tex = glstate->texture.bound[glstate->texture.active][ENABLED_TEX2D];
-            *params = tex->texture;
-            break;
-        case GL_TEXTURE_BINDING_3D:
-            tex = glstate->texture.bound[glstate->texture.active][ENABLED_TEX3D];
-            *params = tex->texture;
-            break;
-        case GL_TEXTURE_BINDING_CUBE_MAP:
-            tex = glstate->texture.bound[glstate->texture.active][ENABLED_CUBE_MAP];
-            *params = tex->texture;
-            break;
-        case GL_TEXTURE_BINDING_RECTANGLE_ARB:
-            tex = glstate->texture.bound[glstate->texture.active][ENABLED_TEXTURE_RECTANGLE];
-            *params = tex->texture;
-            break;
         // arrays...
         case GL_POINT_SIZE_RANGE:
         case GL_ALIASED_POINT_SIZE_RANGE:
@@ -1371,4 +1397,125 @@ extern "C"
         errorShim(GL_INVALID_VALUE);
     }
     AliasExport(void, glGetMinmaxParameterfv, , (GLenum target, GLenum pname, GLfloat* params));
+
+    void APIENTRY_GL4ES gl4es_glGetIntegeri_v(GLenum target, GLuint index, GLint* data) {
+        if (!data) {
+            errorShim(GL_INVALID_VALUE);
+            return;
+        }
+        if (target == 0x8919 /* GL_SAMPLER_BINDING */) {
+            if (index >= (GLuint)hardext.maxcombinedtex) {
+                errorShim(GL_INVALID_VALUE);
+                return;
+            }
+            *data = glstate->samplers.sampler[index] ? glstate->samplers.sampler[index]->glname : 0;
+            noerrorShim();
+            return;
+        }
+        typedef void (*glGetIntegeri_v_fn)(GLenum, GLuint, GLint*);
+        static glGetIntegeri_v_fn fn_get_integeri_v = NULL;
+        static int checked_get_integeri_v = 0;
+        if (!checked_get_integeri_v) {
+            checked_get_integeri_v = 1;
+            if (gles) fn_get_integeri_v = (glGetIntegeri_v_fn)proc_address(gles, "glGetIntegeri_v");
+        }
+        if (fn_get_integeri_v) {
+            errorGL();
+            fn_get_integeri_v(target, index, data);
+            return;
+        }
+        *data = 0;
+        errorShim(GL_INVALID_ENUM);
+    }
+    AliasExport(void, glGetIntegeri_v, , (GLenum target, GLuint index, GLint* data));
+
+    void APIENTRY_GL4ES gl4es_glGetInteger64v(GLenum pname, GLint64* params) {
+        if (!params) {
+            errorShim(GL_INVALID_VALUE);
+            return;
+        }
+        switch (pname) {
+        case 0x9111: /* GL_MAX_SERVER_WAIT_TIMEOUT */
+        case 0x8D6B: /* GL_MAX_ELEMENT_INDEX */
+        case 0x8E28: /* GL_TIMESTAMP */
+        case 0x8A31: /* GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS */
+        case 0x8A32: /* GL_MAX_COMBINED_GEOMETRY_UNIFORM_COMPONENTS */
+        case 0x8A33: /* GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS */
+        {
+            typedef void (*glGetInteger64v_fn)(GLenum, GLint64*);
+            static glGetInteger64v_fn fn_get_integer64v = NULL;
+            static int checked_get_integer64v = 0;
+            if (!checked_get_integer64v) {
+                checked_get_integer64v = 1;
+                if (gles) fn_get_integer64v = (glGetInteger64v_fn)proc_address(gles, "glGetInteger64v");
+            }
+            if (fn_get_integer64v) {
+                errorGL();
+                fn_get_integer64v(pname, params);
+                return;
+            }
+            if (pname == 0x9111) {
+                *params = 1000000000LL;
+                noerrorShim();
+                return;
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        GLint tmp = 0;
+        gl4es_glGetIntegerv(pname, &tmp);
+        *params = (GLint64)tmp;
+    }
+    AliasExport(void, glGetInteger64v, , (GLenum pname, GLint64* params));
+
+    void APIENTRY_GL4ES gl4es_glGetInteger64i_v(GLenum target, GLuint index, GLint64* data) {
+        if (!data) {
+            errorShim(GL_INVALID_VALUE);
+            return;
+        }
+        typedef void (*glGetInteger64i_v_fn)(GLenum, GLuint, GLint64*);
+        static glGetInteger64i_v_fn fn_get_integer64i_v = NULL;
+        static int checked_get_integer64i_v = 0;
+        if (!checked_get_integer64i_v) {
+            checked_get_integer64i_v = 1;
+            if (gles) fn_get_integer64i_v = (glGetInteger64i_v_fn)proc_address(gles, "glGetInteger64i_v");
+        }
+        if (fn_get_integer64i_v) {
+            errorGL();
+            fn_get_integer64i_v(target, index, data);
+            return;
+        }
+        GLint tmp = 0;
+        gl4es_glGetIntegeri_v(target, index, &tmp);
+        *data = (GLint64)tmp;
+    }
+    AliasExport(void, glGetInteger64i_v, , (GLenum target, GLuint index, GLint64* data));
+
+    void APIENTRY_GL4ES gl4es_glProvokingVertex(GLenum mode) {
+        (void)mode;
+        noerrorShim();
+    }
+    AliasExport(void, glProvokingVertex, , (GLenum mode));
+    AliasExport(void, glProvokingVertex, EXT, (GLenum mode));
+
+    void APIENTRY_GL4ES gl4es_glSampleMaski(GLuint maskNumber, GLbitfield mask) {
+        typedef void (*glSampleMaski_fn)(GLuint, GLbitfield);
+        static glSampleMaski_fn fn_sample_maski = NULL;
+        static int checked_sample_maski = 0;
+        if (!checked_sample_maski) {
+            checked_sample_maski = 1;
+            if (gles) {
+                fn_sample_maski = (glSampleMaski_fn)proc_address(gles, "glSampleMaski");
+            }
+        }
+        if (fn_sample_maski) {
+            errorGL();
+            fn_sample_maski(maskNumber, mask);
+        } else {
+            noerrorShim();
+        }
+    }
+    AliasExport(void, glSampleMaski, , (GLuint maskNumber, GLbitfield mask));
 }

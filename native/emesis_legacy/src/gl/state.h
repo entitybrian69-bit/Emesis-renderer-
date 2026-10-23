@@ -15,13 +15,14 @@
 
 typedef struct {
     GLboolean line_stipple, auto_normal, normalize, normal_rescale, lighting, alpha_test, fog, color_material, blend,
-        cull_face, color_sum, depth_test, stencil_test, pointsprite, point_size, texgen_s[MAX_TEX], texgen_t[MAX_TEX],
-        texgen_r[MAX_TEX], texgen_q[MAX_TEX], plane[MAX_CLIP_PLANES], light[MAX_LIGHT], map1_color4, map1_index,
+        cull_face, color_sum, depth_test, stencil_test, pointsprite, point_size, texgen_s[MAX_TEX_UNITS],
+        texgen_t[MAX_TEX_UNITS], texgen_r[MAX_TEX_UNITS], texgen_q[MAX_TEX_UNITS], plane[MAX_CLIP_PLANES],
+        light[MAX_LIGHT], map1_color4, map1_index,
         map1_normal, map1_texture1, map1_texture2, map1_texture3, map1_texture4, map1_vertex3, map1_vertex4,
         map2_color4, map2_index, map2_normal, map2_texture1, map2_texture2, map2_texture3, map2_texture4, map2_vertex3,
         map2_vertex4, color_logic_op, line_smooth, point_smooth, polyfill_offset, vertex_arb, vertex_two_side_arb,
         fragment_arb, multisample, sample_coverage, sample_alpha_to_one, sample_alpha_to_coverage;
-    GLuint texture[MAX_TEX]; // flag
+    GLuint texture[MAX_TEX_UNITS]; // flag
 } enable_state_t;
 
 typedef struct {
@@ -51,9 +52,9 @@ typedef struct {
     GLuint pack_row_length, pack_skip_pixels, pack_skip_rows, pack_image_height;
     GLuint pack_align, unpack_align;
     GLboolean pack_lsb_first;
-    gltexture_t* bound[MAX_TEX][ENABLED_TEXTURE_LAST]; // TODO: this should be shared
-    gltexture_t* zero;                                 // this is texture 0...
-    GLboolean pscoordreplace[MAX_TEX];
+    gltexture_t* bound[MAX_TEX_UNITS][ENABLED_TEXTURE_LAST]; // TODO: this should be shared
+    gltexture_t* zero;                                       // this is texture 0...
+    GLboolean pscoordreplace[MAX_TEX_UNITS];
     khash_t(tex) * list; // this is shared among glstate
     GLuint active;       // active texture
     GLuint client;       // client active texture
@@ -293,7 +294,7 @@ KHASH_MAP_DECLARE_INT(samplerlist_t, glsampler_t*);
 
 typedef struct {
     khash_t(samplerlist_t) * samplerlist;
-    glsampler_t* sampler[MAX_TEX];
+    glsampler_t* sampler[MAX_TEX_UNITS];
     GLuint last_sampler;
 } samplers_t;
 

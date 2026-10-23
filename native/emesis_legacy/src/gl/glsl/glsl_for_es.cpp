@@ -185,13 +185,20 @@ int getGLSLVersion(const char* glsl_code) {
     return -1;
 }
 
-/* Scan past `#version` AND all `#extension` directives anywhere in the shader (skipping comments). */
+/* Scan past `#version` AND top-level `#extension` directives (never stopping inside an `#if` block). */
 static size_t find_insertion_point(const std::string& glsl) {
     const size_t len = glsl.size();
     size_t p = 0;
     size_t last_directive_end = 0;
+    int if_depth = 0;
+    bool ext_in_if = false;
+
+    auto is_ident = [](char c) {
+        return std::isalnum((unsigned char)c) || c == '_';
+    };
 
     while (p < len) {
+        while (p < len && (glsl[p] == ' ' || glsl[p] == '\t' || glsl[p] == '\r')) p++;
         if (p + 1 < len && glsl[p] == '/' && glsl[p + 1] == '/') {
             while (p < len && glsl[p] != '\n') p++;
             if (p < len) p++;
@@ -203,22 +210,56 @@ static size_t find_insertion_point(const std::string& glsl) {
             p = (p + 1 < len) ? (p + 2) : len;
             continue;
         }
-        while (p < len && (glsl[p] == ' ' || glsl[p] == '\t' || glsl[p] == '\r')) p++;
-        if (p < len && glsl[p] == '#') {
+        if (p < len && glsl[p] == '\n') {
+            p++;
+            continue;
+        }
+        if (p >= len) break;
+
+        if (glsl[p] == '#') {
             size_t h = p + 1;
             while (h < len && (glsl[h] == ' ' || glsl[h] == '\t')) h++;
-            bool is_ver = (h + 7 <= len && glsl.compare(h, 7, "version") == 0 &&
-                           (h + 7 == len || std::isspace((unsigned char)glsl[h + 7])));
-            bool is_ext = (h + 9 <= len && glsl.compare(h, 9, "extension") == 0 &&
-                           (h + 9 < len && std::isspace((unsigned char)glsl[h + 9])));
-            if (is_ver || is_ext) {
-                size_t nl = glsl.find('\n', h);
-                last_directive_end = (nl == std::string::npos) ? len : (nl + 1);
-                p = last_directive_end;
+            size_t nl = glsl.find('\n', h);
+            size_t line_end = (nl == std::string::npos) ? len : (nl + 1);
+
+            if ((h + 5 <= len && glsl.compare(h, 5, "ifdef") == 0 && (h + 5 == len || !is_ident(glsl[h + 5]))) ||
+                (h + 6 <= len && glsl.compare(h, 6, "ifndef") == 0 && (h + 6 == len || !is_ident(glsl[h + 6]))) ||
+                (h + 2 <= len && glsl.compare(h, 2, "if") == 0 && (h + 2 == len || !is_ident(glsl[h + 2])))) {
+                if_depth++;
+            } else if (h + 5 <= len && glsl.compare(h, 5, "endif") == 0 && (h + 5 == len || !is_ident(glsl[h + 5]))) {
+                if (if_depth > 0) if_depth--;
+                if (if_depth == 0 && ext_in_if) {
+                    last_directive_end = line_end;
+                    ext_in_if = false;
+                }
+            } else {
+                bool is_ver = (h + 7 <= len && glsl.compare(h, 7, "version") == 0 &&
+                               (h + 7 == len || !is_ident(glsl[h + 7])));
+                bool is_ext = (h + 9 <= len && glsl.compare(h, 9, "extension") == 0 &&
+                               (h + 9 == len || !is_ident(glsl[h + 9])));
+                if (is_ver || is_ext) {
+                    if (if_depth == 0) {
+                        last_directive_end = line_end;
+                    } else {
+                        ext_in_if = true;
+                    }
+                }
+            }
+            p = line_end;
+            continue;
+        } else if (if_depth == 0) {
+            break;
+        }
+
+        while (p < len && glsl[p] != '\n') {
+            if (p + 1 < len && glsl[p] == '/' && glsl[p + 1] == '*') {
+                p += 2;
+                while (p + 1 < len && !(glsl[p] == '*' && glsl[p + 1] == '/')) p++;
+                p = (p + 1 < len) ? (p + 2) : len;
                 continue;
             }
+            p++;
         }
-        while (p < len && glsl[p] != '\n') p++;
         if (p < len) p++;
     }
     return last_directive_end;
@@ -627,6 +668,8 @@ static std::string preprocess_glsl(const char* raw_glsl, GLenum shaderType, bool
 
     replace_all(ret, "#ifdef GL_ARB_derivative_control", "#if 0");
     replace_all(ret, "#ifndef GL_ARB_derivative_control", "#if 1");
+    replace_all(ret, "mix(, currentDepth, decay2)", "mix(oldDepth, currentDepth, decay2)");
+    replace_all(ret, "if (oldDepth != oldDepth)", "if (isnan(oldDepth))");
     replace_all(ret, "const mat3 rotInverse = transpose(rot);",
                 "const mat3 rotInverse = mat3(rot[0][0], rot[1][0], rot[2][0], rot[0][1], rot[1][1], rot[2][1], "
                 "rot[0][2], rot[1][2], rot[2][2]);");
@@ -637,6 +680,19 @@ static std::string preprocess_glsl(const char* raw_glsl, GLenum shaderType, bool
 
     *atomicCounterEmulated = process_non_opaque_atomic_to_ssbo(ret);
     return ret;
+}
+
+static bool has_real_glslang_error(const char* log) {
+    if (!log || !log[0]) return false;
+    const char* p = log;
+    while ((p = std::strstr(p, "ERROR:")) != nullptr) {
+        if (std::strncmp(p, "ERROR: #version: compilation for SPIR-V does not support the compatibility profile", 82) !=
+            0) {
+            return true;
+        }
+        p += 6;
+    }
+    return false;
 }
 
 static std::vector<unsigned int> glsl_to_spirv(GLenum shader_type, const char* const* shader_src, int& errc) {
@@ -686,8 +742,9 @@ static std::vector<unsigned int> glsl_to_spirv(GLenum shader_type, const char* c
 
     glslang::TProgram program;
     program.addShader(&shader);
-    if (!program.link(msgs)) {
-        DBG(SHUT_LOGD("glslang: GLSL Linking ERROR:\n%s", program.getInfoLog());)
+    if (!program.link(msgs) || !program.getIntermediate(shader_language) ||
+        has_real_glslang_error(shader.getInfoLog()) || has_real_glslang_error(program.getInfoLog())) {
+        DBG(SHUT_LOGD("glslang: GLSL Linking ERROR:\n%s\n%s", shader.getInfoLog(), program.getInfoLog());)
         errc = -1;
         return {};
     }
@@ -729,6 +786,7 @@ static std::string spirv_to_essl(const std::vector<unsigned int>& spirv, GLenum 
        Preserve fragment stage_outputs locations so MRT FragData[0..N] binds to exact drawbuffers. */
     const spvc_reflected_resource* list = nullptr;
     size_t count = 0;
+    bool drop_dead_vgpu_fragcolor = false;
     if (shader_type == GL_VERTEX_SHADER) {
         if (!keep_vertex_in_locations &&
             spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_STAGE_INPUT, &list, &count) ==
@@ -748,6 +806,75 @@ static std::string spirv_to_essl(const std::vector<unsigned int>& spirv, GLenum 
             SPVC_SUCCESS) {
             for (size_t i = 0; i < count; ++i) {
                 spvc_compiler_unset_decoration(compiler_glsl, list[i].id, SpvDecorationLocation);
+            }
+        }
+        spvc_set active_vars = nullptr;
+        spvc_resources active_resources = nullptr;
+        const spvc_reflected_resource* active_out_list = nullptr;
+        size_t active_out_count = 0;
+        if (spvc_compiler_get_active_interface_variables(compiler_glsl, &active_vars) == SPVC_SUCCESS && active_vars &&
+            spvc_compiler_create_shader_resources_for_active_variables(compiler_glsl, &active_resources, active_vars) ==
+                SPVC_SUCCESS &&
+            active_resources) {
+            spvc_resources_get_resource_list_for_type(active_resources, SPVC_RESOURCE_TYPE_STAGE_OUTPUT,
+                                                      &active_out_list, &active_out_count);
+        }
+        if (spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_STAGE_OUTPUT, &list, &count) ==
+                SPVC_SUCCESS &&
+            count > 0) {
+            bool has_other_active_out = false;
+            bool vgpu_fragcolor_inactive = false;
+            for (size_t i = 0; i < count; ++i) {
+                const char* nm = spvc_compiler_get_name(compiler_glsl, list[i].id);
+                if (!nm || !nm[0]) nm = list[i].name;
+                bool is_active = (active_resources == nullptr);
+                for (size_t a = 0; a < active_out_count; ++a) {
+                    if (active_out_list[a].id == list[i].id) {
+                        is_active = true;
+                        break;
+                    }
+                }
+                if (nm && std::strcmp(nm, "vgpu_FragColor") == 0) {
+                    if (!is_active && count > 1) vgpu_fragcolor_inactive = true;
+                } else if (is_active) {
+                    has_other_active_out = true;
+                }
+            }
+            drop_dead_vgpu_fragcolor = has_other_active_out && vgpu_fragcolor_inactive;
+
+            uint64_t used_locs = 0;
+            for (size_t i = 0; i < count; ++i) {
+                const char* nm = spvc_compiler_get_name(compiler_glsl, list[i].id);
+                if (!nm || !nm[0]) nm = list[i].name;
+                if (drop_dead_vgpu_fragcolor && nm && std::strcmp(nm, "vgpu_FragColor") == 0) {
+                    spvc_compiler_unset_decoration(compiler_glsl, list[i].id, SpvDecorationLocation);
+                    continue;
+                }
+                if (spvc_compiler_has_decoration(compiler_glsl, list[i].id, SpvDecorationLocation)) {
+                    unsigned loc = spvc_compiler_get_decoration(compiler_glsl, list[i].id, SpvDecorationLocation);
+                    if (loc < 64 && !(used_locs & (1ULL << loc))) {
+                        used_locs |= (1ULL << loc);
+                    } else {
+                        spvc_compiler_unset_decoration(compiler_glsl, list[i].id, SpvDecorationLocation);
+                    }
+                }
+            }
+            for (size_t i = 0; i < count; ++i) {
+                if (!spvc_compiler_has_decoration(compiler_glsl, list[i].id, SpvDecorationLocation)) {
+                    unsigned loc = 0;
+                    const char* nm = spvc_compiler_get_name(compiler_glsl, list[i].id);
+                    if (!nm || !nm[0]) nm = list[i].name;
+                    if (nm) {
+                        if (std::strncmp(nm, "outColor", 8) == 0 && std::isdigit((unsigned char)nm[8])) {
+                            loc = (unsigned)std::atoi(nm + 8);
+                        } else if (std::strncmp(nm, "vgpu_FragData", 13) == 0 && std::isdigit((unsigned char)nm[13])) {
+                            loc = (unsigned)std::atoi(nm + 13);
+                        }
+                    }
+                    while (loc < 64 && (used_locs & (1ULL << loc))) ++loc;
+                    spvc_compiler_set_decoration(compiler_glsl, list[i].id, SpvDecorationLocation, loc);
+                    if (loc < 64) used_locs |= (1ULL << loc);
+                }
             }
         }
     }
@@ -774,6 +901,12 @@ static std::string spirv_to_essl(const std::vector<unsigned int>& spirv, GLenum 
 
     std::string essl(result);
     spvc_context_destroy(context);
+    if (drop_dead_vgpu_fragcolor) {
+        static const std::regex deadFragColorRx(
+            R"(^[ \t]*(?:layout\s*\([^)]*\)\s*)?out\s+(?:highp\s+|mediump\s+|lowp\s+)?vec4\s+vgpu_FragColor\s*;\r?\n?)",
+            std::regex::ECMAScript | std::regex::multiline | std::regex::optimize);
+        essl = std::regex_replace(essl, deadFragColorRx, "");
+    }
     errc = 0;
     return essl;
 }

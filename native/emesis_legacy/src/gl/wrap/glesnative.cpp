@@ -16,6 +16,7 @@
 #define NATIVE_FUNCTION_END(type, name, ...)                                                                           \
     DBG(SHUT_LOGD("Native function: %s(...)", __FUNCTION__);)                                                          \
     LOAD_GLES3(name);                                                                                                  \
+    if (!gles_##name) return (type)0;                                                                                  \
     type ret = gles_##name(__VA_ARGS__);                                                                               \
     return ret;                                                                                                        \
     }
@@ -23,7 +24,7 @@
 #define NATIVE_FUNCTION_END_NO_RETURN(type, name, ...)                                                                 \
     DBG(SHUT_LOGD("Native function: %s(...)", __FUNCTION__);)                                                          \
     LOAD_GLES3(name);                                                                                                  \
-    gles_##name(__VA_ARGS__);                                                                                          \
+    if (gles_##name) gles_##name(__VA_ARGS__);                                                                         \
     }
 
 NATIVE_FUNCTION_HEAD(GLsync, glFenceSync, GLenum condition, GLbitfield flags)
@@ -49,12 +50,14 @@ NATIVE_FUNCTION_END_NO_RETURN(void, glDrawArraysIndirect, mode, indirect)
 
 extern "C" VISIBLE void glBindFragDataLocationIndexed(GLuint program, GLuint colorNumber, GLuint index, const char* name) {
     LOAD_GLES3(glBindFragDataLocationIndexedEXT);
-    gles_glBindFragDataLocationIndexedEXT(program, colorNumber, index, name);
+    if (gles_glBindFragDataLocationIndexedEXT) {
+        gles_glBindFragDataLocationIndexedEXT(program, colorNumber, index, name);
+    }
 }
 
 extern "C" VISIBLE GLint glGetFragDataIndex(GLuint program, const char* name) {
     LOAD_GLES3(glGetFragDataIndexEXT);
-    return gles_glGetFragDataIndexEXT(program, name);
+    return gles_glGetFragDataIndexEXT ? gles_glGetFragDataIndexEXT(program, name) : -1;
 }
 
 // VISIBLE void glBindFragDataLocation(GLuint program, GLuint colorNumber, const char *name) {
@@ -64,5 +67,7 @@ extern "C" VISIBLE GLint glGetFragDataIndex(GLuint program, const char* name) {
 
 extern "C" VISIBLE GLint glGetProgramResourceLocationIndex(GLuint program, GLenum programInterface, const char* name) {
     LOAD_GLES3(glGetProgramResourceLocationIndexEXT);
-    return gles_glGetProgramResourceLocationIndexEXT(program, programInterface, name);
+    return gles_glGetProgramResourceLocationIndexEXT
+               ? gles_glGetProgramResourceLocationIndexEXT(program, programInterface, name)
+               : -1;
 }

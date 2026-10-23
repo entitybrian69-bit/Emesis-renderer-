@@ -536,6 +536,10 @@ void GetHardwareExtensions(int notest) {
         hardext.maxlights = 8;
         hardext.maxplanes = 6;
         gles_glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &hardext.maxteximage);
+        gles_glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &hardext.maxcombinedtex);
+        if (gles_glGetError() != GL_NO_ERROR || hardext.maxcombinedtex < hardext.maxteximage) {
+            hardext.maxcombinedtex = hardext.maxteximage;
+        }
         gles_glGetIntegerv(GL_MAX_VARYING_VECTORS, &hardext.maxvarying);
         SHUT_LOGD("Max Varying Vector: %d", hardext.maxvarying);
         if (hardext.maxvattrib < 16 && hardext.maxtex > 4)
@@ -543,7 +547,10 @@ void GetHardwareExtensions(int notest) {
     }
     int hardmaxtex = hardext.maxtex;
     if (hardext.maxtex > MAX_TEX) hardext.maxtex = MAX_TEX; // caping, as there are some fixed-sized array...
-    if (hardext.maxteximage > MAX_TEX) hardext.maxteximage = MAX_TEX;
+    if (hardext.maxteximage > MAX_TEX_UNITS) hardext.maxteximage = MAX_TEX_UNITS;
+    if (hardext.esversion == 1) hardext.maxcombinedtex = hardext.maxtex;
+    if (hardext.maxcombinedtex > MAX_TEX_UNITS) hardext.maxcombinedtex = MAX_TEX_UNITS;
+    if (hardext.maxcombinedtex < hardext.maxtex) hardext.maxcombinedtex = hardext.maxtex;
     if (hardext.maxlights > MAX_LIGHT) hardext.maxlights = MAX_LIGHT; // caping lights too
     if (hardext.maxplanes > MAX_CLIP_PLANES)
         hardext.maxplanes = MAX_CLIP_PLANES; // caping planes, even 6 should be the max supported anyway
