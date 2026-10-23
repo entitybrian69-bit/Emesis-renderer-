@@ -7,9 +7,12 @@
 
     <!-- Android 11+ (API 30+) package visibility across all PojavLauncher variants & successors -->
     <queries>
-        <!-- Official PojavLauncher & CI/Debug/Beta builds -->
+        <!-- Legacy v1.0 package detection for one-tap cleanup -->
+        <package android:name="com.entitybrian.emesis" />
+        <!-- Official PojavLauncher & CI/Debug/Beta/Custom builds -->
         <package android:name="net.kdt.pojavlaunch" />
         <package android:name="net.kdt.pojavlaunch.debug" />
+        <package android:name="net.kdt.pojavlaunch.canary" />
         <package android:name="net.kdt.pojavlaunch.beta" />
         <package android:name="net.kdt.pojavlaunch.firefly" />
         <!-- Pojav Glow Worm / PojavZH -->
@@ -23,6 +26,7 @@
         <!-- Amethyst (PojavLauncher continuation) -->
         <package android:name="org.angelauramc.amethyst" />
         <package android:name="org.angelauramc.amethyst.debug" />
+        <package android:name="io.stamethyst" />
         <!-- MojoLauncher & SolCraftLauncher -->
         <package android:name="git.artdeell.mojo" />
         <package android:name="git.artdeell.mojo.debug" />
@@ -38,9 +42,6 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
         </intent>
-        <intent>
-            <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
-        </intent>
     </queries>
 
     <application
@@ -55,20 +56,15 @@
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.entitybrian.emesis.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.action.LAUNCHER" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- Lightweight V2 plugin probe activity -->
-        <activity
-            android:name=".PluginActivity"
-            android:exported="true" />
 
         <!-- RendererPlugin V2 Schema (ZalithLauncher 2 / FoldCraftLauncher V2) -->
         <meta-data
@@ -101,7 +97,7 @@
         <!-- Plugin Display Description & Native GL/EGL Entrypoints (leading '/' resolves full nativeLibraryDir for EGL) -->
         <meta-data
             android:name="des"
-            android:value="Emesis Renderer v1.1.1 (All Versions — Made by Entitybrian)" />
+            android:value="Emesis Renderer v1.1.2 (All Versions — Made by Entitybrian)" />
         <meta-data
             android:name="renderer"
             android:value="EmesisRenderer:libemesis_renderer.so:/libemesis_renderer.so" />

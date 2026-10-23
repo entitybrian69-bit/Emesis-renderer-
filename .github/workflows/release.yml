@@ -16,43 +16,50 @@ jobs:
       - name: Checkout Emesis Renderer
         uses: actions/checkout@v4
 
-      - name: Verify Universal Plugin APK
+      - name: Verify Universal Plugin APK with Official Android SDK Build-Tools
         run: |
-          test -f EmesisRenderer-Universal-v1.1.1.apk
-          ls -lh EmesisRenderer-Universal-v1.1.1.apk
-          sha256sum EmesisRenderer-Universal-v1.1.1.apk
+          set -euo pipefail
+          APK="EmesisRenderer-Universal-v1.1.2.apk"
+          test -f "${APK}"
+          ls -lh "${APK}"
+          sha256sum "${APK}"
 
-      - name: Create or Update GitHub Release v1.1.1
+          BT_DIR=$(ls -d "${ANDROID_HOME}"/build-tools/* | sort -V | tail -n 1)
+          echo "Using official Android SDK build-tools: ${BT_DIR}"
+          "${BT_DIR}/zipalign" -c -v 4 "${APK}" | tail -n 20
+          "${BT_DIR}/apksigner" verify --verbose --print-certs --min-sdk-version 21 --max-sdk-version 34 "${APK}"
+          "${BT_DIR}/aapt2" dump badging "${APK}" | head -n 35
+
+      - name: Create or Update GitHub Release v1.1.2
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 - << 'PY'
           import hashlib, pathlib, textwrap
 
-          apk = pathlib.Path("EmesisRenderer-Universal-v1.1.1.apk")
+          apk = pathlib.Path("EmesisRenderer-Universal-v1.1.2.apk")
           sha256 = hashlib.sha256(apk.read_bytes()).hexdigest()
 
           notes = textwrap.dedent(f"""\
           <div align="center">
             <img src="https://raw.githubusercontent.com/entitybrian69-bit/Emesis-renderer-/arena/fac24748-emesis-renderer/assets/emesis_logo.png" alt="Emesis Renderer — Made by Entitybrian" width="240" />
 
-            # Emesis Renderer v1.1.1 — Scoped Storage Pojav Installer & Sodium/Iris `<1.17` Fix
+            # Emesis Renderer v1.1.2 — Android Package Installer Fix, App Drawer Icon & `<1.17` Shader Accelerator
             ### **Made by Entitybrian**
           </div>
 
-          **Emesis Renderer v1.1.1** is a universal all-in-one Android Minecraft: Java Edition launcher renderer plugin APK created by **Entitybrian**, compatible across **all variants of Pojav** and 32-bit / 64-bit Android devices, with full `< 1.17` Shader Acceleration (`1.6.4` – `1.7.10` – `1.8.9` – `1.12.2` – `1.16.5`) and `> 1.16.5` Modern Core rendering (`1.17` – `1.21.x`, `26.x+`).
+          **Emesis Renderer v1.1.2** is a universal all-in-one Android Minecraft: Java Edition launcher renderer plugin APK created by **Entitybrian**, compatible across **all variants of Pojav** and 32-bit / 64-bit Android devices, with full `< 1.17` Shader Acceleration (`1.6.4` – `1.7.10` – `1.8.9` – `1.12.2` – `1.16.5`) and `> 1.16.5` Modern Core rendering (`1.17` – `1.21.x`, `26.x+`).
 
           ---
 
-          ### What's New in v1.1.1
-          - **One-Tap Android 11–16 Scoped Storage Pojav SAF Installer (`FolderProvider`):**
-            -Directly installs and updates `custom_env.txt` inside `Android/data/net.kdt.pojavlaunch[.debug]/files/` (and Amethyst / MojoLauncher) via Android's Storage Access Framework (`FolderProvider`), bypassing Android 11–16 Scoped Storage restrictions and automatically re-syncing `nativeLibraryDir` paths across future APK updates.
-          - **Automatic LWJGL 2 & LWJGL 3 OpenGL Library Binding + `POJAV_RENDERER=opengles2` Enforcement:**
-            - Overrides launcher-forced `-Dorg.lwjgl.opengl.libname` flags via both `_JAVA_OPTIONS` and native JNI (`Configuration.OPENGL_LIBRARY_NAME` + `DynamicLinkLoader.ndlopen`), preventing Official PojavLauncher / Debug from accidentally falling into raw `libGLESv2.so` (`No context is current` crash) or stock `libgl4es_114.so`.
-          - **Fixed Sodium `0.2.0` + Iris `1.4.5` + OptiFine / Angelica / Oculus on Minecraft `<= 1.16.5`:**
-            - Strict per-backend OpenGL `GetProcAddress` & `dlsym` capability isolation (`243` universal core forwarders + dynamic backend symbol lookup) prevents LWJGL 3 `GLCapabilities` from enabling unsupported OpenGL 4.5 DSA / compute paths on `<= 1.16.5` while exposing full OpenGL 3.1 + `226` `ARB` shader/buffer/framebuffer symbols.
-          - **External Hardware `EGLContext` Auto-Adoption (`> 1.16.5`):**
-            - Automatically adopts externally-bound hardware `EGLContext` handles created by launcher bridges across all Pojav variants.
+          ### What's Fixed in v1.1.2
+          - **Fixed Android 13 / 14 / 15 `"App not installed as package appears to be invalid"` Error:**
+            - Resolved signing-certificate conflict with earlier `v1.0.x` test installs by migrating to clean conflict-free package ID `com.entitybrian.emesis.renderer` signed permanently with the tracked release keystore (plus an in-app 1-tap cleanup button if old `v1.0` is still present on the device).
+            - Linked against official **Android 14 SDK (`compileSdkVersion 34`, `compileSdkVersionCodename "14"`)** and compiled DEX bytecode with **Google R8/D8 (`min-api 21`)**, removing the preview `"R"` codename and legacy `dx` translator artifacts.
+          - **Restored Home Screen / App Drawer Icon & Installer `"Open"` Button:**
+            - Fixed `AndroidManifest.xml` launcher intent category (`android.intent.category.LAUNCHER`) so **Emesis Renderer** appears immediately in your Android App Drawer and enables the **Open** button right inside Android's **App installed** dialog.
+          - **Enhanced Custom Pojav Fork SAF Discovery + Sodium/Iris `< 1.17` Shader Acceleration:**
+            - Includes one-tap Android 11–16 Scoped Storage `FolderProvider` `custom_env.txt` installer across Official PojavLauncher, Debug / Custom Forks, Amethyst, and MojoLauncher, plus full Sodium `0.2.0` + Iris `1.4.5` + OptiFine / Angelica / Oculus support on Minecraft `<= 1.16.5`.
 
           ---
 
@@ -65,29 +72,29 @@ jobs:
           - **Compatible With All Variants of Pojav:**
             - **Plugin V2 (`fclPlugin_V2`):** ZalithLauncher 2, FoldCraftLauncher (V2)
             - **Plugin V1 (`pgwRendererPlugin` / `zalithRendererPlugin` / `fclPlugin`):** Pojav Glow Worm (PGW / PojavZH), PojavLauncher Beta / Zink, Pojav Firefly, ZalithLauncher 1
-            - **Scoped Storage SAF `custom_env.txt` Installer:** Official PojavLauncher, PojavLauncher Debug/Nightly, Amethyst, MojoLauncher, SolCraftLauncher, QuestCraft
+            - **Scoped Storage SAF `custom_env.txt` Installer:** Official PojavLauncher, PojavLauncher Debug / Custom Forks, Amethyst, MojoLauncher, SolCraftLauncher, QuestCraft
 
           ---
 
           ### Package Details
-          - **Asset:** `EmesisRenderer-Universal-v1.1.1.apk`
-          - **Application ID:** `com.entitybrian.emesis` (`versionName "1.1.1"`, `versionCode 111`, `minSdkVersion 21`, `targetSdkVersion 34`, signed v1 + v2 + v3 with persistent release key)
+          - **Asset:** `EmesisRenderer-Universal-v1.1.2.apk`
+          - **Application ID:** `com.entitybrian.emesis.renderer` (`versionName "1.1.2"`, `versionCode 112`, `compileSdkVersion 34`, `minSdkVersion 21`, `targetSdkVersion 34`, signed v1 + v2 + v3)
           - **SHA-256:** `{sha256}`
           """)
 
           pathlib.Path("/tmp/release_notes.md").write_text(notes, encoding="utf-8")
           PY
 
-          if gh release view v1.1.1 >/dev/null 2>&1; then
-            gh release edit v1.1.1 \
-              --title "Emesis Renderer v1.1.1 — Made by Entitybrian" \
+          if gh release view v1.1.2 >/dev/null 2>&1; then
+            gh release edit v1.1.2 \
+              --title "Emesis Renderer v1.1.2 — Made by Entitybrian" \
               --notes-file /tmp/release_notes.md \
               --latest
-            gh release upload v1.1.1 EmesisRenderer-Universal-v1.1.1.apk --clobber
+            gh release upload v1.1.2 EmesisRenderer-Universal-v1.1.2.apk --clobber
           else
-            gh release create v1.1.1 EmesisRenderer-Universal-v1.1.1.apk \
+            gh release create v1.1.2 EmesisRenderer-Universal-v1.1.2.apk \
               --target "${GITHUB_SHA}" \
-              --title "Emesis Renderer v1.1.1 — Made by Entitybrian" \
+              --title "Emesis Renderer v1.1.2 — Made by Entitybrian" \
               --notes-file /tmp/release_notes.md \
               --latest
           fi

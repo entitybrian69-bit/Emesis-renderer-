@@ -10,7 +10,6 @@ import android.content.UriPermission;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
-import android.content.pm.ResolveInfo;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -47,7 +46,8 @@ public class MainActivity extends Activity {
 
     private static final String[][] KNOWN_POJAV_VARIANTS = new String[][] {
         {"net.kdt.pojavlaunch",                 "PojavLauncher (Official)",          "custom_env"},
-        {"net.kdt.pojavlaunch.debug",           "PojavLauncher (Debug / Nightly)",   "custom_env"},
+        {"net.kdt.pojavlaunch.debug",           "PojavLauncher / Custom Fork (Debug)", "custom_env"},
+        {"net.kdt.pojavlaunch.canary",          "PojavLauncher (Canary)",            "custom_env"},
         {"net.kdt.pojavlaunch.firefly",         "Pojav Firefly / PGW",               "plugin"},
         {"net.kdt.pojavlaunch.beta",            "PojavLauncher Beta / Zink",         "plugin"},
         {"com.movtery.pojavzh",                 "Pojav Glow Worm (PojavZH)",         "plugin"},
@@ -58,6 +58,7 @@ public class MainActivity extends Activity {
         {"com.movtery.zalithlauncher.v2.debug", "ZalithLauncher 2 (Debug)",          "plugin"},
         {"org.angelauramc.amethyst",            "Amethyst (Pojav Continuation)",     "custom_env"},
         {"org.angelauramc.amethyst.debug",      "Amethyst (Debug)",                  "custom_env"},
+        {"io.stamethyst",                       "Amethyst Variant",                  "custom_env"},
         {"git.artdeell.mojo",                   "MojoLauncher",                      "custom_env"},
         {"git.artdeell.mojo.debug",             "MojoLauncher (Debug)",              "custom_env"},
         {"git.artdeell.solcraft",               "SolCraftLauncher",                  "custom_env"},
@@ -94,7 +95,7 @@ public class MainActivity extends Activity {
         heroCard.addView(logoView, logoLp);
 
         TextView titleView = new TextView(this);
-        titleView.setText("EMESIS RENDERER v1.1.1");
+        titleView.setText("EMESIS RENDERER v1.1.2");
         titleView.setTextColor(Color.parseColor("#F3F7FA"));
         titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 23);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
@@ -124,6 +125,27 @@ public class MainActivity extends Activity {
         heroCard.addView(subView, subLp);
 
         root.addView(heroCard, cardParams());
+
+        // Optional 1-tap cleanup banner if legacy hidden v1.0.x package (com.entitybrian.emesis) is still installed
+        if (isLegacyV10Installed()) {
+            LinearLayout legacyCard = createCard("#1A140B", "#D97706");
+            legacyCard.addView(sectionHeader("LEGACY v1.0 CLEANUP AVAILABLE"));
+            legacyCard.addView(infoLine("Old Emesis v1.0 Package Detected",
+                    "An older v1.0 test package (com.entitybrian.emesis) is still installed on this phone. Tap below to remove the old duplicate so only v1.1.2+ remains."));
+            Button removeOldBtn = createButton("Uninstall Old v1.0 Package");
+            removeOldBtn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    try {
+                        Intent del = new Intent(Intent.ACTION_DELETE, Uri.parse("package:com.entitybrian.emesis"));
+                        startActivity(del);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            });
+            legacyCard.addView(removeOldBtn, marginTop(8));
+            root.addView(legacyCard, cardParams());
+        }
 
         // 2. Device & Native Plugin Verification Card
         LinearLayout statusCard = createCard("#101820", "#1F2937");
@@ -466,32 +488,43 @@ public class MainActivity extends Activity {
         return synced;
     }
 
+    private boolean isLegacyV10Installed() {
+        if ("com.entitybrian.emesis".equals(getPackageName())) {
+            return false;
+        }
+        try {
+            return getPackageManager().getPackageInfo("com.entitybrian.emesis", 0) != null;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     private Uri discoverPojavInitialSafUri() {
         if (Build.VERSION.SDK_INT < 21) return null;
         PackageManager pm = getPackageManager();
-        try {
-            Intent probe = new Intent("android.content.action.DOCUMENTS_PROVIDER");
-            List<ResolveInfo> providers = pm.queryIntentContentProviders(probe, 0);
-            if (providers != null) {
-                for (int i = 0; i < providers.size(); i++) {
-                    ProviderInfo pi = providers.get(i).providerInfo;
-                    if (pi == null || pi.authority == null || pi.packageName == null) continue;
-                    String pkg = pi.packageName;
-                    if (pkg.contains("pojav") || pkg.contains("amethyst")
-                            || pkg.contains("mojo") || pkg.contains("solcraft")
-                            || pkg.contains("qcxr")) {
-                        String rootDocId = "/storage/emulated/0/Android/data/" + pkg + "/files";
-                        return DocumentsContract.buildDocumentUri(pi.authority, rootDocId);
+        // Inspect declared DocumentsProviders on known Pojav packages via <queries><package .../>
+        for (int i = 0; i < KNOWN_POJAV_VARIANTS.length; i++) {
+            String pkg = KNOWN_POJAV_VARIANTS[i][0];
+            try {
+                PackageInfo pkgInfo = pm.getPackageInfo(pkg, PackageManager.GET_PROVIDERS);
+                if (pkgInfo != null && pkgInfo.providers != null) {
+                    for (int j = 0; j < pkgInfo.providers.length; j++) {
+                        ProviderInfo pi = pkgInfo.providers[j];
+                        if (pi != null && pi.authority != null && pi.authority.contains("gamefolder")) {
+                            String rootDocId = "/storage/emulated/0/Android/data/" + pkg + "/files";
+                            return DocumentsContract.buildDocumentUri(pi.authority, rootDocId);
+                        }
                     }
                 }
+            } catch (Throwable ignored) {
             }
-        } catch (Throwable ignored) {
         }
 
-        // Explicit fallback authority table for Official PojavLauncher, Debug, Amethyst, and Mojo
+        // Explicit fallback authority table for Official PojavLauncher, Debug/Custom Forks, Amethyst, and Mojo
         String[][] fallbackAuthorities = new String[][] {
             {"net.kdt.pojavlaunch.debug",     "net.kdt.pojavlaunch.scoped.gamefolder.debug"},
             {"net.kdt.pojavlaunch",           "net.kdt.pojavlaunch.scoped.gamefolder"},
+            {"net.kdt.pojavlaunch.canary",    "net.kdt.pojavlaunch.scoped.gamefolder.canary"},
             {"org.angelauramc.amethyst",      "org.angelauramc.amethyst.scoped.gamefolder"},
             {"org.angelauramc.amethyst.debug","org.angelauramc.amethyst.scoped.gamefolder.debug"},
             {"git.artdeell.mojo",             "git.artdeell.mojo.scoped.gamefolder"},
