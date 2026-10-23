@@ -8,10 +8,11 @@ KEYTOOL_BIN="${KEYTOOL_BIN:-$($PY_BIN -c 'import jdk4py; print(jdk4py.JAVA.paren
 AAPT2_BIN="${AAPT2_BIN:-/tmp/toolchain/npm_tools/aaptjs3-2.0.2/bin/x64/linux/aapt2}"
 ANDROID_JAR="${ANDROID_JAR:-/tmp/toolchain/android-platforms/android-34/android.jar}"
 ECJ_JAR="${ECJ_JAR:-/tmp/toolchain/ecj.jar}"
-D8_JAR="${D8_JAR:-$(find /tmp/toolchain/venv -name 'd8.jar' | head -n 1)}"
+D8_JAR="${D8_JAR:-$(find /tmp/toolchain/venv -name 'd8.jar' 2>/dev/null | head -n 1 || true)}"
+DX_JAR="${DX_JAR:-/tmp/toolchain/dx.jar}"
 APKSIGNER_JAR="${APKSIGNER_JAR:-/tmp/toolchain/npm_tools/postar-apktool-node-0.3.4/lib/apksigner.jar}"
 JNILIBS_DIR="${EMESIS_JNILIBS_OUT:-/tmp/emesis_build/jniLibs}"
-OUT_APK="${ROOT_DIR}/EmesisRenderer-Universal-v1.0.0.apk"
+OUT_APK="${ROOT_DIR}/EmesisRenderer-Universal-v1.1.0.apk"
 
 WORK_DIR="/tmp/emesis_apk_build"
 rm -rf "${WORK_DIR}"
@@ -35,8 +36,8 @@ needle = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
 replacement = (
     '<manifest xmlns:android="http://schemas.android.com/apk/res/android"\n'
     '    package="com.entitybrian.emesis"\n'
-    '    android:versionCode="102"\n'
-    '    android:versionName="1.0.0">\n\n'
+    '    android:versionCode="110"\n'
+    '    android:versionName="1.1.0">\n\n'
     '    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />'
 )
 assert needle in xml, "Expected manifest root tag not found"
@@ -58,14 +59,21 @@ JAVA_SOURCES=$(find "${WORK_DIR}/gen" "${ROOT_DIR}/app/src/main/java" -name "*.j
     -d "${WORK_DIR}/classes" \
     ${JAVA_SOURCES}
 
-echo "=== [4/6] Compiling DEX bytecode with d8 (min-api 21) ==="
+echo "=== [4/6] Compiling DEX bytecode (min-api 21) ==="
 CLASS_FILES=$(find "${WORK_DIR}/classes" -name "*.class" | sort)
-"${JAVA_BIN}" -cp "${D8_JAR}" com.android.tools.r8.D8 \
-    --release \
-    --min-api 21 \
-    --lib "${ANDROID_JAR}" \
-    --output "${WORK_DIR}/dex" \
-    ${CLASS_FILES}
+if [ -n "${D8_JAR}" ] && [ -f "${D8_JAR}" ]; then
+    "${JAVA_BIN}" -cp "${D8_JAR}" com.android.tools.r8.D8 \
+        --release \
+        --min-api 21 \
+        --lib "${ANDROID_JAR}" \
+        --output "${WORK_DIR}/dex" \
+        ${CLASS_FILES}
+else
+    "${JAVA_BIN}" -cp "${DX_JAR}" dx.dx.command.Main \
+        --dex \
+        --output="${WORK_DIR}/dex/classes.dex" \
+        "${WORK_DIR}/classes"
+fi
 
 echo "=== [5/6] Assembling Universal APK (armeabi-v7a, arm64-v8a, x86, x86_64) ==="
 JNILIBS_ENV="${JNILIBS_DIR}" WORK_ENV="${WORK_DIR}" "${PY_BIN}" - << 'PY'
@@ -90,17 +98,19 @@ PY
 "${PY_BIN}" "${ROOT_DIR}/tools/zipalign.py" "${WORK_DIR}/unaligned.apk" "${WORK_DIR}/aligned.apk"
 
 echo "=== [6/6] Signing Universal APK (v1 + v2 + v3 schemes) ==="
-KEYSTORE="${WORK_DIR}/emesis-release.jks"
-"${KEYTOOL_BIN}" -genkeypair \
-    -keystore "${KEYSTORE}" \
-    -storepass "emesis2026" \
-    -keypass "emesis2026" \
-    -alias "entitybrian" \
-    -keyalg RSA \
-    -keysize 2048 \
-    -sigalg SHA384withRSA \
-    -validity 10000 \
-    -dname "CN=Entitybrian, OU=Emesis Renderer, O=Entitybrian, L=Global, ST=Global, C=US"
+KEYSTORE="${ROOT_DIR}/tools/emesis-release.jks"
+if [ ! -f "${KEYSTORE}" ]; then
+    "${KEYTOOL_BIN}" -genkeypair \
+        -keystore "${KEYSTORE}" \
+        -storepass "emesis2026" \
+        -keypass "emesis2026" \
+        -alias "entitybrian" \
+        -keyalg RSA \
+        -keysize 2048 \
+        -sigalg SHA384withRSA \
+        -validity 10000 \
+        -dname "CN=Entitybrian, OU=Emesis Renderer, O=Entitybrian, L=Global, ST=Global, C=US"
+fi
 
 "${JAVA_BIN}" -jar "${APKSIGNER_JAR}" sign \
     --ks "${KEYSTORE}" \

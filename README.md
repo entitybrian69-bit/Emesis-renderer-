@@ -6,17 +6,17 @@
 
   **Universal All-in-One Android Renderer Plugin APK for All Pojav Variants & Minecraft: Java Edition**
 
-  [![Download Universal APK](https://img.shields.io/badge/Download-EmesisRenderer--Universal--v1.0.0.apk-00FF88?style=for-the-badge&logo=android&logoColor=080C0F)](https://github.com/entitybrian69-bit/Emesis-renderer-/releases/download/v1.0.0/EmesisRenderer-Universal-v1.0.0.apk)
+  [![Download Universal APK](https://img.shields.io/badge/Download-EmesisRenderer--Universal--v1.1.0.apk-00FF88?style=for-the-badge&logo=android&logoColor=080C0F)](https://github.com/entitybrian69-bit/Emesis-renderer-/releases/download/v1.1.0/EmesisRenderer-Universal-v1.1.0.apk)
 </div>
 
 ---
 
 ## Official Release Download
 
-- **Direct Universal APK Download (32-bit & 64-bit Android):**
-  [**`EmesisRenderer-Universal-v1.0.0.apk`**](https://github.com/entitybrian69-bit/Emesis-renderer-/releases/download/v1.0.0/EmesisRenderer-Universal-v1.0.0.apk)
-- **GitHub Release Page (`v1.0.0`):**
-  [https://github.com/entitybrian69-bit/Emesis-renderer-/releases/tag/v1.0.0](https://github.com/entitybrian69-bit/Emesis-renderer-/releases/tag/v1.0.0)
+- **Direct Universal APK Download (v1.1.0 — 32-bit & 64-bit Android):**
+  [**`EmesisRenderer-Universal-v1.1.0.apk`**](https://github.com/entitybrian69-bit/Emesis-renderer-/releases/download/v1.1.0/EmesisRenderer-Universal-v1.1.0.apk)
+- **GitHub Release Page (`v1.1.0`):**
+  [https://github.com/entitybrian69-bit/Emesis-renderer-/releases/tag/v1.1.0](https://github.com/entitybrian69-bit/Emesis-renderer-/releases/tag/v1.1.0)
 
 ---
 
@@ -51,7 +51,7 @@ Emesis Compatibility Core (`libemesis_legacy.so`) is purpose-engineered for stut
 
 ## Universal Device Architecture Support (Including 32-bit Android)
 
-A single **`EmesisRenderer-Universal-v1.0.0.apk`** supports Android 5.0+ (`minSdkVersion 21`) through Android 15/16+ (`targetSdkVersion 34`, 16KB page-aligned ELF segments) across **all four Android ABIs**:
+A single **`EmesisRenderer-Universal-v1.1.0.apk`** supports Android 5.0+ (`minSdkVersion 21`) through Android 15/16+ (`targetSdkVersion 34`, 16KB page-aligned ELF segments) across **all four Android ABIs**:
 
 - `armeabi-v7a` — **32-bit ARM** smartphones & tablets
 - `arm64-v8a` — **64-bit ARM** smartphones & tablets
@@ -81,11 +81,11 @@ Emesis Renderer implements **every** renderer integration contract across the Po
 ### Installation & Usage
 
 - **On Plugin-Enabled Pojav Variants (Zalith 1/2, Pojav Glow Worm, Pojav Beta-Zink, Pojav Firefly, FCL):**
-  1. Install **`EmesisRenderer-Universal-v1.0.0.apk`**.
-  2. Open your launcher's **Renderer Settings** and select **`Emesis Renderer (All Versions — Made by Entitybrian)`**.
+  1. Install **`EmesisRenderer-Universal-v1.1.0.apk`**.
+  2. Open your launcher's **Renderer Settings** and select **`Emesis Renderer v1.1.0 (All Versions — Made by Entitybrian)`**.
   3. Launch any Minecraft version (`<= 1.16.5` or `> 1.16.5`).
 
 - **On Vanilla Official PojavLauncher / Amethyst / MojoLauncher / QuestCraft:**
-  1. Install **`EmesisRenderer-Universal-v1.0.0.apk`** and open **Emesis Renderer** from your app drawer.
+  1. Install **`EmesisRenderer-Universal-v1.1.0.apk`** and open **Emesis Renderer** from your app drawer.
   2. In the **All Pojav Variants Compatibility** card, tap **Write to Pojav** or **Copy `custom_env`** to apply the pre-filled `custom_env.txt` bridge for your device's exact `nativeLibraryDir` path (keep the launcher's built-in renderer dropdown on default OpenGL ES 2.0).
   3. Launch any Minecraft version (`<= 1.16.5` or `> 1.16.5`) — Emesis Renderer automatically intercepts EGL + LWJGL/SDL OpenGL and routes to the matching native core.

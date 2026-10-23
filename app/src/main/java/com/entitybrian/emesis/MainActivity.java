@@ -82,17 +82,17 @@ public class MainActivity extends Activity {
         heroCard.addView(logoView, logoLp);
 
         TextView titleView = new TextView(this);
-        titleView.setText("EMESIS RENDERER");
+        titleView.setText("EMESIS RENDERER v1.1.0");
         titleView.setTextColor(Color.parseColor("#F3F7FA"));
-        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 23);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
         titleView.setGravity(Gravity.CENTER);
         heroCard.addView(titleView);
 
         TextView authorView = new TextView(this);
-        authorView.setText("Made by Entitybrian");
+        authorView.setText("Made by Entitybrian • <1.17 Shader Accelerator");
         authorView.setTextColor(Color.parseColor("#00FF88"));
-        authorView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        authorView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         authorView.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
         authorView.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams authorLp = new LinearLayout.LayoutParams(
