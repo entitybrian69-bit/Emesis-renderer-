@@ -741,6 +741,8 @@ static void clear_program(program_t* glprogram) {
     glprogram->parent_sync_count = 0;
     glprogram->uniform_gen = 1;
     glprogram->synced_parent_gen = 0;
+    memset(glprogram->va_size, 0, sizeof(glprogram->va_size));
+    glprogram->va_mask = 0;
     glprogram->cache.size = 0; // reset cache buffer
 }
 
@@ -900,6 +902,9 @@ static void fill_program(program_t* glprogram) {
                 glattribloc->real_index = i;
                 int builtin = builtin_CheckVertexAttrib(glprogram, name, id);
                 glprogram->va_size[id] = n_uniform(type); // same as uniform
+                if (id >= 0 && id < 32 && glprogram->va_size[id]) {
+                    glprogram->va_mask |= (1u << (unsigned)id);
+                }
                 DBG(SHUT_LOGD(" attrib #%d : \"%s\"%s type=%s size=%d\n", id, glattribloc->name,
                               builtin ? " (builtin) " : "", PrintEnum(glattribloc->type), glattribloc->size))
             }

@@ -224,6 +224,7 @@ typedef struct {
     int default_fragment;
     shaderconv_need_t* default_need; // filled only if default_vertex or default_fragment is used
     int va_size[MAX_VATTRIB];
+    uint32_t va_mask;
     khash_t(attribloclist) * attribloc;
     khash_t(uniformlist) * uniform;
     khash_t(uniformnamelist) * uniform_by_name;

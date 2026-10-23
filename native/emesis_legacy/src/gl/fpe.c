@@ -813,6 +813,12 @@ void APIENTRY_GL4ES fpe_EnableDisableClientState(GLenum cap, GLboolean val) {
         // actually send that to GLES1.1 hardware!
         if (glstate->gleshard->vertexattrib[att].enabled != val) {
             glstate->gleshard->vertexattrib[att].enabled = val;
+            if (att >= 0 && att < 32) {
+                if (val)
+                    glstate->gleshard->enabled_va_mask |= (1u << (unsigned)att);
+                else
+                    glstate->gleshard->enabled_va_mask &= ~(1u << (unsigned)att);
+            }
             LOAD_GLES(glEnableClientState);
             LOAD_GLES(glDisableClientState);
             if (val)
@@ -1591,10 +1597,29 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
         GO(Cube)
 #undef GO
     }
-    // set VertexAttrib if needed
-    for (int i = 0; i < hardext.maxvattrib; i++)
-        if (glprogram->va_size[i]) // only check used VA...
-        {
+    // set VertexAttrib if needed (bitmask-accelerated over active shader attributes)
+    {
+        int max_va = (hardext.maxvattrib > 0 && hardext.maxvattrib <= MAX_VATTRIB) ? hardext.maxvattrib : MAX_VATTRIB;
+        uint32_t max_mask = (max_va >= 32) ? ~0u : ((1u << (unsigned)max_va) - 1u);
+        uint32_t active_mask = glprogram->va_mask & max_mask;
+
+        uint32_t to_disable = glstate->gleshard->enabled_va_mask & ~active_mask;
+        while (to_disable) {
+            int i = __builtin_ctz(to_disable);
+            to_disable &= (to_disable - 1u);
+            vertexattrib_t* v = &glstate->gleshard->vertexattrib[i];
+            if (v->enabled) {
+                v->enabled = 0;
+                DBG(DBGLOGD("VertexAttribArray[%d]:%s\n", i, "Disable");)
+                gles_glDisableVertexAttribArray(i);
+            }
+            glstate->gleshard->enabled_va_mask &= ~(1u << (unsigned)i);
+        }
+
+        uint32_t mask = active_mask;
+        while (mask) {
+            int i = __builtin_ctz(mask);
+            mask &= (mask - 1u);
             vertexattrib_t* v = &glstate->gleshard->vertexattrib[i];
             vertexattrib_t* w = &glstate->vao->vertexattrib[i];
             int enabled = w->enabled;
@@ -1608,51 +1633,21 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
                 dirty = 1;
                 v->enabled = (w->divisor) ? 0 : enabled;
                 DBG(DBGLOGD("VertexAttribArray[%d]:%s, divisor=%d\n", i, (enabled) ? "Enable" : "Disable", w->divisor);)
-                if (v->enabled)
+                if (v->enabled) {
+                    glstate->gleshard->enabled_va_mask |= (1u << (unsigned)i);
                     gles_glEnableVertexAttribArray(i);
-                else
+                } else {
+                    glstate->gleshard->enabled_va_mask &= ~(1u << (unsigned)i);
                     gles_glDisableVertexAttribArray(i);
+                }
             }
             // check if new value has to be sent to hardware
             if (v->enabled) {
-                // array case
-                void* ptr = (void*)((uintptr_t)w->pointer + ((w->buffer) ? (uintptr_t)w->buffer->data : 0));
-                if (dirty || v->size != w->size || v->type != w->type || v->normalized != w->normalized ||
-                    v->stride != w->stride || v->buffer != w->buffer || (w->real_buffer == 0 && v->pointer != ptr) ||
-                    v->real_buffer != w->real_buffer || (w->real_buffer != 0 && v->real_pointer != w->real_pointer)) {
-                    if ((w->size == GL_BGRA || w->type == GL_DOUBLE) && scratch->size < 8) {
-                        // need to adjust, so first need the min/max (a shame as I already must have that somewhere)
-                        int imin, imax;
-                        if (type == 0) {
-                            imin = first;
-                            imax = count;
-                        } else {
-                            if (type == GL_UNSIGNED_INT)
-                                getminmax_indices_ui(indices, &imax, &imin, count);
-                            else
-                                getminmax_indices_us(indices, &imax, &imin, count);
-                            ++imax;
-                        }
-                        if (w->size == GL_BGRA) {
-                            v->size = 4;
-                            v->type = GL_FLOAT;
-                            v->normalized = 0;
-                            v->integer = 0;
-                            v->pointer = scratch->scratch[scratch->size++] =
-                                copy_gl_pointer_color_bgra(ptr, w->stride, 4, imin, imax);
-                            v->pointer = (char*)v->pointer - imin * 4 * sizeof(GLfloat); // adjust for min...
-                            v->stride = 0;
-                            v->buffer = NULL;
-                            v->real_buffer = 0;
-                        } else if (w->type == GL_DOUBLE) {
-                            // TODO
-                            static int warn = 1;
-                            if (warn) {
-                                DBGLOGD("LIBGL: VertexAttribArray using GL_DOUBLE unimplemented!\n");
-                                warn = 0;
-                            }
-                        }
-                    } else {
+                if (w->real_buffer != 0 && w->size != GL_BGRA && w->type != GL_DOUBLE) {
+                    /* Fast GPU VBO attribute path (Sodium/OptiFine/vanilla VBOs) */
+                    if (dirty || v->real_buffer != w->real_buffer || v->real_pointer != w->real_pointer ||
+                        v->size != w->size || v->type != w->type || v->normalized != w->normalized ||
+                        v->integer != w->integer || v->stride != w->stride) {
                         v->size = w->size;
                         v->type = w->type;
                         v->normalized = w->normalized;
@@ -1660,23 +1655,79 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
                         v->stride = w->stride;
                         v->real_buffer = w->real_buffer;
                         v->real_pointer = w->real_pointer;
-                        v->pointer = (v->real_buffer) ? v->real_pointer : ptr;
-                        v->buffer = w->buffer; // buffer is unused here
-                    }
-                    DBG(DBGLOGD("using Buffer %d\n", v->real_buffer);)
-                    bindBuffer(GL_ARRAY_BUFFER, v->real_buffer);
-
-                    if (v->integer) {
-                        if (gles_glVertexAttribIPointer)
+                        v->pointer = w->real_pointer;
+                        v->buffer = w->buffer;
+                        bindBuffer(GL_ARRAY_BUFFER, v->real_buffer);
+                        if (v->integer && gles_glVertexAttribIPointer) {
                             gles_glVertexAttribIPointer(i, v->size, v->type, v->stride, v->pointer);
-                        else
-                            gles_glVertexAttribPointer(i, v->size, v->type, 0, v->stride, v->pointer);
-                        DBG(DBGLOGD("glVertexAttribIPointer(%d, %d, %s, %d, %p)\n", i, v->size, PrintEnum(v->type),
-                                    v->stride, v->pointer);)
-                    } else {
-                        gles_glVertexAttribPointer(i, v->size, v->type, v->normalized, v->stride, v->pointer);
-                        DBG(DBGLOGD("glVertexAttribPointer(%d, %d, %s, %d, %d, %p)\n", i, v->size, PrintEnum(v->type),
-                                    v->normalized, v->stride, v->pointer);)
+                        } else {
+                            gles_glVertexAttribPointer(i, v->size, v->type, v->integer ? 0 : v->normalized, v->stride,
+                                                       v->pointer);
+                        }
+                    }
+                } else {
+                    // client-array / GL_BGRA / GL_DOUBLE path
+                    void* ptr = (void*)((uintptr_t)w->pointer + ((w->buffer) ? (uintptr_t)w->buffer->data : 0));
+                    if (dirty || v->size != w->size || v->type != w->type || v->normalized != w->normalized ||
+                        v->integer != w->integer || v->stride != w->stride || v->buffer != w->buffer ||
+                        (w->real_buffer == 0 && v->pointer != ptr) || v->real_buffer != w->real_buffer ||
+                        (w->real_buffer != 0 && v->real_pointer != w->real_pointer)) {
+                        if ((w->size == GL_BGRA || w->type == GL_DOUBLE) && scratch->size < 8) {
+                            int imin, imax;
+                            if (type == 0) {
+                                imin = first;
+                                imax = count;
+                            } else {
+                                if (type == GL_UNSIGNED_INT)
+                                    getminmax_indices_ui(indices, &imax, &imin, count);
+                                else
+                                    getminmax_indices_us(indices, &imax, &imin, count);
+                                ++imax;
+                            }
+                            if (w->size == GL_BGRA) {
+                                v->size = 4;
+                                v->type = GL_FLOAT;
+                                v->normalized = 0;
+                                v->integer = 0;
+                                v->pointer = scratch->scratch[scratch->size++] =
+                                    copy_gl_pointer_color_bgra(ptr, w->stride, 4, imin, imax);
+                                v->pointer = (char*)v->pointer - imin * 4 * sizeof(GLfloat);
+                                v->stride = 0;
+                                v->buffer = NULL;
+                                v->real_buffer = 0;
+                            } else if (w->type == GL_DOUBLE) {
+                                static int warn = 1;
+                                if (warn) {
+                                    DBGLOGD("LIBGL: VertexAttribArray using GL_DOUBLE unimplemented!\n");
+                                    warn = 0;
+                                }
+                            }
+                        } else {
+                            v->size = w->size;
+                            v->type = w->type;
+                            v->normalized = w->normalized;
+                            v->integer = w->integer;
+                            v->stride = w->stride;
+                            v->real_buffer = w->real_buffer;
+                            v->real_pointer = w->real_pointer;
+                            v->pointer = (v->real_buffer) ? v->real_pointer : ptr;
+                            v->buffer = w->buffer;
+                        }
+                        DBG(DBGLOGD("using Buffer %d\n", v->real_buffer);)
+                        bindBuffer(GL_ARRAY_BUFFER, v->real_buffer);
+
+                        if (v->integer) {
+                            if (gles_glVertexAttribIPointer)
+                                gles_glVertexAttribIPointer(i, v->size, v->type, v->stride, v->pointer);
+                            else
+                                gles_glVertexAttribPointer(i, v->size, v->type, 0, v->stride, v->pointer);
+                            DBG(DBGLOGD("glVertexAttribIPointer(%d, %d, %s, %d, %p)\n", i, v->size, PrintEnum(v->type),
+                                        v->stride, v->pointer);)
+                        } else {
+                            gles_glVertexAttribPointer(i, v->size, v->type, v->normalized, v->stride, v->pointer);
+                            DBG(DBGLOGD("glVertexAttribPointer(%d, %d, %s, %d, %d, %p)\n", i, v->size,
+                                        PrintEnum(v->type), v->normalized, v->stride, v->pointer);)
+                        }
                     }
                 }
             } else {
@@ -1714,15 +1765,8 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
                                 glstate->gleshard->vavalue[i][2], glstate->gleshard->vavalue[i][3]);)
                 }
             }
-        } else {
-            // disable VAArray, to be on the safe side
-            vertexattrib_t* v = &glstate->gleshard->vertexattrib[i];
-            if (v->enabled) {
-                v->enabled = 0;
-                DBG(DBGLOGD("VertexAttribArray[%d]:%s\n", i, "Disable");)
-                gles_glDisableVertexAttribArray(i);
-            }
         }
+    }
 }
 
 void realize_blitenv(int alpha) {
@@ -1742,10 +1786,13 @@ void realize_blitenv(int alpha) {
             LOAD_GLES2(glEnableVertexAttribArray)
             LOAD_GLES2(glDisableVertexAttribArray);
             v->enabled = ((i < 2) ? 1 : 0);
-            if (v->enabled)
+            if (v->enabled) {
+                if (i < 32) glstate->gleshard->enabled_va_mask |= (1u << (unsigned)i);
                 gles_glEnableVertexAttribArray(i);
-            else
+            } else {
+                if (i < 32) glstate->gleshard->enabled_va_mask &= ~(1u << (unsigned)i);
                 gles_glDisableVertexAttribArray(i);
+            }
         }
         // check if new value has to be sent to hardware
         if (i < 2) {

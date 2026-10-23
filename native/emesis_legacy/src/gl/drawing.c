@@ -465,14 +465,16 @@ if(count>500000) return;
             }
         }
 
-        for (int aa = 0; aa < hardext.maxtex; aa++) {
-            if (!IS_TEX2D(glstate->enable.texture[aa]) && (IS_ANYTEX(glstate->enable.texture[aa]))) {
-                gl4es_glActiveTexture(GL_TEXTURE0 + aa);
-                realize_active();
-                gles_glDisable(GL_TEXTURE_2D);
+        if (hardext.esversion == 1) {
+            for (int aa = 0; aa < hardext.maxtex; aa++) {
+                if (!IS_TEX2D(glstate->enable.texture[aa]) && (IS_ANYTEX(glstate->enable.texture[aa]))) {
+                    gl4es_glActiveTexture(GL_TEXTURE0 + aa);
+                    realize_active();
+                    gles_glDisable(GL_TEXTURE_2D);
+                }
             }
+            if (glstate->texture.client != old_tex) TEXTURE(old_tex);
         }
-        if (glstate->texture.client != old_tex) TEXTURE(old_tex);
 #undef TEXTURE
     }
 }
@@ -978,153 +980,185 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArrays(GLenum mode, const GLint* firsts, co
             if (!any_en) all_vbo_attribs = 0;
         }
 
-        if (draw_mode == GL_QUADS && hardext.esversion > 1) {
-            size_t total_quads = 0;
-            size_t max_vert = 0;
-            int all_aligned = 1;
-            int valid_prims = 0;
-            for (int i = 0; i < primcount; ++i) {
-                if (counts[i] < 0) {
-                    errorShim(GL_INVALID_VALUE);
-                    return;
-                }
-                GLsizei q = counts[i] / 4;
-                if (q <= 0 || firsts[i] < 0) continue;
-                total_quads += (size_t)q;
-                size_t end_v = (size_t)firsts[i] + (size_t)q * 4;
-                if (end_v > max_vert) max_vert = end_v;
-                if (firsts[i] & 3) all_aligned = 0;
-                ++valid_prims;
-            }
-            if (total_quads == 0) {
-                noerrorShim();
-                return;
-            }
-            if (valid_prims == 1) {
+        if (draw_mode == GL_QUADS && hardext.esversion > 1 && glstate->render_mode != GL_SELECT) {
+            /* Coalesce contiguous (first, count) quad slices in-place (Sodium ChunkRenderBackendOneshot packs
+             * visible faces sequentially inside each chunk VBO, merging 2..7 slices into 1..3 runs) */
+            GLint stack_rfirst[256];
+            GLsizei stack_rnquads[256];
+            GLint* rfirst = (primcount <= 256) ? stack_rfirst : (GLint*)malloc((size_t)primcount * sizeof(GLint));
+            GLsizei* rnquads =
+                (primcount <= 256) ? stack_rnquads : (GLsizei*)malloc((size_t)primcount * sizeof(GLsizei));
+            if (rfirst && rnquads) {
+                int n_runs = 0;
+                size_t max_vert = 0;
+                int all_aligned = 1;
                 for (int i = 0; i < primcount; ++i) {
-                    if (counts[i] >= 4 && firsts[i] >= 0) {
-                        draw_quads_arrays_fast(firsts[i], counts[i], 1);
-                        break;
+                    if (counts[i] < 0) {
+                        if (rfirst != stack_rfirst) free(rfirst);
+                        if (rnquads != stack_rnquads) free(rnquads);
+                        errorShim(GL_INVALID_VALUE);
+                        return;
+                    }
+                    GLsizei q = counts[i] / 4;
+                    if (q <= 0 || firsts[i] < 0) continue;
+                    GLint f = firsts[i];
+                    size_t end_v = (size_t)f + (size_t)q * 4;
+                    if (end_v > max_vert) max_vert = end_v;
+                    if (n_runs > 0 && (size_t)rfirst[n_runs - 1] + (size_t)rnquads[n_runs - 1] * 4 == (size_t)f) {
+                        rnquads[n_runs - 1] += q;
+                    } else {
+                        if (f & 3) all_aligned = 0;
+                        rfirst[n_runs] = f;
+                        rnquads[n_runs] = q;
+                        ++n_runs;
                     }
                 }
-                return;
-            }
-            /* Zero-upload GPU quad_ibo + glMultiDrawElementsEXT batch */
-            if (all_vbo_attribs && all_aligned && hardext.multidraw &&
-                ((max_vert <= 65536 && ensure_gpu_quad_ibo_u16(max_vert >> 2)) ||
-                 (max_vert > 65536 && ensure_gpu_quad_ibo_u32(max_vert >> 2)))) {
-                LOAD_GLES_EXT(glMultiDrawElements);
-                if (gles_glMultiDrawElements) {
+                if (n_runs == 0) {
+                    if (rfirst != stack_rfirst) free(rfirst);
+                    if (rnquads != stack_rnquads) free(rnquads);
+                    noerrorShim();
+                    return;
+                }
+
+                /* Universal zero-upload GPU quad_ibo path: works on BOTH hardext.multidraw == 1 (Adreno)
+                 * AND hardext.multidraw == 0 (ARM Mali), keeping quad_ibo persistently bound in VRAM
+                 * with a single realize_glenv + realize_textures pass and zero CPU index generation. */
+                if (all_vbo_attribs && all_aligned &&
+                    ((max_vert <= 65536 && ensure_gpu_quad_ibo_u16(max_vert >> 2)) ||
+                     (max_vert > 65536 && ensure_gpu_quad_ibo_u32(max_vert >> 2)))) {
+                    if (glstate->raster.bm_drawing) bitmap_flush();
                     int use_u32 = (max_vert > 65536);
                     glbuffer_t* qibo = use_u32 ? &glstate->quad_ibo_u32 : &glstate->quad_ibo_u16;
                     size_t idx_bytes = use_u32 ? sizeof(GLuint) : sizeof(GLushort);
                     GLenum idx_type = use_u32 ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT;
 
-                    GLsizei stack_cnts[256];
-                    const void* stack_offs[256];
-                    GLsizei* sub_cnts = (valid_prims <= 256)
-                                            ? stack_cnts
-                                            : (GLsizei*)malloc((size_t)valid_prims * sizeof(GLsizei));
-                    const void** sub_offs = (valid_prims <= 256)
-                                                ? stack_offs
-                                                : (const void**)malloc((size_t)valid_prims * sizeof(void*));
-                    if (sub_cnts && sub_offs) {
-                        int k = 0;
-                        for (int i = 0; i < primcount; ++i) {
-                            GLsizei q = counts[i] / 4;
-                            if (q <= 0 || firsts[i] < 0) continue;
-                            sub_cnts[k] = q * 6;
-                            sub_offs[k] = (const void*)(((size_t)firsts[i] >> 2) * 6 * idx_bytes);
-                            ++k;
-                        }
-                        glbuffer_t* prev_elem = glstate->vao->elements;
-                        GLuint prev_want = glstate->bind_buffer.want_index;
-                        glstate->vao->elements = qibo;
-                        scratch_t scratch = {0};
-                        realize_glenv(0, 0, (int)max_vert, 0, NULL, &scratch);
-                        realize_textures(1);
-                        bindBuffer(GL_ELEMENT_ARRAY_BUFFER, qibo->real_buffer);
-                        gles_glMultiDrawElements(GL_TRIANGLES, sub_cnts, idx_type, sub_offs, k);
-                        free_scratch(&scratch);
-                        glstate->vao->elements = prev_elem;
-                        glstate->bind_buffer.want_index = prev_want;
-                        if (sub_cnts != stack_cnts) free(sub_cnts);
-                        if (sub_offs != stack_offs) free(sub_offs);
-                        errorGL();
-                        return;
-                    }
-                    if (sub_cnts && sub_cnts != stack_cnts) free(sub_cnts);
-                    if (sub_offs && sub_offs != stack_offs) free(sub_offs);
-                }
-            }
-            /* Single merged glDrawElements fallback across all quad sub-draws */
-            GLsizei total_idx = (GLsizei)(total_quads * 6);
-            GLuint old_buffer = wantBufferIndex(0);
-            if (max_vert > 65536 && hardext.elementuint) {
-                gl4es_scratch((size_t)total_idx * sizeof(GLuint));
-                GLuint* p = (GLuint*)glstate->scratch;
-                for (int i = 0; i < primcount; ++i) {
-                    GLsizei q = counts[i] / 4;
-                    if (q <= 0 || firsts[i] < 0) continue;
-                    for (GLsizei j = 0; j < q; ++j) {
-                        GLuint v = (GLuint)firsts[i] + (GLuint)(j * 4);
-                        p[0] = v + 0; p[1] = v + 1; p[2] = v + 2;
-                        p[3] = v + 0; p[4] = v + 2; p[5] = v + 3;
-                        p += 6;
-                    }
-                }
-                glDrawElementsCommon(GL_TRIANGLES, 0, total_idx, (GLuint)max_vert, NULL,
-                                     (const GLuint*)glstate->scratch, 1);
-            } else if (max_vert <= 65536) {
-                gl4es_scratch((size_t)total_idx * sizeof(GLushort));
-                GLushort* p = (GLushort*)glstate->scratch;
-                for (int i = 0; i < primcount; ++i) {
-                    GLsizei q = counts[i] / 4;
-                    if (q <= 0 || firsts[i] < 0) continue;
-                    for (GLsizei j = 0; j < q; ++j) {
-                        GLushort v = (GLushort)(firsts[i] + j * 4);
-                        p[0] = v + 0; p[1] = v + 1; p[2] = v + 2;
-                        p[3] = v + 0; p[4] = v + 2; p[5] = v + 3;
-                        p += 6;
-                    }
-                }
-                glDrawElementsCommon(GL_TRIANGLES, 0, total_idx, (GLuint)max_vert,
-                                     (const GLushort*)glstate->scratch, NULL, 1);
-            } else {
-                wantBufferIndex(old_buffer);
-                for (int i = 0; i < primcount; ++i) {
-                    if (counts[i] >= 4 && firsts[i] >= 0) draw_quads_arrays_fast(firsts[i], counts[i], 1);
-                }
-                return;
-            }
-            wantBufferIndex(old_buffer);
-            return;
-        }
+                    glbuffer_t* prev_elem = glstate->vao->elements;
+                    GLuint prev_want = glstate->bind_buffer.want_index;
+                    glstate->vao->elements = qibo;
 
-        if (draw_mode != GL_QUADS && draw_mode != GL_QUAD_STRIP && draw_mode != GL_POLYGON && hardext.multidraw &&
-            all_vbo_attribs) {
-            LOAD_GLES_EXT(glMultiDrawArrays);
-            if (gles_glMultiDrawArrays) {
-                GLsizei max_end = 0;
-                for (int i = 0; i < primcount; ++i) {
-                    if (counts[i] < 0) {
-                        errorShim(GL_INVALID_VALUE);
-                        return;
+                    realize_textures(1);
+                    scratch_t scratch = {0};
+                    realize_glenv(0, 0, (int)max_vert, 0, NULL, &scratch);
+                    bindBuffer(GL_ELEMENT_ARRAY_BUFFER, qibo->real_buffer);
+
+                    int drew_multi = 0;
+                    if (n_runs >= 2 && hardext.multidraw) {
+                        LOAD_GLES_EXT(glMultiDrawElements);
+                        if (gles_glMultiDrawElements &&
+                            (void*)gles_glMultiDrawElements != (void*)gl4es_glMultiDrawElements) {
+                            GLsizei stack_cnts[256];
+                            const void* stack_offs[256];
+                            GLsizei* sub_cnts = (n_runs <= 256)
+                                                    ? stack_cnts
+                                                    : (GLsizei*)malloc((size_t)n_runs * sizeof(GLsizei));
+                            const void** sub_offs = (n_runs <= 256)
+                                                        ? stack_offs
+                                                        : (const void**)malloc((size_t)n_runs * sizeof(void*));
+                            if (sub_cnts && sub_offs) {
+                                for (int r = 0; r < n_runs; ++r) {
+                                    sub_cnts[r] = rnquads[r] * 6;
+                                    sub_offs[r] = (const void*)(((size_t)rfirst[r] >> 2) * 6 * idx_bytes);
+                                }
+                                gles_glMultiDrawElements(GL_TRIANGLES, sub_cnts, idx_type, sub_offs, n_runs);
+                                drew_multi = 1;
+                            }
+                            if (sub_cnts && sub_cnts != stack_cnts) free(sub_cnts);
+                            if (sub_offs && sub_offs != stack_offs) free(sub_offs);
+                        }
                     }
-                    if (counts[i] > 0 && firsts[i] + counts[i] > max_end) max_end = firsts[i] + counts[i];
-                }
-                if (max_end == 0) {
-                    noerrorShim();
+                    if (!drew_multi) {
+                        LOAD_GLES2(glDrawElements);
+                        for (int r = 0; r < n_runs; ++r) {
+                            gles_glDrawElements(GL_TRIANGLES, rnquads[r] * 6, idx_type,
+                                                (const void*)(((size_t)rfirst[r] >> 2) * 6 * idx_bytes));
+                        }
+                    }
+
+                    free_scratch(&scratch);
+                    glstate->vao->elements = prev_elem;
+                    glstate->bind_buffer.want_index = prev_want;
+                    if (rfirst != stack_rfirst) free(rfirst);
+                    if (rnquads != stack_rnquads) free(rnquads);
+                    errorGL();
                     return;
                 }
-                scratch_t scratch = {0};
-                realize_glenv(draw_mode == GL_POINTS, 0, max_end, 0, NULL, &scratch);
-                realize_textures(1);
-                gles_glMultiDrawArrays(draw_mode, firsts, counts, primcount);
-                free_scratch(&scratch);
+
+                /* Fallback for client-pointer/BGRA/unaligned/huge (>256k vert) quad draws:
+                 * never unbind GL_ELEMENT_ARRAY_BUFFER across VBO chunks */
+                for (int r = 0; r < n_runs; ++r) {
+                    draw_quads_arrays_fast(rfirst[r], rnquads[r] * 4, 1);
+                }
+                if (rfirst != stack_rfirst) free(rfirst);
+                if (rnquads != stack_rnquads) free(rnquads);
                 errorGL();
                 return;
             }
+            if (rfirst && rfirst != stack_rfirst) free(rfirst);
+            if (rnquads && rnquads != stack_rnquads) free(rnquads);
+        }
+
+        if (draw_mode != GL_QUADS && draw_mode != GL_QUAD_STRIP && draw_mode != GL_POLYGON && hardext.esversion > 1 &&
+            all_vbo_attribs && glstate->render_mode != GL_SELECT) {
+            int can_merge = (draw_mode == GL_TRIANGLES || draw_mode == GL_LINES || draw_mode == GL_POINTS);
+            GLint stack_rf[256];
+            GLsizei stack_rc[256];
+            GLint* rf = (primcount <= 256) ? stack_rf : (GLint*)malloc((size_t)primcount * sizeof(GLint));
+            GLsizei* rc = (primcount <= 256) ? stack_rc : (GLsizei*)malloc((size_t)primcount * sizeof(GLsizei));
+            if (rf && rc) {
+                int n_runs = 0;
+                GLsizei max_end = 0;
+                for (int i = 0; i < primcount; ++i) {
+                    if (counts[i] < 0) {
+                        if (rf != stack_rf) free(rf);
+                        if (rc != stack_rc) free(rc);
+                        errorShim(GL_INVALID_VALUE);
+                        return;
+                    }
+                    GLsizei c = adjust_vertices(draw_mode, counts[i]);
+                    if (c <= 0 || firsts[i] < 0) continue;
+                    GLint f = firsts[i];
+                    if (f + c > max_end) max_end = f + c;
+                    if (can_merge && n_runs > 0 && rf[n_runs - 1] + rc[n_runs - 1] == f) {
+                        rc[n_runs - 1] += c;
+                    } else {
+                        rf[n_runs] = f;
+                        rc[n_runs] = c;
+                        ++n_runs;
+                    }
+                }
+                if (n_runs == 0) {
+                    if (rf != stack_rf) free(rf);
+                    if (rc != stack_rc) free(rc);
+                    noerrorShim();
+                    return;
+                }
+                if (glstate->raster.bm_drawing) bitmap_flush();
+                realize_textures(1);
+                scratch_t scratch = {0};
+                realize_glenv(draw_mode == GL_POINTS, 0, max_end, 0, NULL, &scratch);
+                int drew_multi = 0;
+                if (n_runs >= 2 && hardext.multidraw) {
+                    LOAD_GLES_EXT(glMultiDrawArrays);
+                    if (gles_glMultiDrawArrays &&
+                        (void*)gles_glMultiDrawArrays != (void*)gl4es_glMultiDrawArrays) {
+                        gles_glMultiDrawArrays(draw_mode, rf, rc, n_runs);
+                        drew_multi = 1;
+                    }
+                }
+                if (!drew_multi) {
+                    LOAD_GLES(glDrawArrays);
+                    for (int r = 0; r < n_runs; ++r) {
+                        gles_glDrawArrays(draw_mode, rf[r], rc[r]);
+                    }
+                }
+                free_scratch(&scratch);
+                if (rf != stack_rf) free(rf);
+                if (rc != stack_rc) free(rc);
+                errorGL();
+                return;
+            }
+            if (rf && rf != stack_rf) free(rf);
+            if (rc && rc != stack_rc) free(rc);
         }
     }
 
@@ -1249,7 +1283,8 @@ void APIENTRY_GL4ES gl4es_glMultiDrawElements(GLenum mode, GLsizei* counts, GLen
 
     if (hardext.multidraw && elem_buf) {
         LOAD_GLES_EXT(glMultiDrawElements);
-        if (gles_glMultiDrawElements) {
+        if (gles_glMultiDrawElements &&
+            (void*)gles_glMultiDrawElements != (void*)gl4es_glMultiDrawElements) {
             gles_glMultiDrawElements(draw_mode, counts, type, indices, primcount);
             glstate->bind_buffer.want_index = prev_want;
             free_scratch(&scratch);

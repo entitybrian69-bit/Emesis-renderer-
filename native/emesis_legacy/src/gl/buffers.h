@@ -11,6 +11,7 @@ typedef struct {
     GLuint real_buffer;
     GLenum type;
     GLsizeiptr size;
+    GLsizeiptr cap;
     GLenum usage;
     GLint access;
     int mapped;

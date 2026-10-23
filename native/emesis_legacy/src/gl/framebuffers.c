@@ -238,16 +238,8 @@ void APIENTRY_GL4ES gl4es_glBindFramebuffer(GLenum target, GLuint framebuffer) {
     DBG(SHUT_LOGD("glBindFramebuffer(%s, %u), list=%s, glstate->fbo.current_fb=%d (draw=%d, read=%d)\n",
                   PrintEnum(target), framebuffer, glstate->list.active ? "active" : "none", glstate->fbo.current_fb->id,
                   glstate->fbo.fbo_draw->id, glstate->fbo.fbo_read->id);)
-    if (target == GL_FRAMEBUFFER) {
-        gl4es_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
-        gl4es_glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
-        return;
-    }
-
     PUSH_IF_COMPILING(glBindFramebuffer);
     LOAD_GLES2_OR_OES(glBindFramebuffer);
-    //    LOAD_GLES2_OR_OES(glCheckFramebufferStatus);
-    LOAD_GLES(glGetError);
 
     glframebuffer_t* fb = find_framebuffer(framebuffer);
     if (!fb) {
@@ -258,35 +250,24 @@ void APIENTRY_GL4ES gl4es_glBindFramebuffer(GLenum target, GLuint framebuffer) {
     if (target == GL_FRAMEBUFFER) {
         glstate->fbo.fbo_read = fb;
         glstate->fbo.fbo_draw = fb;
-    }
-
-    if (target == GL_READ_FRAMEBUFFER) {
+        glstate->fbo.internal = 0;
+    } else if (target == GL_READ_FRAMEBUFFER) {
         glstate->fbo.fbo_read = fb;
-        noerrorShim();
         glstate->fbo.internal = 0;
-        //        return;    //don't bind for now
-    } else
-        glstate->fbo.internal = 0;
-
-    if (target == GL_DRAW_FRAMEBUFFER) {
-        // target = GL_FRAMEBUFFER;
+    } else if (target == GL_DRAW_FRAMEBUFFER) {
         glstate->fbo.fbo_draw = fb;
+        glstate->fbo.internal = 0;
+    } else {
+        errorShim(GL_INVALID_ENUM);
+        return;
     }
 
-    //    if (target != GL_FRAMEBUFFER) {
-    //        errorShim(GL_INVALID_ENUM);
-    //        return;
-    //    }
-
-    if (framebuffer == 0) framebuffer = glstate->fbo.mainfbo_fbo;
-
+    GLuint real_fb = (framebuffer == 0) ? glstate->fbo.mainfbo_fbo : framebuffer;
     glstate->fbo.current_fb = fb;
 
-    gles_glBindFramebuffer(target, framebuffer);
-    GLenum err = gles_glGetError();
-    errorShim(err);
-
-    //    glstate->fbo.fb_status = (framebuffer==0)?GL_FRAMEBUFFER_COMPLETE:gles_glCheckFramebufferStatus(target);
+    GLenum real_target = (hardext.esversion >= 3) ? target : GL_FRAMEBUFFER;
+    gles_glBindFramebuffer(real_target, real_fb);
+    errorGL();
 }
 
 GLenum ReadDraw_Push(GLenum target) {
@@ -1017,7 +998,11 @@ void APIENTRY_GL4ES gl4es_glFramebufferRenderbuffer(GLenum target, GLenum attach
 }
 
 void gl4es_invalidate_fbo_phys_cache(GLuint glname, GLboolean is_rb) {
-    if (!glname || !glstate || !glstate->fbo.framebufferlist) return;
+    if (!glname) return;
+    if (!is_rb) {
+        gl4es_invalidate_copy_fbo_cache(glname);
+    }
+    if (!glstate || !glstate->fbo.framebufferlist) return;
     glframebuffer_t* fb;
     kh_foreach_value(glstate->fbo.framebufferlist, fb, {
         if (!fb) continue;

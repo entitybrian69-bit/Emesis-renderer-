@@ -177,6 +177,7 @@ typedef struct {
     GLuint active; // active texture (is it shared?)
     vertexattrib_t vertexattrib[MAX_VATTRIB];
     GLfloat vavalue[MAX_VATTRIB][4];
+    uint32_t enabled_va_mask;
 } gleshard_t;
 
 typedef struct {

@@ -249,15 +249,35 @@ extern "C"
 #define LOAD_GLES_OES(name)                                                                                            \
     DEFINE_RAW(gles, name);                                                                                            \
     {                                                                                                                  \
-        LOAD_EGL(eglGetProcAddress);                                                                                   \
-        LOAD_RAW(gles, name, egl_eglGetProcAddress(#name "OES"));                                                      \
+        static bool first = true;                                                                                      \
+        if (first) {                                                                                                   \
+            first = false;                                                                                             \
+            if (gles != NULL) {                                                                                        \
+                gles_##name = (name##_PTR)proc_address(gles, #name "OES");                                             \
+                if (!gles_##name) {                                                                                    \
+                    LOAD_EGL(eglGetProcAddress);                                                                       \
+                    if (egl_eglGetProcAddress) gles_##name = (name##_PTR)egl_eglGetProcAddress(#name "OES");           \
+                }                                                                                                      \
+            }                                                                                                          \
+            WARN_NULL(gles_##name);                                                                                    \
+        }                                                                                                              \
     }
 
 #define LOAD_GLES_EXT(name)                                                                                            \
     DEFINE_RAW(gles, name);                                                                                            \
     {                                                                                                                  \
-        LOAD_EGL(eglGetProcAddress);                                                                                   \
-        LOAD_RAW(gles, name, egl_eglGetProcAddress(#name "EXT"));                                                      \
+        static bool first = true;                                                                                      \
+        if (first) {                                                                                                   \
+            first = false;                                                                                             \
+            if (gles != NULL) {                                                                                        \
+                gles_##name = (name##_PTR)proc_address(gles, #name "EXT");                                             \
+                if (!gles_##name) {                                                                                    \
+                    LOAD_EGL(eglGetProcAddress);                                                                       \
+                    if (egl_eglGetProcAddress) gles_##name = (name##_PTR)egl_eglGetProcAddress(#name "EXT");           \
+                }                                                                                                      \
+            }                                                                                                          \
+            WARN_NULL(gles_##name);                                                                                    \
+        }                                                                                                              \
     }
 
 #define LOAD_GLES3_OR_EXT(name)                                                                                        \
@@ -266,10 +286,17 @@ extern "C"
         static bool first = true;                                                                                      \
         if (first) {                                                                                                   \
             first = false;                                                                                             \
-            LOAD_EGL(eglGetProcAddress);                                                                               \
             if (gles != NULL) {                                                                                        \
-                name##_PTR origin = (name##_PTR)egl_eglGetProcAddress(#name);                                          \
-                gles_##name = (name##_PTR)(origin ? origin : egl_eglGetProcAddress(#name "EXT"));                      \
+                name##_PTR origin = (name##_PTR)proc_address(gles, #name);                                             \
+                if (!origin) origin = (name##_PTR)proc_address(gles, #name "EXT");                                     \
+                if (!origin) {                                                                                         \
+                    LOAD_EGL(eglGetProcAddress);                                                                       \
+                    if (egl_eglGetProcAddress) {                                                                       \
+                        origin = (name##_PTR)egl_eglGetProcAddress(#name);                                             \
+                        if (!origin) origin = (name##_PTR)egl_eglGetProcAddress(#name "EXT");                          \
+                    }                                                                                                  \
+                }                                                                                                      \
+                gles_##name = origin;                                                                                  \
             }                                                                                                          \
             WARN_NULL(gles_##name);                                                                                    \
         }                                                                                                              \

@@ -375,6 +375,12 @@ static void emesis_init_engine_once(void) {
         if (!force_es2 || strcmp(force_es2, "1") != 0) {
             setenv("LIBGL_ES", "3", 1);
         }
+        /* Ensure bare V1 launcher forks that skip pojavEnv still disable synchronous glGetError
+           stalls and report OpenGL 3.1 capability to Sodium/Iris/OptiFine. */
+        setenv("LIBGL_GL", "31", 0);
+        setenv("LIBGL_NOERROR", "1", 0);
+        setenv("LIBGL_MIPMAP", "3", 0);
+        setenv("LIBGL_NOINTOVLHACK", "1", 0);
         const char* cache_dir = getenv("EMESIS_SHADER_CACHE_DIR");
         bool cache_ok = false;
         if (cache_dir && *cache_dir) {
@@ -412,7 +418,7 @@ static void emesis_init_engine_once(void) {
         return;
     }
 
-    EMESIS_LOGI("Emesis Renderer v1.1.5 (Made by Entitybrian) -> Selected [%s] for MC [%s] via [%s]",
+    EMESIS_LOGI("Emesis Renderer v1.1.6 (Made by Entitybrian) -> Selected [%s] for MC [%s] via [%s]",
                 target_soname, g_decision.detected_version, g_decision.detection_source);
 
     if (g_decision.engine == EMESIS_ENGINE_MODERN) {
@@ -812,7 +818,7 @@ __attribute__((visibility("default"))) void* glXGetProcAddressARB(const char* pr
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL
 Java_com_entitybrian_emesis_EmesisNative_getEngineVersion(JNIEnv* env, jclass cls) {
     (void)cls;
-    return (*env)->NewStringUTF(env, "Emesis Renderer v1.1.5 (Shader Accelerator) — Made by Entitybrian");
+    return (*env)->NewStringUTF(env, "Emesis Renderer v1.1.6 (Shader Accelerator) — Made by Entitybrian");
 }
 
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL

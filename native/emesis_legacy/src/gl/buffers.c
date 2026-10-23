@@ -142,6 +142,7 @@ void APIENTRY_GL4ES gl4es_glGenBuffers(GLsizei n, GLuint* buffers) {
         buff->data = NULL;
         buff->usage = GL_STATIC_DRAW;
         buff->size = 0;
+        buff->cap = 0;
         buff->access = GL_READ_WRITE;
         buff->mapped = 0;
         buff->real_buffer = 0;
@@ -177,6 +178,7 @@ void APIENTRY_GL4ES gl4es_glBindBuffer(GLenum target, GLuint buffer) {
             buff->data = NULL;
             buff->usage = GL_STATIC_DRAW;
             buff->size = 0;
+            buff->cap = 0;
             buff->access = GL_READ_WRITE;
             buff->mapped = 0;
             buff->real_buffer = 0;
@@ -232,16 +234,20 @@ void APIENTRY_GL4ES gl4es_glBufferData(GLenum target, GLsizeiptr size, const GLv
         DBG(SHUT_LOGD(" => real VBO %d\n", buff->real_buffer);)
     }
 
-    if (buff->data && buff->size < size) {
-        free(buff->data);
-        buff->data = NULL;
+    if (size > buff->cap || !buff->data) {
+        GLsizeiptr new_cap = (size > 0) ? size : 16;
+        if (buff->cap > 0 && new_cap < buff->cap * 2 && new_cap <= (4 * 1024 * 1024)) {
+            new_cap = buff->cap * 2;
+        }
+        if (buff->data) free(buff->data);
+        buff->data = malloc((size_t)new_cap);
+        buff->cap = buff->data ? new_cap : 0;
     }
-    if (!buff->data) buff->data = malloc(size);
     buff->size = size;
     buff->usage = usage;
-    DBG(SHUT_LOGD("\t buff->data = %p (size=%zd)\n", buff->data, size);)
+    DBG(SHUT_LOGD("\t buff->data = %p (size=%zd, cap=%zd)\n", buff->data, size, buff->cap);)
     buff->access = GL_READ_WRITE;
-    if (data) memcpy(buff->data, data, size);
+    if (data && buff->data && size > 0) memcpy(buff->data, data, (size_t)size);
     // update binded VA
     for (int i = 0; i < hardext.maxvattrib; ++i) {
         vertexattrib_t* v = &glstate->vao->vertexattrib[i];
@@ -260,9 +266,6 @@ void APIENTRY_GL4ES gl4es_glNamedBufferData(GLuint buffer, GLsizeiptr size, cons
         DBG(SHUT_LOGD("Named Buffer not found\n");)
         errorShim(GL_INVALID_OPERATION);
         return;
-    }
-    if (buff->data) {
-        free(buff->data);
     }
     int go_real = 0;
     if ((buff->type == GL_ARRAY_BUFFER || buff->type == GL_ELEMENT_ARRAY_BUFFER) &&
@@ -290,11 +293,19 @@ void APIENTRY_GL4ES gl4es_glNamedBufferData(GLuint buffer, GLsizeiptr size, cons
         gles_glBufferData(buff->type, size, data, usage);
     }
 
+    if (size > buff->cap || !buff->data) {
+        GLsizeiptr new_cap = (size > 0) ? size : 16;
+        if (buff->cap > 0 && new_cap < buff->cap * 2 && new_cap <= (4 * 1024 * 1024)) {
+            new_cap = buff->cap * 2;
+        }
+        if (buff->data) free(buff->data);
+        buff->data = malloc((size_t)new_cap);
+        buff->cap = buff->data ? new_cap : 0;
+    }
     buff->size = size;
     buff->usage = usage;
-    buff->data = malloc(size);
     buff->access = GL_READ_WRITE;
-    if (data) memcpy(buff->data, data, size);
+    if (data && buff->data && size > 0) memcpy(buff->data, data, (size_t)size);
     // update binded VA
     for (int i = 0; i < hardext.maxvattrib; ++i) {
         vertexattrib_t* v = &glstate->vao->vertexattrib[i];
@@ -389,8 +400,15 @@ void APIENTRY_GL4ES gl4es_glDeleteBuffers(GLsizei n, const GLuint* buffers) {
                         deleteSingleBuffer(buff->real_buffer);
                     }
                     if (glstate->gleshard) {
+                        LOAD_GLES2(glDisableVertexAttribArray);
                         for (int j = 0; j < hardext.maxvattrib; j++) {
                             if (glstate->gleshard->vertexattrib[j].buffer == buff) {
+                                if (glstate->gleshard->vertexattrib[j].enabled && hardext.esversion > 1 &&
+                                    gles_glDisableVertexAttribArray) {
+                                    gles_glDisableVertexAttribArray(j);
+                                    glstate->gleshard->vertexattrib[j].enabled = 0;
+                                    if (j < 32) glstate->gleshard->enabled_va_mask &= ~(1u << (unsigned)j);
+                                }
                                 glstate->gleshard->vertexattrib[j].buffer = NULL;
                                 glstate->gleshard->vertexattrib[j].real_buffer = 0;
                                 glstate->gleshard->vertexattrib[j].real_pointer = 0;
@@ -965,10 +983,18 @@ void deleteSingleBuffer(GLuint buffer) {
     if (glstate->bind_buffer.pack == buffer) glstate->bind_buffer.pack = 0;
     if (glstate->bind_buffer.unpack == buffer) glstate->bind_buffer.unpack = 0;
     if (glstate->gleshard) {
+        LOAD_GLES2(glDisableVertexAttribArray);
         for (int j = 0; j < hardext.maxvattrib; j++) {
             if (glstate->gleshard->vertexattrib[j].real_buffer == buffer) {
+                if (glstate->gleshard->vertexattrib[j].enabled && hardext.esversion > 1 &&
+                    gles_glDisableVertexAttribArray) {
+                    gles_glDisableVertexAttribArray(j);
+                    glstate->gleshard->vertexattrib[j].enabled = 0;
+                    if (j < 32) glstate->gleshard->enabled_va_mask &= ~(1u << (unsigned)j);
+                }
                 glstate->gleshard->vertexattrib[j].buffer = NULL;
                 glstate->gleshard->vertexattrib[j].real_buffer = 0;
+                glstate->gleshard->vertexattrib[j].real_pointer = 0;
             }
         }
     }
