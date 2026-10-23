@@ -4,6 +4,7 @@ build/
 app/build/
 app/src/main/jniLibs/
 *.apk
+!EmesisRenderer-Universal-v*.apk
 *.aab
 *.idsig
 *.jks
