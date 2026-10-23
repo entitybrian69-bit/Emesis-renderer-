@@ -31,300 +31,420 @@ int NO_OPERATOR_VALUE = 9999;
     {}
 #endif
 
+void uniform_decls_add(uniform_declarations_list_t* list, const char* variable, const char* initial_value) {
+    if (!list || !variable || !variable[0] || !initial_value || !initial_value[0]) return;
+    for (int i = 0; i < list->count; ++i) {
+        if (list->items[i].variable && strcmp(list->items[i].variable, variable) == 0) {
+            char* nv = strdup(initial_value);
+            if (nv) {
+                free(list->items[i].initial_value);
+                list->items[i].initial_value = nv;
+            }
+            return;
+        }
+    }
+    if (list->count >= list->cap) {
+        int new_cap = (list->cap > 0) ? (list->cap * 2) : 16;
+        uniform_declaration_s* grown =
+            (uniform_declaration_s*)realloc(list->items, (size_t)new_cap * sizeof(uniform_declaration_s));
+        if (!grown) return;
+        list->items = grown;
+        list->cap = new_cap;
+    }
+    list->items[list->count].variable = strdup(variable);
+    list->items[list->count].initial_value = strdup(initial_value);
+    if (list->items[list->count].variable && list->items[list->count].initial_value) {
+        list->count++;
+    } else {
+        free(list->items[list->count].variable);
+        free(list->items[list->count].initial_value);
+    }
+}
+
+void uniform_decls_merge(uniform_declarations_list_t* dst, const uniform_declarations_list_t* src) {
+    if (!dst || !src) return;
+    for (int i = 0; i < src->count; ++i) {
+        uniform_decls_add(dst, src->items[i].variable, src->items[i].initial_value);
+    }
+}
+
+void uniform_decls_clear(uniform_declarations_list_t* list) {
+    if (!list) return;
+    for (int i = 0; i < list->count; ++i) {
+        free(list->items[i].variable);
+        free(list->items[i].initial_value);
+    }
+    free(list->items);
+    list->items = NULL;
+    list->count = 0;
+    list->cap = 0;
+}
+
 int parse_floats_from_string(const char* str, GLfloat* outValues, int maxCount) {
     int count = 0;
     const char* cursor = str;
+    const char* lparen = strchr(str, '(');
+    if (lparen) cursor = lparen + 1;
 
     while (*cursor && count < maxCount) {
-        while (*cursor && !isdigit((unsigned char)*cursor) && *cursor != '-')
-            cursor++;
-
-        if (*cursor) {
-            outValues[count++] = strtof(cursor, (char**)&cursor);
+        if (isalpha((unsigned char)*cursor) || *cursor == '_') {
+            while (isalnum((unsigned char)*cursor) || *cursor == '_')
+                cursor++;
+            continue;
         }
+        if (isdigit((unsigned char)*cursor) ||
+            ((*cursor == '-' || *cursor == '+' || *cursor == '.') &&
+             (isdigit((unsigned char)cursor[1]) || (cursor[1] == '.' && isdigit((unsigned char)cursor[2]))))) {
+            char* endptr = NULL;
+            outValues[count++] = strtof(cursor, &endptr);
+            if (endptr && endptr > cursor) {
+                if (*endptr == 'f' || *endptr == 'F') endptr++;
+                cursor = endptr;
+                continue;
+            }
+        }
+        cursor++;
     }
     return count;
 }
 
 int parse_bool_from_string(const char* str) {
-    if (strcmp(str, "true") == 0) {
+    while (*str && isspace((unsigned char)*str)) str++;
+    if (strncmp(str, "true", 4) == 0 || strcmp(str, "1") == 0) {
         return GL_TRUE;
     }
-    if (strcmp(str, "false") == 0) {
+    if (strncmp(str, "false", 5) == 0 || strcmp(str, "0") == 0) {
         return GL_FALSE;
     }
     return -1;
 }
 
-bool has_valid_data(char arr[256]) {
-    for (int i = 0; i < 256; i++) {
-        if (arr[i] != '\0' && arr[i] != '\n' && arr[i] != ' ') {
-            return true;
-        }
-    }
-    return false;
-}
+void set_uniforms_default_value(GLuint program, const uniform_declarations_list_t* uniformList) {
+    if (!uniformList || uniformList->count <= 0) return;
 
-void set_uniforms_default_value(GLuint program, uniforms_declarations uniformVector, int uniformCount) {
-    for (int i = 0; i < uniformCount; i++) {
-        uniform_declaration_s* uniform = &uniformVector[i];
-        if (!has_valid_data(uniform->variable) || !has_valid_data(uniform->initial_value)) {
-            break;
+    for (int i = 0; i < uniformList->count; i++) {
+        const uniform_declaration_s* uniform = &uniformList->items[i];
+        if (!uniform->variable || !uniform->variable[0] || !uniform->initial_value || !uniform->initial_value[0]) {
+            continue;
         }
         GLint location = gl4es_glGetUniformLocation(program, uniform->variable);
-
         if (location == -1) {
-            DBG(DBGLOGD("Uniform variable %s not found in shader program.\n", uniform->variable);)
             continue;
         }
 
-        if (strstr(uniform->initial_value, "mat4") != NULL) {
-            GLfloat matValues[16];
-            int count = parse_floats_from_string(uniform->initial_value, matValues, 16);
+        const char* val_str = uniform->initial_value;
+        char decl_type[64] = {0};
+        const char* colon = strchr(val_str, ':');
+        if (colon && (size_t)(colon - val_str) < sizeof(decl_type)) {
+            size_t tlen = (size_t)(colon - val_str);
+            memcpy(decl_type, val_str, tlen);
+            decl_type[tlen] = '\0';
+            val_str = colon + 1;
+        }
 
-            if (count == 16) {
+        const char* check_type = decl_type[0] ? decl_type : val_str;
+
+        if (strstr(check_type, "mat4") != NULL) {
+            GLfloat matValues[16] = {0};
+            int count = parse_floats_from_string(val_str, matValues, 16);
+            if (count == 1) {
+                GLfloat d = matValues[0];
+                matValues[0] = matValues[5] = matValues[10] = matValues[15] = d;
                 gl4es_glUniformMatrix4fv(location, 1, GL_FALSE, matValues);
-            } else {
-                DBGLOGD("Invalid mat4 initial value for uniform %s\n", uniform->variable);
+            } else if (count == 16) {
+                gl4es_glUniformMatrix4fv(location, 1, GL_FALSE, matValues);
             }
-        } else if (strstr(uniform->initial_value, "mat3") != NULL) {
-            GLfloat matValues[9];
-            int count = parse_floats_from_string(uniform->initial_value, matValues, 9);
-
-            if (count == 9) {
+        } else if (strstr(check_type, "mat3") != NULL) {
+            GLfloat matValues[9] = {0};
+            int count = parse_floats_from_string(val_str, matValues, 9);
+            if (count == 1) {
+                GLfloat d = matValues[0];
+                matValues[0] = matValues[4] = matValues[8] = d;
                 gl4es_glUniformMatrix3fv(location, 1, GL_FALSE, matValues);
-            } else {
-                DBGLOGD("Invalid mat3 initial value for uniform %s\n", uniform->variable);
+            } else if (count == 9) {
+                gl4es_glUniformMatrix3fv(location, 1, GL_FALSE, matValues);
             }
-        } else if (strstr(uniform->initial_value, "mat2") != NULL) {
-            GLfloat matValues[4];
-            int count = parse_floats_from_string(uniform->initial_value, matValues, 4);
-
-            if (count == 4) {
+        } else if (strstr(check_type, "mat2") != NULL) {
+            GLfloat matValues[4] = {0};
+            int count = parse_floats_from_string(val_str, matValues, 4);
+            if (count == 1) {
+                GLfloat d = matValues[0];
+                matValues[0] = d; matValues[3] = d;
                 gl4es_glUniformMatrix2fv(location, 1, GL_FALSE, matValues);
-            } else {
-                DBGLOGD("Invalid mat2 initial value for uniform %s\n", uniform->variable);
+            } else if (count == 4) {
+                gl4es_glUniformMatrix2fv(location, 1, GL_FALSE, matValues);
             }
-        } else if (strstr(uniform->initial_value, "vec4") != NULL) {
-            GLfloat vecValues[4];
-            int count = parse_floats_from_string(uniform->initial_value, vecValues, 4);
-
-            if (count == 4) {
+        } else if (strstr(check_type, "ivec4") != NULL || strstr(check_type, "bvec4") != NULL) {
+            GLfloat fvals[4] = {0};
+            int count = parse_floats_from_string(val_str, fvals, 4);
+            if (count == 1) fvals[1] = fvals[2] = fvals[3] = fvals[0];
+            if (count == 1 || count == 4) {
+                GLint ivals[4] = {(GLint)fvals[0], (GLint)fvals[1], (GLint)fvals[2], (GLint)fvals[3]};
+                gl4es_glUniform4iv(location, 1, ivals);
+            }
+        } else if (strstr(check_type, "ivec3") != NULL || strstr(check_type, "bvec3") != NULL) {
+            GLfloat fvals[3] = {0};
+            int count = parse_floats_from_string(val_str, fvals, 3);
+            if (count == 1) fvals[1] = fvals[2] = fvals[0];
+            if (count == 1 || count == 3) {
+                GLint ivals[3] = {(GLint)fvals[0], (GLint)fvals[1], (GLint)fvals[2]};
+                gl4es_glUniform3iv(location, 1, ivals);
+            }
+        } else if (strstr(check_type, "ivec2") != NULL || strstr(check_type, "bvec2") != NULL) {
+            GLfloat fvals[2] = {0};
+            int count = parse_floats_from_string(val_str, fvals, 2);
+            if (count == 1) fvals[1] = fvals[0];
+            if (count == 1 || count == 2) {
+                GLint ivals[2] = {(GLint)fvals[0], (GLint)fvals[1]};
+                gl4es_glUniform2iv(location, 1, ivals);
+            }
+        } else if (strstr(check_type, "vec4") != NULL) {
+            GLfloat vecValues[4] = {0};
+            int count = parse_floats_from_string(val_str, vecValues, 4);
+            if (count == 1) vecValues[1] = vecValues[2] = vecValues[3] = vecValues[0];
+            if (count == 1 || count == 4) {
                 gl4es_glUniform4fv(location, 1, vecValues);
-            } else {
-                DBGLOGD("Invalid vec4 initial value for uniform %s\n", uniform->variable);
             }
-        } else if (strstr(uniform->initial_value, "vec3") != NULL) {
-            // ���� vec3 ����
-            GLfloat vecValues[3];
-            int count = parse_floats_from_string(uniform->initial_value, vecValues, 3);
-
-            if (count == 3) {
+        } else if (strstr(check_type, "vec3") != NULL) {
+            GLfloat vecValues[3] = {0};
+            int count = parse_floats_from_string(val_str, vecValues, 3);
+            if (count == 1) vecValues[1] = vecValues[2] = vecValues[0];
+            if (count == 1 || count == 3) {
                 gl4es_glUniform3fv(location, 1, vecValues);
-            } else {
-                DBGLOGD("Invalid vec3 initial value for uniform %s\n", uniform->variable);
             }
-        } else if (strstr(uniform->initial_value, "vec2") != NULL) {
-            GLfloat vecValues[2];
-            int count = parse_floats_from_string(uniform->initial_value, vecValues, 2);
-
-            if (count == 2) {
+        } else if (strstr(check_type, "vec2") != NULL) {
+            GLfloat vecValues[2] = {0};
+            int count = parse_floats_from_string(val_str, vecValues, 2);
+            if (count == 1) vecValues[1] = vecValues[0];
+            if (count == 1 || count == 2) {
                 gl4es_glUniform2fv(location, 1, vecValues);
-            } else {
-                DBGLOGD("Invalid vec2 initial value for uniform %s\n", uniform->variable);
             }
-        } else if (strstr(uniform->initial_value, "float") != NULL) {
-            GLfloat value = strtof(uniform->initial_value, NULL);
-            gl4es_glUniform1f(location, value);
-        } else if (strstr(uniform->initial_value, "int") != NULL) {
-            GLint value = strtol(uniform->initial_value, NULL, 10);
+        } else if (strcmp(check_type, "float") == 0 || strstr(check_type, "float") != NULL) {
+            GLfloat v = 0.0f;
+            if (parse_floats_from_string(val_str, &v, 1) >= 1) {
+                gl4es_glUniform1f(location, v);
+            }
+        } else if (strcmp(check_type, "int") == 0 || strcmp(check_type, "uint") == 0 ||
+                   strstr(check_type, "int") != NULL) {
+            GLint value = (GLint)strtol(val_str, NULL, 0);
             gl4es_glUniform1i(location, value);
-        } else if (strstr(uniform->initial_value, "bool") != NULL) {
-            GLint value = parse_bool_from_string(uniform->initial_value);
+        } else if (strcmp(check_type, "bool") == 0 || strstr(check_type, "bool") != NULL) {
+            GLint value = parse_bool_from_string(val_str);
             if (value != -1) {
                 gl4es_glUniform1i(location, value);
-            } else {
-                DBGLOGD("Invalid bool initial value for uniform %s\n", uniform->variable);
             }
-        } else if (strstr(uniform->initial_value, "sampler2D") != NULL) {
-            gl4es_glUniform1i(location, 0);
-        } else {
-            SHUT_LOGE("[ERROR] Unsupported uniform type or invalid initial value for uniform %s\n", uniform->variable);
+        } else if (strstr(check_type, "sampler") != NULL) {
+            GLint value = (GLint)strtol(val_str, NULL, 10);
+            gl4es_glUniform1i(location, value);
         }
     }
 }
+
 
 int startsWith(char* str, char* prefix) {
     return strncmp(str, prefix, strlen(prefix)) == 0;
 }
 
-char* process_uniform_declarations(char* glslCode, uniforms_declarations uniformVector, int* uniformCount) {
-    char* cursor = glslCode;
-    char name[256], type[256], initial_value[1024];
-    int modifiedCodeIndex = 0;
-    size_t maxLength = 1024 * 10;
-    char* modifiedGlslCode = (char*)malloc(maxLength * sizeof(char));
-    if (!modifiedGlslCode) return glslCode;
+static inline int ensure_out_cap(char** buf, size_t* cap, size_t pos, size_t extra) {
+    if (pos + extra + 2 <= *cap) return 1;
+    size_t new_cap = *cap ? *cap : 4096;
+    while (pos + extra + 2 > new_cap) {
+        new_cap *= 2;
+    }
+    char* tmp = (char*)realloc(*buf, new_cap);
+    if (!tmp) return 0;
+    *buf = tmp;
+    *cap = new_cap;
+    return 1;
+}
 
-    name[0] = type[0] = initial_value[0] = '\0';
-
-    while (*cursor) {
-        if (strncmp(cursor, "uniform", 7) == 0) {
-            char* cursor_start = cursor;
-
-            cursor += 7;
-
-            while (isspace((unsigned char)*cursor))
-                cursor++;
-
-            char* precision = NULL;
-            if (startsWith(cursor, "highp")) {
-                precision = " highp";
-                cursor += 5;
-                while (isspace((unsigned char)*cursor))
-                    cursor++;
-            } else if (startsWith(cursor, "lowp")) {
-                precision = " lowp";
-                cursor += 4;
-                while (isspace((unsigned char)*cursor))
-                    cursor++;
-            } else if (startsWith(cursor, "mediump")) {
-                precision = " mediump";
-                cursor += 7;
-                while (isspace((unsigned char)*cursor))
-                    cursor++;
-            }
-
-            int i = 0;
-            while (isalnum((unsigned char)*cursor) || *cursor == '_') {
-                if (i < (int)sizeof(type) - 1) type[i++] = *cursor;
-                cursor++;
-            }
-            type[i] = '\0';
-
-            while (isspace((unsigned char)*cursor))
-                cursor++;
-
-            if (!precision) {
-                if (startsWith(cursor, "highp")) {
-                    precision = " highp";
-                    cursor += 5;
-                    while (isspace((unsigned char)*cursor))
-                        cursor++;
-                } else if (startsWith(cursor, "lowp")) {
-                    precision = " lowp";
-                    cursor += 4;
-                    while (isspace((unsigned char)*cursor))
-                        cursor++;
-                } else if (startsWith(cursor, "mediump")) {
-                    precision = " mediump";
-                    cursor += 7;
-                    while (isspace((unsigned char)*cursor))
-                        cursor++;
-                } else {
-                    precision = "";
-                }
-            }
-
-            while (isspace((unsigned char)*cursor))
-                cursor++;
-
-            i = 0;
-            bool isArray = false;
-            while (isalnum((unsigned char)*cursor) || *cursor == '_' || *cursor == '[') {
-                if (*cursor == '[') {
-                    isArray = true;
-                    break;
-                }
-                if (i < (int)sizeof(name) - 1) name[i++] = *cursor;
-                cursor++;
-            }
-            name[i] = '\0';
-
-            if (!isArray) {
-                while (isspace((unsigned char)*cursor))
-                    cursor++;
-
-                initial_value[0] = '\0';
-                if (*cursor == '=') {
-                    cursor++;
-                    i = 0;
-                    while (*cursor && *cursor != ';' && i < (int)sizeof(initial_value) - 1) {
-                        initial_value[i++] = *cursor++;
-                    }
-                    initial_value[i] = '\0';
-                    trim(initial_value);
-                }
-
-                if (*uniformCount >= 0) {
-                    strcpy(uniformVector[*uniformCount].variable, name);
-                    strcpy(uniformVector[*uniformCount].initial_value, initial_value);
-                    (*uniformCount)++;
-                }
-
-                while (*cursor && *cursor != ';')
-                    cursor++;
-                if (*cursor == ';') cursor++;
-
-                int spaceLeft = (int)(maxLength - modifiedCodeIndex);
-                int len = 0;
-                if (initial_value[0]) {
-                    len = snprintf(modifiedGlslCode + modifiedCodeIndex, spaceLeft, "uniform%s %s %s;", precision, type,
-                                   name);
-                } else {
-                    size_t length = (size_t)(cursor - cursor_start);
-                    if (length < (size_t)spaceLeft) {
-                        memcpy(modifiedGlslCode + modifiedCodeIndex, cursor_start, length);
-                        len = (int)length;
-                    } else {
-                        fprintf(stderr, "Error: Not enough space in buffer\n");
-                        free(modifiedGlslCode);
-                        return glslCode;
-                    }
-                }
-
-                if (len < 0 || len >= spaceLeft) {
-                    free(modifiedGlslCode);
-                    return glslCode;
-                }
-                modifiedCodeIndex += len;
-
-            } else {
-                while (isalnum((unsigned char)*cursor) || *cursor == '_' || *cursor == '[' || *cursor == ']') {
-                    if (i < (int)sizeof(name) - 1) name[i++] = *cursor;
-                    cursor++;
-                }
-                name[i] = '\0';
-                int spaceLeft = (int)(maxLength - modifiedCodeIndex);
-                int len = snprintf(modifiedGlslCode + modifiedCodeIndex, spaceLeft, "uniform%s %s %s;", precision, type,
-                                   name);
-                if (len < 0 || len >= spaceLeft) {
-                    free(modifiedGlslCode);
-                    return glslCode;
-                }
-                modifiedCodeIndex += len;
-
-                while (*cursor && *cursor != ';')
-                    cursor++;
-                if (*cursor == ';') cursor++;
-            }
-
-        } else {
-            modifiedGlslCode[modifiedCodeIndex++] = *cursor++;
-        }
-
-        if (modifiedCodeIndex >= (int)maxLength - 1) {
-            maxLength *= 2;
-            char* tmp = (char*)realloc(modifiedGlslCode, maxLength);
-            if (!tmp) {
-                free(modifiedGlslCode);
-                return glslCode;
-            }
-            modifiedGlslCode = tmp;
-        }
+char* process_uniform_declarations(char* glslCode, uniform_declarations_list_t* uniformList) {
+    if (!glslCode) return NULL;
+    if (!strstr(glslCode, "uniform")) {
+        return strdup(glslCode);
     }
 
-    modifiedGlslCode[modifiedCodeIndex] = '\0';
+    size_t srcLen = strlen(glslCode);
+    size_t maxLength = srcLen + 512;
+    char* modifiedGlslCode = (char*)malloc(maxLength);
+    if (!modifiedGlslCode) return strdup(glslCode);
+
+    size_t outIdx = 0;
+    const char* cursor = glslCode;
+    char name[256], type[256], initial_value[1024], typed_init[1300];
+
+    while (*cursor) {
+        if (cursor[0] == '/' && cursor[1] == '/') {
+            const char* start = cursor;
+            while (*cursor && *cursor != '\n') cursor++;
+            if (*cursor == '\n') cursor++;
+            size_t seg = (size_t)(cursor - start);
+            if (!ensure_out_cap(&modifiedGlslCode, &maxLength, outIdx, seg)) {
+                free(modifiedGlslCode);
+                return strdup(glslCode);
+            }
+            memcpy(modifiedGlslCode + outIdx, start, seg);
+            outIdx += seg;
+            continue;
+        }
+        if (cursor[0] == '/' && cursor[1] == '*') {
+            const char* start = cursor;
+            cursor += 2;
+            while (*cursor && !(cursor[0] == '*' && cursor[1] == '/')) cursor++;
+            if (*cursor) cursor += 2;
+            size_t seg = (size_t)(cursor - start);
+            if (!ensure_out_cap(&modifiedGlslCode, &maxLength, outIdx, seg)) {
+                free(modifiedGlslCode);
+                return strdup(glslCode);
+            }
+            memcpy(modifiedGlslCode + outIdx, start, seg);
+            outIdx += seg;
+            continue;
+        }
+        if (*cursor == '#') {
+            const char* start = cursor;
+            while (*cursor && *cursor != '\n') {
+                if (*cursor == '\\' && cursor[1] == '\n') {
+                    cursor += 2;
+                    continue;
+                }
+                cursor++;
+            }
+            if (*cursor == '\n') cursor++;
+            size_t seg = (size_t)(cursor - start);
+            if (!ensure_out_cap(&modifiedGlslCode, &maxLength, outIdx, seg)) {
+                free(modifiedGlslCode);
+                return strdup(glslCode);
+            }
+            memcpy(modifiedGlslCode + outIdx, start, seg);
+            outIdx += seg;
+            continue;
+        }
+
+        bool prev_boundary = (cursor == glslCode) ||
+                             (!isalnum((unsigned char)cursor[-1]) && cursor[-1] != '_');
+        if (prev_boundary && strncmp(cursor, "uniform", 7) == 0 && isspace((unsigned char)cursor[7])) {
+            const char* cursor_start = cursor;
+            const char* p = cursor + 7;
+            while (isspace((unsigned char)*p)) p++;
+
+            const char* precision = "";
+            if (strncmp(p, "highp", 5) == 0 && isspace((unsigned char)p[5])) {
+                precision = " highp";
+                p += 5;
+                while (isspace((unsigned char)*p)) p++;
+            } else if (strncmp(p, "mediump", 7) == 0 && isspace((unsigned char)p[7])) {
+                precision = " mediump";
+                p += 7;
+                while (isspace((unsigned char)*p)) p++;
+            } else if (strncmp(p, "lowp", 4) == 0 && isspace((unsigned char)p[4])) {
+                precision = " lowp";
+                p += 4;
+                while (isspace((unsigned char)*p)) p++;
+            }
+
+            size_t ti = 0;
+            while (isalnum((unsigned char)*p) || *p == '_') {
+                if (ti + 1 < sizeof(type)) type[ti++] = *p;
+                p++;
+            }
+            type[ti] = '\0';
+            while (isspace((unsigned char)*p)) p++;
+
+            if (precision[0] == '\0') {
+                if (strncmp(p, "highp", 5) == 0 && isspace((unsigned char)p[5])) {
+                    precision = " highp";
+                    p += 5;
+                    while (isspace((unsigned char)*p)) p++;
+                } else if (strncmp(p, "mediump", 7) == 0 && isspace((unsigned char)p[7])) {
+                    precision = " mediump";
+                    p += 7;
+                    while (isspace((unsigned char)*p)) p++;
+                } else if (strncmp(p, "lowp", 4) == 0 && isspace((unsigned char)p[4])) {
+                    precision = " lowp";
+                    p += 4;
+                    while (isspace((unsigned char)*p)) p++;
+                }
+            }
+
+            if (*p == '{' || ti == 0) {
+                if (!ensure_out_cap(&modifiedGlslCode, &maxLength, outIdx, 7)) {
+                    free(modifiedGlslCode);
+                    return strdup(glslCode);
+                }
+                memcpy(modifiedGlslCode + outIdx, cursor_start, 7);
+                outIdx += 7;
+                cursor = cursor_start + 7;
+                continue;
+            }
+
+            size_t ni = 0;
+            bool isArray = false;
+            while (isalnum((unsigned char)*p) || *p == '_') {
+                if (ni + 1 < sizeof(name)) name[ni++] = *p;
+                p++;
+            }
+            name[ni] = '\0';
+            while (isspace((unsigned char)*p)) p++;
+            if (*p == '[') isArray = true;
+
+            if (!isArray && ni > 0 && *p == '=') {
+                p++;
+                size_t vi = 0;
+                int paren_depth = 0;
+                while (*p && !(*p == ';' && paren_depth == 0)) {
+                    if (*p == '(') paren_depth++;
+                    else if (*p == ')' && paren_depth > 0) paren_depth--;
+                    if (vi + 1 < sizeof(initial_value)) initial_value[vi++] = *p;
+                    p++;
+                }
+                initial_value[vi] = '\0';
+                trim(initial_value);
+                if (*p == ';') p++;
+
+                if (uniformList && initial_value[0] != '\0') {
+                    snprintf(typed_init, sizeof(typed_init), "%s:%s", type, initial_value);
+                    uniform_decls_add(uniformList, name, typed_init);
+                }
+
+                size_t needed = strlen(precision) + strlen(type) + strlen(name) + 16;
+                if (!ensure_out_cap(&modifiedGlslCode, &maxLength, outIdx, needed)) {
+                    free(modifiedGlslCode);
+                    return strdup(glslCode);
+                }
+                int written = snprintf(modifiedGlslCode + outIdx, maxLength - outIdx,
+                                       "uniform%s %s %s;", precision, type, name);
+                if (written > 0) outIdx += (size_t)written;
+                cursor = p;
+                continue;
+            } else if (isArray && ni > 0) {
+                const char* arr_start = p;
+                while (*p && *p != '=' && *p != ';') p++;
+                size_t arr_len = (size_t)(p - arr_start);
+                while (*p && *p != ';') p++;
+                if (*p == ';') p++;
+
+                size_t needed = strlen(precision) + strlen(type) + strlen(name) + arr_len + 16;
+                if (!ensure_out_cap(&modifiedGlslCode, &maxLength, outIdx, needed)) {
+                    free(modifiedGlslCode);
+                    return strdup(glslCode);
+                }
+                int written = snprintf(modifiedGlslCode + outIdx, maxLength - outIdx,
+                                       "uniform%s %s %s%.*s;", precision, type, name, (int)arr_len, arr_start);
+                if (written > 0) outIdx += (size_t)written;
+                cursor = p;
+                continue;
+            }
+        }
+
+        if (!ensure_out_cap(&modifiedGlslCode, &maxLength, outIdx, 1)) {
+            free(modifiedGlslCode);
+            return strdup(glslCode);
+        }
+        modifiedGlslCode[outIdx++] = *cursor++;
+    }
+
+    modifiedGlslCode[outIdx] = '\0';
     return modifiedGlslCode;
 }
 
@@ -333,37 +453,40 @@ char* process_uniform_declarations(char* glslCode, uniforms_declarations uniform
  * @return The shader as a string
  */
 char* ConvertShaderConditionally(struct shader_s* shader_source) {
-    int shaderCompileStatus;
-
-    // First, vanilla gl4es, no forward port
-    shader_source->converted =
-        ConvertShader(shader_source->source, shader_source->type == GL_VERTEX_SHADER ? 1 : 0, &shader_source->need, 0);
-    shaderCompileStatus = testGenericShader(shader_source);
-
-    // Then, attempt back porting if desired of constrained to do so
-    if (!shaderCompileStatus && globals4es.vgpu_backport) {
-        shader_source->converted = ConvertShader(shader_source->source, shader_source->type == GL_VERTEX_SHADER ? 1 : 0,
-                                                 &shader_source->need, 0);
-        shader_source->converted = ConvertShaderVgpu(shader_source);
-        shaderCompileStatus = testGenericShader(shader_source);
-    }
-
-    // At last resort, use forward porting
-    if (!shaderCompileStatus && hardext.glsl300es) {
-        shader_source->converted = ConvertShader(shader_source->source, shader_source->type == GL_VERTEX_SHADER ? 1 : 0,
+    if (hardext.glsl300es) {
+        /* On GLES 3.x, always emit ESSL 3.x directly: avoids dummy GPU test compiles AND
+           guarantees vertex & fragment shaders share the exact same ESSL version at link time. */
+        shader_source->converted = ConvertShader(shader_source->source,
+                                                 shader_source->type == GL_VERTEX_SHADER ? 1 : 0,
                                                  &shader_source->need, 1);
         shader_source->converted = ConvertShaderVgpu(shader_source);
+    } else {
+        int shaderCompileStatus;
+        shader_source->converted = ConvertShader(shader_source->source,
+                                                 shader_source->type == GL_VERTEX_SHADER ? 1 : 0,
+                                                 &shader_source->need, 0);
+        shaderCompileStatus = testGenericShader(shader_source);
+
+        if (!shaderCompileStatus && globals4es.vgpu_backport) {
+            free(shader_source->converted);
+            shader_source->converted = ConvertShader(shader_source->source,
+                                                     shader_source->type == GL_VERTEX_SHADER ? 1 : 0,
+                                                     &shader_source->need, 0);
+            shader_source->converted = ConvertShaderVgpu(shader_source);
+        }
     }
 
-    // Process uniform declarations
-    shader_source->converted = process_uniform_declarations(
-        shader_source->converted, shader_source->uniforms_declarations, &shader_source->uniforms_declarations_count);
+    if (!shader_source->converted) return NULL;
+    char* processed = process_uniform_declarations(shader_source->converted, &shader_source->uniforms_declarations);
+    free(shader_source->converted);
+    shader_source->converted = processed;
     return shader_source->converted;
 }
 
 /** Convert the shader through multiple steps
  * @param source The start of the shader as a string*/
 char* ConvertShaderVgpu(struct shader_s* shader_source) {
+    if (!shader_source || !shader_source->converted) return NULL;
 
     if (globals4es.vgpu_dump) {
         DBGLOGD("New VGPU Shader source:\n%s\n", shader_source->converted);
@@ -1312,7 +1435,12 @@ static int find_out_var_name_for_location(const char* source, int location, char
  * @return The shader as a string, maybe at a different memory location
  */
 char* ReplaceGLFragData(char* source, int* sourceLength) {
-    for (int i = 0; i < 10; ++i) {
+    int esShader = doesShaderVersionContainsES(source);
+    int glslVer = GetShaderVersion(source);
+    int needExplicitLocExt = (!esShader && glslVer < 330);
+    int addedExplicitLocExt = 0;
+
+    for (int i = 0; i < 16; ++i) {
         char needle[40];
         sprintf(needle, "gl_FragData[%i]", i);
 
@@ -1321,6 +1449,15 @@ char* ReplaceGLFragData(char* source, int* sourceLength) {
             sprintf(needle, "gl_FragData[int(%i.0)]", i);
             useFragData = strstr(source, needle);
             if (useFragData == NULL) continue;
+        }
+
+        if (needExplicitLocExt && !addedExplicitLocExt &&
+            !strstr(source, "GL_ARB_explicit_attrib_location")) {
+            int verEnd = FindPositionAfterVersion(source);
+            int verIns = (source[verEnd] == '\n') ? (verEnd + 1) : verEnd;
+            source = InplaceInsertByIndex(source, sourceLength, verIns,
+                                          "#extension GL_ARB_explicit_attrib_location : enable\n");
+            addedExplicitLocExt = 1;
         }
 
         char existingName[64] = {0};
@@ -1332,11 +1469,15 @@ char* ReplaceGLFragData(char* source, int* sourceLength) {
             char replacement[32];
             char replacementLine[120];
             sprintf(replacement, "vgpu_FragData%i", i);
-            sprintf(replacementLine, "\nlayout(location = %i) out highp vec4 %s;\n", i, replacement);
-            int insertPoint = FindPositionAfterDirectives(source);
-
+            if (esShader) {
+                sprintf(replacementLine, "layout(location = %i) out highp vec4 %s;\n", i, replacement);
+            } else {
+                sprintf(replacementLine, "layout(location = %i) out vec4 %s;\n", i, replacement);
+            }
             source = InplaceReplaceSimple(source, sourceLength, needle, replacement);
-            source = InplaceInsertByIndex(source, sourceLength, insertPoint + 1, replacementLine);
+            int insertPoint = FindPositionAfterDirectives(source);
+            int insIdx = (source[insertPoint] == '\n') ? (insertPoint + 1) : insertPoint;
+            source = InplaceInsertByIndex(source, sourceLength, insIdx, replacementLine);
         }
     }
     return source;
@@ -1349,9 +1490,24 @@ char* ReplaceGLFragData(char* source, int* sourceLength) {
  */
 char* ReplaceGLFragColor(char* source, int* sourceLength) {
     if (strstr(source, "gl_FragColor")) {
+        int esShader = doesShaderVersionContainsES(source);
+        int glslVer = GetShaderVersion(source);
+        if (!esShader && glslVer < 330 && !strstr(source, "GL_ARB_explicit_attrib_location")) {
+            int verEnd = FindPositionAfterVersion(source);
+            int verIns = (source[verEnd] == '\n') ? (verEnd + 1) : verEnd;
+            source = InplaceInsertByIndex(source, sourceLength, verIns,
+                                          "#extension GL_ARB_explicit_attrib_location : enable\n");
+        }
         source = InplaceReplaceSimple(source, sourceLength, "gl_FragColor", "vgpu_FragColor");
         int insertPoint = FindPositionAfterDirectives(source);
-        source = InplaceInsertByIndex(source, sourceLength, insertPoint + 1, "out mediump vec4 vgpu_FragColor;\n");
+        int insIdx = (source[insertPoint] == '\n') ? (insertPoint + 1) : insertPoint;
+        if (esShader) {
+            source = InplaceInsertByIndex(source, sourceLength, insIdx,
+                                          "layout(location = 0) out highp vec4 vgpu_FragColor;\n");
+        } else {
+            source = InplaceInsertByIndex(source, sourceLength, insIdx,
+                                          "layout(location = 0) out vec4 vgpu_FragColor;\n");
+        }
     }
     return source;
 }
@@ -1496,25 +1652,86 @@ char* RemoveConstInsideBlocks(char* source, int* sourceLength) {
  * @param source The shader as a string
  * @return The index position after the #version line, start of the shader if not found
  */
-int FindPositionAfterDirectives(char* source) {
-    const char* position = FindString(source, "#version");
-    if (position == NULL) return 0;
-    for (int i = 7; 1; ++i) {
-        if (position[i] == '\n') {
-            if (position[i + 1] == '#') continue; // a directive is present right after, skip
-            return i;
+int FindPositionAfterVersion(char* source) {
+    if (!source) return 0;
+    const char* p = source;
+    while (*p) {
+        if (p[0] == '/' && p[1] == '/') {
+            while (*p && *p != '\n') p++;
+            if (*p == '\n') p++;
+            continue;
         }
+        if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) p++;
+            if (*p) p += 2;
+            continue;
+        }
+        const char* line = p;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '#') {
+            p++;
+            while (*p == ' ' || *p == '\t') p++;
+            if (strncmp(p, "version", 7) == 0 && (isspace((unsigned char)p[7]) || p[7] == '\0')) {
+                while (*p && *p != '\n') p++;
+                return (int)(p - source);
+            }
+        }
+        (void)line;
+        while (*p && *p != '\n') p++;
+        if (*p == '\n') p++;
     }
+    return 0;
 }
 
-int FindPositionAfterVersion(char* source) {
-    const char* position = FindString(source, "#version");
-    if (position == NULL) return 0;
-    for (int i = 7; 1; ++i) {
-        if (position[i] == '\n') {
-            return i;
+int FindPositionAfterDirectives(char* source) {
+    if (!source) return 0;
+    int lastDirectiveEnd = FindPositionAfterVersion(source);
+    int if_depth = 0;
+    int directive_in_if = 0;
+    const char* p = source;
+    while (*p) {
+        if (p[0] == '/' && p[1] == '/') {
+            while (*p && *p != '\n') p++;
+            if (*p == '\n') p++;
+            continue;
         }
+        if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) p++;
+            if (*p) p += 2;
+            continue;
+        }
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '#') {
+            const char* h = p + 1;
+            while (*h == ' ' || *h == '\t') h++;
+            if (strncmp(h, "if", 2) == 0 &&
+                (isspace((unsigned char)h[2]) || strncmp(h, "ifdef", 5) == 0 || strncmp(h, "ifndef", 6) == 0)) {
+                if_depth++;
+            } else if (strncmp(h, "endif", 5) == 0 && (isspace((unsigned char)h[5]) || h[5] == '\0' || h[5] == '/')) {
+                if (if_depth > 0) {
+                    if_depth--;
+                    if (if_depth == 0 && directive_in_if) {
+                        while (*h && *h != '\n') h++;
+                        lastDirectiveEnd = (int)(h - source);
+                        directive_in_if = 0;
+                        p = (*h == '\n') ? (h + 1) : h;
+                        continue;
+                    }
+                }
+            } else if (strncmp(h, "extension", 9) == 0 && isspace((unsigned char)h[9])) {
+                while (*h && *h != '\n') h++;
+                lastDirectiveEnd = (int)(h - source);
+                if (if_depth > 0) directive_in_if = 1;
+                p = (*h == '\n') ? (h + 1) : h;
+                continue;
+            }
+        }
+        while (*p && *p != '\n') p++;
+        if (*p == '\n') p++;
     }
+    return lastDirectiveEnd;
 }
 
 /**
@@ -1575,7 +1792,7 @@ char* ReplacePrecisionQualifiers(char* source, int* sourceLength, int isVertex) 
     }
     int supportHighp = ((isVertex || hardext.highp) ? 1 : 0);
     source = InplaceInsertByIndex(source, sourceLength, insertPoint,
-                                  supportHighp ? "\nprecision highp float;\n" : "\nprecision medium float;\n");
+                                  supportHighp ? "\nprecision highp float;\n" : "\nprecision mediump float;\n");
 
     if (globals4es.vgpu_precision != 0) {
         char* target_precision;

@@ -132,6 +132,11 @@ extern "C"
         queries_t queries;
         // Binded buffer (if used)
         bind_buffers_t bind_buffer;
+        // Persistent GPU Quad Index Buffers (u16 up to 65,536 verts + u32 above 65,536 verts)
+        glbuffer_t quad_ibo_u16;
+        size_t quad_ibo_u16_quads;
+        glbuffer_t quad_ibo_u32;
+        size_t quad_ibo_u32_quads;
         // Blend status
         float blend_color[4];
         GLenum blendsfactorrgb;

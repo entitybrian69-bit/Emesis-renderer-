@@ -250,6 +250,23 @@ int is_mipmap_needed(glsampler_t* sampler) {
     }
 }
 
+static int tex_needs_float_nearest_clamp(gltexture_t* texture) {
+    if (!texture || !texture->valid) return 0;
+    if (texture->type == GL_HALF_FLOAT_OES || texture->type == GL_HALF_FLOAT) {
+        return !(hardext.esversion >= 3 || hardext.halffloatlinear);
+    }
+    if (texture->type == GL_FLOAT) {
+        /* Packed R11F_G11F_B10F / RGB9_E5 are core linear-filterable in OpenGL ES 3.0+ */
+        if (hardext.esversion >= 3 &&
+            (texture->orig_internal == GL_R11F_G11F_B10F || texture->internalformat == GL_R11F_G11F_B10F ||
+             texture->orig_internal == GL_RGB9_E5 || texture->internalformat == GL_RGB9_E5)) {
+            return 0;
+        }
+        return !hardext.floatlinear;
+    }
+    return 0;
+}
+
 GLenum get_texture_min_filter(gltexture_t* texture, glsampler_t* sampler) {
     GLenum ret = sampler->min_filter;
     if ((GL4ES_AUTOMIPMAP_PLACEHOLDER == 3) || ((GL4ES_AUTOMIPMAP_PLACEHOLDER == 1) && (texture->mipmap_auto == 0)) ||
@@ -265,13 +282,29 @@ GLenum get_texture_min_filter(gltexture_t* texture, glsampler_t* sampler) {
             break;
         }
     }
-    if (texture->valid && (texture->type == GL_FLOAT || texture->type == GL_HALF_FLOAT_OES)) {
-        // FLOAT textures have limited mipmap support in GLES2
+    if (tex_needs_float_nearest_clamp(texture)) {
         ret = minmag_float(ret);
     }
-    if (texture->valid && (texture->npot && globals4es.forcenpot)) {
+    /* Depth textures without shadow comparison require NEAREST filtering in OpenGL ES 3.x */
+    if (texture->valid && (texture->format == GL_DEPTH_COMPONENT || texture->format == GL_DEPTH_STENCIL) &&
+        sampler->compare != GL_COMPARE_REF_TO_TEXTURE) {
+        ret = minmag_float(ret);
+    }
+    if (texture->valid && (texture->npot && (globals4es.forcenpot || hardext.npot < 2))) {
         // need to remove MIPMAP for npot if not supported in hardware
         ret = minmag_forcenpot(ret);
+    }
+    return ret;
+}
+
+static GLenum get_texture_mag_filter(gltexture_t* texture, glsampler_t* sampler) {
+    GLenum ret = sampler->mag_filter;
+    if (tex_needs_float_nearest_clamp(texture)) {
+        ret = minmag_float(ret);
+    }
+    if (texture->valid && (texture->format == GL_DEPTH_COMPONENT || texture->format == GL_DEPTH_STENCIL) &&
+        sampler->compare != GL_COMPARE_REF_TO_TEXTURE) {
+        ret = GL_NEAREST;
     }
     return ret;
 }
@@ -321,9 +354,7 @@ void APIENTRY_GL4ES gl4es_glTexParameterfv(GLenum target, GLenum pname, const GL
     LOAD_GLES(glTexParameterfv);
     realize_bound(glstate->texture.active, target);
 
-    gles_glTexParameterfv(rtarget, pname, params);
-    errorGL();
-
+    /* Sanitize Desktop OpenGL-only parameters BEFORE forwarding to GLES so OptiFine/ShadersMod never sees GL_INVALID_ENUM */
     if (!samplerParameterfv(&texture->sampler, pname, params)) {
         GLint param = params[0];
         switch (pname) {
@@ -331,35 +362,30 @@ void APIENTRY_GL4ES gl4es_glTexParameterfv(GLenum target, GLenum pname, const GL
             if (texture) {
                 texture->max_level = param;
                 if (hardext.esversion >= 3) {
-                    break; // Pass to GLES for ES3+
+                    gles_glTexParameterfv(rtarget, pname, params);
+                    errorGL();
                 }
             }
-            // return;
+            return;
         case GL_TEXTURE_BASE_LEVEL:
             if (texture) {
                 texture->base_level = param;
                 if (hardext.esversion >= 3) {
-                    break; // Pass to GLES for ES3+
+                    gles_glTexParameterfv(rtarget, pname, params);
+                    errorGL();
                 }
             }
-            // return;
+            return;
         case GL_TEXTURE_LOD_BIAS:
-            return; // not on GLES
+            return; // Desktop GL only; ignore cleanly without GL_INVALID_ENUM
         case GL_GENERATE_MIPMAP:
-            if (GL4ES_AUTOMIPMAP_PLACEHOLDER == 3) return;         // no mipmap, so no need to generate any
-            if (texture->mipmap_auto == ((param) ? 1 : 0)) return; // same value...
+            if (GL4ES_AUTOMIPMAP_PLACEHOLDER == 3) return;
+            if (texture->mipmap_auto == ((param) ? 1 : 0)) return;
             texture->mipmap_auto = (param) ? 1 : 0;
-            if (hardext.esversion > 1) {
-                /*if(texture->valid) {
-                    // force regeneration, if possible
-                    FLUSH_BEGINEND;
-                    realize_bound(glstate->texture.active, target);
-                    LOAD_GLES2_OR_OES(glGenerateMipmap);
-                    gl4es_glGenerateMipmap(rtarget);
-                }*/
-                return;
-            }
-            break; // fallback to calling actual glTexParameteri
+            if (hardext.esversion > 1) return;
+            gles_glTexParameterfv(rtarget, pname, params);
+            errorGL();
+            return;
         case GL_TEXTURE_MAX_ANISOTROPY:
             if (!hardext.aniso) {
                 errorShim(GL_INVALID_ENUM);
@@ -371,7 +397,65 @@ void APIENTRY_GL4ES gl4es_glTexParameterfv(GLenum target, GLenum pname, const GL
             }
             if (param > hardext.aniso) param = hardext.aniso;
             texture->aniso = param;
-            break;
+            {
+                GLfloat f = (GLfloat)param;
+                gles_glTexParameterfv(rtarget, pname, &f);
+                errorGL();
+            }
+            return;
+        default:
+            gles_glTexParameterfv(rtarget, pname, params);
+            errorGL();
+            return;
+        }
+    } else {
+        /* Handled by samplerParameterfv: forward sanitized ES-compatible value */
+        GLfloat safe_param = params[0];
+        switch (pname) {
+        case GL_TEXTURE_WRAP_S:
+        case GL_TEXTURE_WRAP_T:
+        case GL_TEXTURE_WRAP_R:
+            if ((pname == GL_TEXTURE_WRAP_R) && hardext.esversion < 3) return;
+            safe_param = (GLfloat)get_texture_wrap((GLenum)params[0], texture);
+            gles_glTexParameterfv(rtarget, pname, &safe_param);
+            texture->actual.wrap_s = (pname == GL_TEXTURE_WRAP_S) ? (GLenum)safe_param : texture->actual.wrap_s;
+            texture->actual.wrap_t = (pname == GL_TEXTURE_WRAP_T) ? (GLenum)safe_param : texture->actual.wrap_t;
+            errorGL();
+            return;
+        case GL_TEXTURE_MIN_FILTER:
+            safe_param = (GLfloat)get_texture_min_filter(texture, &texture->sampler);
+            gles_glTexParameterfv(rtarget, pname, &safe_param);
+            texture->actual.min_filter = (GLenum)safe_param;
+            errorGL();
+            return;
+        case GL_TEXTURE_MAG_FILTER:
+            safe_param = (GLfloat)get_texture_mag_filter(texture, &texture->sampler);
+            gles_glTexParameterfv(rtarget, pname, &safe_param);
+            texture->actual.mag_filter = (GLenum)safe_param;
+            errorGL();
+            return;
+        case GL_TEXTURE_COMPARE_MODE:
+        case GL_TEXTURE_COMPARE_FUNC:
+            if (hardext.esversion >= 3) {
+                void gles_glTexParameteri(glTexParameteri_ARG_EXPAND);
+                gles_glTexParameteri(rtarget, pname, (GLint)params[0]);
+                if (pname == GL_TEXTURE_COMPARE_MODE) texture->actual.compare = (GLenum)params[0];
+                else texture->actual.func = (GLenum)params[0];
+                errorGL();
+            }
+            return;
+        case GL_TEXTURE_BORDER_COLOR:
+            /* GL_CLAMP_TO_BORDER mapped to GL_CLAMP_TO_EDGE on standard ES 3.0; avoid GL_INVALID_ENUM */
+            return;
+        case GL_TEXTURE_MIN_LOD:
+        case GL_TEXTURE_MAX_LOD:
+            if (hardext.esversion >= 3) {
+                gles_glTexParameterfv(rtarget, pname, params);
+                errorGL();
+            }
+            return;
+        default:
+            return;
         }
     }
 }
@@ -428,6 +512,7 @@ void APIENTRY_GL4ES gl4es_glDeleteTextures(GLsizei n, const GLuint* textures) {
                             glstate->fpe_bound_changed = a + 1;
                     }
                 }
+                gl4es_invalidate_fbo_phys_cache(tex->glname, GL_FALSE);
                 gles_glDeleteTextures(1, &tex->glname);
                 // check if renderbuffer where associeted
                 if (tex->binded_fbo) {
@@ -822,7 +907,7 @@ void realize_1texture(GLenum target, int wantedTMU, gltexture_t* tex, glsampler_
         gles_glTexParameteri(target, GL_TEXTURE_MIN_FILTER, param);
         tex->actual.min_filter = param;
     }
-    param = sampler->mag_filter;
+    param = get_texture_mag_filter(tex, sampler);
     if (tex->actual.mag_filter != param) {
         if (wantedTMU == -1) {
             realize_textures(0);
@@ -839,6 +924,25 @@ void realize_1texture(GLenum target, int wantedTMU, gltexture_t* tex, glsampler_
         }
         gles_glTexParameteri(target, GL_TEXTURE_MAG_FILTER, param);
         tex->actual.mag_filter = param;
+    }
+    if (hardext.esversion >= 3 && (tex->format == GL_DEPTH_COMPONENT || tex->format == GL_DEPTH_STENCIL)) {
+        if (tex->actual.compare != sampler->compare || tex->actual.func != sampler->func) {
+            if (wantedTMU == -1) {
+                realize_textures(0);
+                gltexture_t* bound = glstate->texture.bound[TMU][ENABLED_TEX2D];
+                oldtex = bound->glname;
+                if (oldtex != tex->glname) gles_glBindTexture(GL_TEXTURE_2D, tex->glname);
+                wantedTMU = -2;
+            }
+            if (glstate->gleshard->active != TMU) {
+                glstate->gleshard->active = TMU;
+                gles_glActiveTexture(GL_TEXTURE0 + TMU);
+            }
+            gles_glTexParameteri(target, GL_TEXTURE_COMPARE_MODE, sampler->compare);
+            gles_glTexParameteri(target, GL_TEXTURE_COMPARE_FUNC, sampler->func);
+            tex->actual.compare = sampler->compare;
+            tex->actual.func = sampler->func;
+        }
     }
     param = get_texture_wrap_s(tex, sampler);
     if (tex->actual.wrap_s != param) {
@@ -899,7 +1003,7 @@ void realize_textures(int drawing) {
 #endif
     for (int i = 0; i < glstate->bound_changed; i++) {
         // get highest priority texture unit
-        int tmp = glstate->enable.texture[glstate->texture.active];
+        int tmp = glstate->enable.texture[i];
         int tgt = ENABLED_TEX2D; // default to TEX2D
         if (IS_TEX3D(tmp))
             tgt = ENABLED_TEX3D;
@@ -967,7 +1071,10 @@ void realize_textures(int drawing) {
                 (tex->compressed && (tex->mipmap_auto == 0)))
                 tex->mipmap_need = 0;
             else
-                tex->mipmap_need = (is_mipmap_needed(&tex->sampler) && (hardext.esversion != 1) && !tex->npot) ? 1 : 0;
+                tex->mipmap_need =
+                    (is_mipmap_needed(&tex->sampler) && (hardext.esversion != 1) && (!tex->npot || hardext.npot >= 2))
+                        ? 1
+                        : 0;
             if (tex->mipmap_need && !tex->mipmap_done) {
                 if (!tex->mipmap_auto) {
                     // should check if glGenerateMipmap exist, and fall back to no mipmap if not

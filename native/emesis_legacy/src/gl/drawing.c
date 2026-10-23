@@ -480,6 +480,168 @@ if(count>500000) return;
 #define MIN_BATCH globals4es.minbatch
 #define MAX_BATCH globals4es.maxbatch
 
+static int ensure_gpu_quad_ibo_u16(size_t needed_quads) {
+    if (needed_quads > 16384) return 0; /* 16384 * 4 == 65536 max 16-bit vertex index */
+    if (glstate->quad_ibo_u16_quads >= needed_quads &&
+        glstate->quad_ibo_u16.real_buffer && glstate->quad_ibo_u16.data) {
+        return 1;
+    }
+    /* Allocate full 16,384-quad (196 KB) GPU IBO once per context so chunk draws never reallocate */
+    size_t cap_quads = 16384;
+    size_t byte_size = cap_quads * 6 * sizeof(GLushort);
+    GLushort* data = (GLushort*)malloc(byte_size);
+    if (!data) return 0;
+    for (size_t q = 0; q < cap_quads; ++q) {
+        GLushort v = (GLushort)(q * 4);
+        size_t o = q * 6;
+        data[o + 0] = v + 0;
+        data[o + 1] = v + 1;
+        data[o + 2] = v + 2;
+        data[o + 3] = v + 0;
+        data[o + 4] = v + 2;
+        data[o + 5] = v + 3;
+    }
+
+    LOAD_GLES(glGenBuffers);
+    LOAD_GLES(glBufferData);
+    if (!gles_glGenBuffers || !gles_glBufferData) {
+        free(data);
+        return 0;
+    }
+
+    if (!glstate->quad_ibo_u16.real_buffer) {
+        gles_glGenBuffers(1, &glstate->quad_ibo_u16.real_buffer);
+    }
+    if (!glstate->quad_ibo_u16.real_buffer) {
+        free(data);
+        return 0;
+    }
+
+    free(glstate->quad_ibo_u16.data);
+    glstate->quad_ibo_u16.data = data;
+    glstate->quad_ibo_u16.size = (GLsizeiptr)byte_size;
+    glstate->quad_ibo_u16.type = GL_ELEMENT_ARRAY_BUFFER;
+    glstate->quad_ibo_u16.usage = GL_STATIC_DRAW;
+    glstate->quad_ibo_u16_quads = cap_quads;
+
+    GLuint prev_want = glstate->bind_buffer.want_index;
+    bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->quad_ibo_u16.real_buffer);
+    gles_glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)byte_size, data, GL_STATIC_DRAW);
+    glstate->bind_buffer.want_index = prev_want;
+    return 1;
+}
+
+static int ensure_gpu_quad_ibo_u32(size_t needed_quads) {
+    if (!hardext.elementuint) return 0;
+    if (glstate->quad_ibo_u32_quads >= needed_quads &&
+        glstate->quad_ibo_u32.real_buffer && glstate->quad_ibo_u32.data) {
+        return 1;
+    }
+    size_t cap_quads = 32768;
+    while (cap_quads < needed_quads) cap_quads *= 2;
+    size_t byte_size = cap_quads * 6 * sizeof(GLuint);
+    GLuint* data = (GLuint*)malloc(byte_size);
+    if (!data) return 0;
+    for (size_t q = 0; q < cap_quads; ++q) {
+        GLuint v = (GLuint)(q * 4);
+        size_t o = q * 6;
+        data[o + 0] = v + 0;
+        data[o + 1] = v + 1;
+        data[o + 2] = v + 2;
+        data[o + 3] = v + 0;
+        data[o + 4] = v + 2;
+        data[o + 5] = v + 3;
+    }
+
+    LOAD_GLES(glGenBuffers);
+    LOAD_GLES(glBufferData);
+    if (!gles_glGenBuffers || !gles_glBufferData) {
+        free(data);
+        return 0;
+    }
+
+    if (!glstate->quad_ibo_u32.real_buffer) {
+        gles_glGenBuffers(1, &glstate->quad_ibo_u32.real_buffer);
+    }
+    if (!glstate->quad_ibo_u32.real_buffer) {
+        free(data);
+        return 0;
+    }
+
+    free(glstate->quad_ibo_u32.data);
+    glstate->quad_ibo_u32.data = data;
+    glstate->quad_ibo_u32.size = (GLsizeiptr)byte_size;
+    glstate->quad_ibo_u32.type = GL_ELEMENT_ARRAY_BUFFER;
+    glstate->quad_ibo_u32.usage = GL_STATIC_DRAW;
+    glstate->quad_ibo_u32_quads = cap_quads;
+
+    GLuint prev_want = glstate->bind_buffer.want_index;
+    bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->quad_ibo_u32.real_buffer);
+    gles_glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)byte_size, data, GL_STATIC_DRAW);
+    glstate->bind_buffer.want_index = prev_want;
+    return 1;
+}
+
+static void draw_quads_arrays_fast(GLint first, GLsizei count, int instancecount) {
+    GLsizei nquads = count / 4;
+    if (nquads <= 0 || first < 0) return;
+    GLsizei idx_count = nquads * 6;
+    size_t max_vert = (size_t)first + (size_t)(nquads * 4);
+
+    /* Fast path: persistent GPU GL_ELEMENT_ARRAY_BUFFER for 4-aligned `first` (covers first == 0 and all terrain/entity VBOs) */
+    if (hardext.esversion > 1 && ((first & 3) == 0)) {
+        size_t q0 = (size_t)first >> 2;
+        size_t needed_quads = q0 + (size_t)nquads;
+        if (max_vert <= 65536 && ensure_gpu_quad_ibo_u16(needed_quads)) {
+            glbuffer_t* prev_elem = glstate->vao->elements;
+            GLuint prev_want = glstate->bind_buffer.want_index;
+            glstate->vao->elements = &glstate->quad_ibo_u16;
+            const GLushort* sptr = (const GLushort*)glstate->quad_ibo_u16.data + (q0 * 6);
+            glDrawElementsCommon(GL_TRIANGLES, 0, idx_count, (GLuint)max_vert, sptr, NULL, instancecount);
+            glstate->vao->elements = prev_elem;
+            glstate->bind_buffer.want_index = prev_want;
+            return;
+        }
+        if (max_vert > 65536 && ensure_gpu_quad_ibo_u32(needed_quads)) {
+            glbuffer_t* prev_elem = glstate->vao->elements;
+            GLuint prev_want = glstate->bind_buffer.want_index;
+            glstate->vao->elements = &glstate->quad_ibo_u32;
+            const GLuint* iptr = (const GLuint*)glstate->quad_ibo_u32.data + (q0 * 6);
+            glDrawElementsCommon(GL_TRIANGLES, 0, idx_count, (GLuint)max_vert, NULL, iptr, instancecount);
+            glstate->vao->elements = prev_elem;
+            glstate->bind_buffer.want_index = prev_want;
+            return;
+        }
+    }
+
+    /* Unaligned `first` fallback (handles both <= 65536 and > 65536 cleanly) */
+    GLuint old_buffer = wantBufferIndex(0);
+    if (max_vert > 65536 && hardext.elementuint) {
+        gl4es_scratch((size_t)idx_count * sizeof(GLuint));
+        GLuint* p = (GLuint*)glstate->scratch;
+        for (GLsizei q = 0; q < nquads; ++q) {
+            GLuint v = (GLuint)first + (GLuint)(q * 4);
+            p[0] = v + 0; p[1] = v + 1; p[2] = v + 2;
+            p[3] = v + 0; p[4] = v + 2; p[5] = v + 3;
+            p += 6;
+        }
+        glDrawElementsCommon(GL_TRIANGLES, 0, idx_count, (GLuint)max_vert, NULL, (const GLuint*)glstate->scratch,
+                             instancecount);
+    } else {
+        gl4es_scratch((size_t)idx_count * sizeof(GLushort));
+        GLushort* p = (GLushort*)glstate->scratch;
+        for (GLsizei q = 0; q < nquads; ++q) {
+            GLushort v = (GLushort)(first + q * 4);
+            p[0] = v + 0; p[1] = v + 1; p[2] = v + 2;
+            p[3] = v + 0; p[4] = v + 2; p[5] = v + 3;
+            p += 6;
+        }
+        glDrawElementsCommon(GL_TRIANGLES, 0, idx_count, (GLuint)max_vert, (const GLushort*)glstate->scratch, NULL,
+                             instancecount);
+    }
+    wantBufferIndex(old_buffer);
+}
+
 void APIENTRY_GL4ES gl4es_glDrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
                                               const void* indices) {
     DBG(SHUT_LOGD("glDrawRangeElements(%s, %i, %i, %i, %s, @%p), inlist=%i, pending=%d\n", PrintEnum(mode), start, end,
@@ -769,33 +931,7 @@ void APIENTRY_GL4ES gl4es_glDrawArrays(GLenum mode, GLint first, GLsizei count) 
         free_renderlist(list);
     } else {
         if (mode == GL_QUADS) {
-            // TODO: move those static in glstate
-            static GLushort* indices = NULL;
-            static int indcnt = 0;
-            static int indfirst = 0;
-            int realfirst = ((first % 4) == 0) ? 0 : first;
-            int realcount = count + (first - realfirst);
-            if ((indcnt < realcount) || (indfirst != realfirst)) {
-                if (indcnt < realcount) {
-                    indcnt = realcount;
-                    if (indices) free(indices);
-                    indices = (GLushort*)malloc(sizeof(GLushort) * (indcnt * 3 / 2));
-                }
-                indfirst = realfirst;
-                GLushort* p = indices;
-                for (int i = 0, j = indfirst; i + 3 < indcnt; i += 4, j += 4) {
-                    *(p++) = j + 0;
-                    *(p++) = j + 1;
-                    *(p++) = j + 2;
-
-                    *(p++) = j + 0;
-                    *(p++) = j + 2;
-                    *(p++) = j + 3;
-                }
-            }
-            GLuint old_buffer = wantBufferIndex(0);
-            glDrawElementsCommon(GL_TRIANGLES, 0, count * 3 / 2, count, indices + (first - indfirst) * 3 / 2, NULL, 1);
-            wantBufferIndex(old_buffer);
+            draw_quads_arrays_fast(first, count, 1);
             return;
         }
 
@@ -879,34 +1015,7 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArrays(GLenum mode, const GLint* firsts, co
                 list = arrays_to_renderlist(NULL, mode, first, count + first);
         } else {
             if (mode == GL_QUADS) {
-                // TODO: move those static in glstate
-                static GLushort* indices = NULL;
-                static int indcnt = 0;
-                static int indfirst = 0;
-                int realfirst = ((first % 4) == 0) ? 0 : first;
-                int realcount = count + (first - realfirst);
-                if ((indcnt < realcount) || (indfirst != realfirst)) {
-                    if (indcnt < realcount) {
-                        indcnt = realcount;
-                        if (indices) free(indices);
-                        indices = (GLushort*)malloc(sizeof(GLushort) * (indcnt * 3 / 2));
-                    }
-                    indfirst = realfirst;
-                    GLushort* p = indices;
-                    for (int i = 0, j = indfirst; i + 3 < indcnt; i += 4, j += 4) {
-                        *(p++) = j + 0;
-                        *(p++) = j + 1;
-                        *(p++) = j + 2;
-
-                        *(p++) = j + 0;
-                        *(p++) = j + 2;
-                        *(p++) = j + 3;
-                    }
-                }
-                GLuint old_index = wantBufferIndex(0);
-                glDrawElementsCommon(GL_TRIANGLES, 0, count * 3 / 2, count, indices + (first - indfirst) * 3 / 2, NULL,
-                                     1);
-                wantBufferIndex(old_index);
+                draw_quads_arrays_fast(first, count, 1);
                 continue;
             }
 
@@ -1464,34 +1573,7 @@ void APIENTRY_GL4ES gl4es_glDrawArraysInstanced(GLenum mode, GLint first, GLsize
         free_renderlist(list);
     } else {
         if (mode == GL_QUADS) {
-            // TODO: move those static in glstate
-            static GLushort* indices = NULL;
-            static int indcnt = 0;
-            static int indfirst = 0;
-            int realfirst = ((first % 4) == 0) ? 0 : first;
-            int realcount = count + (first - realfirst);
-            if ((indcnt < realcount) || (indfirst != realfirst)) {
-                if (indcnt < realcount) {
-                    indcnt = realcount;
-                    if (indices) free(indices);
-                    indices = (GLushort*)malloc(sizeof(GLushort) * (indcnt * 3 / 2));
-                }
-                indfirst = realfirst;
-                GLushort* p = indices;
-                for (int i = 0, j = indfirst; i + 3 < indcnt; i += 4, j += 4) {
-                    *(p++) = j + 0;
-                    *(p++) = j + 1;
-                    *(p++) = j + 2;
-
-                    *(p++) = j + 0;
-                    *(p++) = j + 2;
-                    *(p++) = j + 3;
-                }
-            }
-            GLuint old_buffer = wantBufferIndex(0);
-            glDrawElementsCommon(GL_TRIANGLES, 0, count * 3 / 2, count, indices + (first - indfirst) * 3 / 2, NULL,
-                                 primcount);
-            wantBufferIndex(old_buffer);
+            draw_quads_arrays_fast(first, count, primcount);
             return;
         }
 

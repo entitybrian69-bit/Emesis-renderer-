@@ -15,6 +15,31 @@
 #define EGL_PLATFORM_GBM_KHR 0x31D7
 #endif
 
+#ifndef EGL_CONTEXT_MAJOR_VERSION_KHR
+#define EGL_CONTEXT_MAJOR_VERSION_KHR 0x3098
+#endif
+#ifndef EGL_CONTEXT_MINOR_VERSION_KHR
+#define EGL_CONTEXT_MINOR_VERSION_KHR 0x30FB
+#endif
+#ifndef EGL_OPENGL_ES3_BIT_KHR
+#define EGL_OPENGL_ES3_BIT_KHR 0x0040
+#endif
+
+static int has_gl_ext(const char* extlist, const char* ext) {
+    if (!extlist || !ext || !ext[0]) return 0;
+    size_t len = strlen(ext);
+    while (len > 0 && ext[len - 1] == ' ') len--;
+    if (len == 0) return 0;
+    const char* p = extlist;
+    while ((p = strstr(p, ext)) != NULL) {
+        int start_ok = (p == extlist) || (p[-1] == ' ');
+        int end_ok = (p[len] == '\0') || (p[len] == ' ');
+        if (start_ok && end_ok) return 1;
+        p += len;
+    }
+    return 0;
+}
+
 static int tested = 0;
 
 hardext_t hardext = {0};
@@ -163,112 +188,136 @@ void GetHardwareExtensions(int notest) {
     LOAD_EGL(eglCreateContext);
     LOAD_EGL(eglQueryString);
     LOAD_EGL(eglTerminate);
+    LOAD_EGL(eglGetCurrentContext);
+    LOAD_EGL(eglGetCurrentSurface);
+    LOAD_EGL(eglGetCurrentDisplay);
 
-    EGLDisplay eglDisplay;
-    EGLSurface eglSurface;
-    EGLContext eglContext;
+    EGLDisplay eglDisplay = EGL_NO_DISPLAY;
+    EGLSurface eglSurface = EGL_NO_SURFACE;
+    EGLContext eglContext = EGL_NO_CONTEXT;
+    int created_temp_context = 0;
+
+    EGLContext prevContext = egl_eglGetCurrentContext ? egl_eglGetCurrentContext() : EGL_NO_CONTEXT;
+    EGLDisplay prevDisplay = egl_eglGetCurrentDisplay ? egl_eglGetCurrentDisplay() : EGL_NO_DISPLAY;
+    EGLSurface prevDraw = egl_eglGetCurrentSurface ? egl_eglGetCurrentSurface(EGL_DRAW) : EGL_NO_SURFACE;
+    EGLSurface prevRead = egl_eglGetCurrentSurface ? egl_eglGetCurrentSurface(EGL_READ) : EGL_NO_SURFACE;
 
     SHUT_LOGD("Using GLES %s backend", (hardext.esversion == 1) ? "1.1" : (hardext.esversion == 2) ? "2.0" : "3.x");
 
-    // Create a PBuffer first...
-    EGLint egl_context_attrib_es2[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
+    if (prevContext != EGL_NO_CONTEXT && prevDisplay != EGL_NO_DISPLAY) {
+        /* Reuse the already-bound EGL context safely without clobbering or terminating the display */
+        eglDisplay = prevDisplay;
+    } else {
+        created_temp_context = 1;
+        EGLint egl_context_attrib_es32[] = {EGL_CONTEXT_MAJOR_VERSION_KHR, 3, EGL_CONTEXT_MINOR_VERSION_KHR, 2, EGL_NONE};
+        EGLint egl_context_attrib_es31[] = {EGL_CONTEXT_MAJOR_VERSION_KHR, 3, EGL_CONTEXT_MINOR_VERSION_KHR, 1, EGL_NONE};
+        EGLint egl_context_attrib_es30[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+        EGLint egl_context_attrib_es2[]  = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
+        EGLint egl_context_attrib[]      = {EGL_NONE};
 
-    EGLint egl_context_attrib[] = {EGL_NONE};
+        EGLint egl_attribs[10];
+        int i = 0;
+        egl_attribs[i++] = EGL_WIDTH;
+        egl_attribs[i++] = 32;
+        egl_attribs[i++] = EGL_HEIGHT;
+        egl_attribs[i++] = 32;
+        egl_attribs[i++] = EGL_NONE;
 
-    // let's create a PBuffer attributes
-    EGLint egl_attribs[10]; // should be enough
-    int i = 0;
-    egl_attribs[i++] = EGL_WIDTH;
-    egl_attribs[i++] = 32;
-    egl_attribs[i++] = EGL_HEIGHT;
-    egl_attribs[i++] = 32;
-    egl_attribs[i++] = EGL_NONE;
-
-    EGLint configAttribs[] = {
+        EGLint want_es3 = (hardext.esversion >= 3 || globals4es.es >= 3) ? 1 : 0;
+        EGLint configAttribs[] = {
 #ifdef PANDORA
-        // on the Pandora, there don't seem to exist a 8888 PBuffer config for GLES2.
-        EGL_RED_SIZE,
-        (hardext.esversion == 1) ? 8 : 5,
-        EGL_GREEN_SIZE,
-        (hardext.esversion == 1) ? 8 : 6,
-        EGL_BLUE_SIZE,
-        (hardext.esversion == 1) ? 8 : 5,
-        EGL_ALPHA_SIZE,
-        (hardext.esversion == 1) ? 8 : 0,
+            EGL_RED_SIZE, (hardext.esversion == 1) ? 8 : 5,
+            EGL_GREEN_SIZE, (hardext.esversion == 1) ? 8 : 6,
+            EGL_BLUE_SIZE, (hardext.esversion == 1) ? 8 : 5,
+            EGL_ALPHA_SIZE, (hardext.esversion == 1) ? 8 : 0,
 #else
-        EGL_RED_SIZE,
-        8,
-        EGL_GREEN_SIZE,
-        8,
-        EGL_BLUE_SIZE,
-        8,
-        EGL_ALPHA_SIZE,
-        8,
+            EGL_RED_SIZE, 8,
+            EGL_GREEN_SIZE, 8,
+            EGL_BLUE_SIZE, 8,
+            EGL_ALPHA_SIZE, 8,
 #endif
-        EGL_SURFACE_TYPE,
-        EGL_PBUFFER_BIT,
-        EGL_RENDERABLE_TYPE,
-        (hardext.esversion == 1) ? EGL_OPENGL_ES_BIT : EGL_OPENGL_ES2_BIT,
-        EGL_NONE};
+            EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+            EGL_RENDERABLE_TYPE,
+            (hardext.esversion == 1) ? EGL_OPENGL_ES_BIT : (want_es3 ? EGL_OPENGL_ES3_BIT_KHR : EGL_OPENGL_ES2_BIT),
+            EGL_NONE};
 
-    int configsFound;
-    static EGLConfig pbufConfigs[1];
+        int configsFound = 0;
+        static EGLConfig pbufConfigs[1];
 
 #ifndef NO_GBM
-    if (globals4es.usegbm) {
-        LoadGBMFunctions();
-        eglDisplay = OpenGBMDisplay(EGL_DEFAULT_DISPLAY);
-    } else
+        if (globals4es.usegbm) {
+            LoadGBMFunctions();
+            eglDisplay = OpenGBMDisplay(EGL_DEFAULT_DISPLAY);
+        } else
 #endif
-        eglDisplay = egl_eglGetDisplay(EGL_DEFAULT_DISPLAY);
+            eglDisplay = egl_eglGetDisplay(EGL_DEFAULT_DISPLAY);
 
-    egl_eglBindAPI(EGL_OPENGL_ES_API);
-    if (egl_eglInitialize(eglDisplay, NULL, NULL) != EGL_TRUE) {
-        LOGE("Error while gathering supported extension (eglInitialize: %s), default to none", PrintEGLError(0));
-        egl_eglTerminate(eglDisplay);
-        return;
-    }
+        egl_eglBindAPI(EGL_OPENGL_ES_API);
+        if (egl_eglInitialize(eglDisplay, NULL, NULL) != EGL_TRUE) {
+            LOGE("Error while gathering supported extension (eglInitialize: %s), default to none", PrintEGLError(0));
+            return;
+        }
 
-    egl_eglChooseConfig(eglDisplay, configAttribs, pbufConfigs, 1, &configsFound);
+        egl_eglChooseConfig(eglDisplay, configAttribs, pbufConfigs, 1, &configsFound);
+        if (!configsFound && want_es3) {
+            /* Fall back to ES2 renderable bit if driver only advertises ES2 bit on Pbuffer configs */
+            for (int ci = 0; configAttribs[ci] != EGL_NONE; ci += 2) {
+                if (configAttribs[ci] == EGL_RENDERABLE_TYPE) {
+                    configAttribs[ci + 1] = EGL_OPENGL_ES2_BIT;
+                    break;
+                }
+            }
+            egl_eglChooseConfig(eglDisplay, configAttribs, pbufConfigs, 1, &configsFound);
+        }
 #ifndef NO_GBM
-    const char* eglExts = egl_eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
-    if (eglExts && strstr(eglExts, "EGL_KHR_platform_gbm ")) {
-        SHUT_LOGD("GBM Surfaces supported%s", globals4es.usegbm ? " and used" : "");
-        hardext.gbm = 1;
-    }
+        const char* eglExts = egl_eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
+        if (eglExts && has_gl_ext(eglExts, "EGL_KHR_platform_gbm")) {
+            SHUT_LOGD("GBM Surfaces supported%s", globals4es.usegbm ? " and used" : "");
+            hardext.gbm = 1;
+        }
 #endif
 #ifndef PANDORA
-    if (!configsFound) {
-        // try without alpha channel
-        configAttribs[4 * 2 - 1] = 0;
-        egl_eglChooseConfig(eglDisplay, configAttribs, pbufConfigs, 1, &configsFound);
-        if (configsFound) {
-            SHUT_LOGD("No alpha channel in PBuffer context, disabling EGL Alpha channel...");
-            hardext.eglnoalpha = 1;
+        if (!configsFound) {
+            configAttribs[4 * 2 - 1] = 0;
+            egl_eglChooseConfig(eglDisplay, configAttribs, pbufConfigs, 1, &configsFound);
+            if (configsFound) {
+                SHUT_LOGD("No alpha channel in PBuffer context, disabling EGL Alpha channel...");
+                hardext.eglnoalpha = 1;
+            }
         }
-    }
 #endif
-    if (!configsFound) {
-        SHUT_LOGE("Error while gathering supported extension (eglChooseConfig: %s), default to none", PrintEGLError(0));
-        egl_eglTerminate(eglDisplay);
-        return;
+        if (!configsFound) {
+            SHUT_LOGE("Error while gathering supported extension (eglChooseConfig: %s), default to none", PrintEGLError(0));
+            return;
+        }
+        if (hardext.esversion == 1) {
+            eglContext = egl_eglCreateContext(eglDisplay, pbufConfigs[0], EGL_NO_CONTEXT, egl_context_attrib);
+        } else {
+            if (want_es3) {
+                eglContext = egl_eglCreateContext(eglDisplay, pbufConfigs[0], EGL_NO_CONTEXT, egl_context_attrib_es32);
+                if (!eglContext)
+                    eglContext = egl_eglCreateContext(eglDisplay, pbufConfigs[0], EGL_NO_CONTEXT, egl_context_attrib_es31);
+                if (!eglContext)
+                    eglContext = egl_eglCreateContext(eglDisplay, pbufConfigs[0], EGL_NO_CONTEXT, egl_context_attrib_es30);
+            }
+            if (!eglContext) {
+                eglContext = egl_eglCreateContext(eglDisplay, pbufConfigs[0], EGL_NO_CONTEXT, egl_context_attrib_es2);
+            }
+        }
+        if (!eglContext) {
+            SHUT_LOGE("Error while gathering supported extension (eglCreateContext: %s), default to none",
+                      PrintEGLError(0));
+            return;
+        }
+        eglSurface = egl_eglCreatePbufferSurface(eglDisplay, pbufConfigs[0], egl_attribs);
+        if (!eglSurface) {
+            SHUT_LOGE("Error while gathering supported extension (eglCreatePBufferSurface: %s), default to none",
+                      PrintEGLError(0));
+            egl_eglDestroyContext(eglDisplay, eglContext);
+            return;
+        }
+        egl_eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext);
     }
-    eglContext = egl_eglCreateContext(eglDisplay, pbufConfigs[0], EGL_NO_CONTEXT,
-                                      (hardext.esversion == 1) ? egl_context_attrib : egl_context_attrib_es2);
-    if (!eglContext) {
-        SHUT_LOGE("Error while gathering supported extension (eglCreateContext: %s), default to none",
-                  PrintEGLError(0));
-        return;
-    }
-    eglSurface = egl_eglCreatePbufferSurface(eglDisplay, pbufConfigs[0], egl_attribs);
-    if (!eglSurface) {
-        SHUT_LOGE("Error while gathering supported extension (eglCreatePBufferSurface: %s), default to none",
-                  PrintEGLError(0));
-        egl_eglDestroyContext(eglDisplay, eglContext);
-        egl_eglTerminate(eglDisplay);
-        return;
-    }
-    egl_eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext);
 #endif
     tested = 1;
     LOAD_GLES(glGetString);
@@ -276,9 +325,12 @@ void GetHardwareExtensions(int notest) {
     LOAD_GLES(glGetError);
 
     // gles version detection
+    int esMajor = 0, esMinor = 0;
     const char* verStr = (const char*)gles_glGetString(GL_VERSION);
-    if (verStr) {
-        sscanf(verStr, "OpenGL ES %d", &hardext.esversion);
+    if (verStr && sscanf(verStr, "OpenGL ES %d.%d", &esMajor, &esMinor) >= 1) {
+        hardext.esversion = esMajor;
+    } else if (verStr && sscanf(verStr, "OpenGL ES-CM %d.%d", &esMajor, &esMinor) >= 1) {
+        hardext.esversion = esMajor;
     } else {
         hardext.esversion = globals4es.es;
     }
@@ -287,31 +339,65 @@ void GetHardwareExtensions(int notest) {
         SHUT_LOGD("Real GLES major version: %d", hardext.esversion);
         globals4es.es = hardext.esversion;
     }
+    if (esMajor >= 2) {
+        globals4es.esversion = esMajor * 100 + esMinor * 10;
+    }
 
-    // Now get extensions
+    // Now get extensions (guard against NULL on stripped drivers)
     const char* Exts = (const char*)gles_glGetString(GL_EXTENSIONS);
-// Parse them!
+    if (!Exts) Exts = "";
+// Parse them with boundary-safe has_gl_ext!
 #define S(A, B, C)                                                                                                     \
-    if (strstr(Exts, A)) {                                                                                             \
+    if (has_gl_ext(Exts, A)) {                                                                                         \
         hardext.B = 1;                                                                                                 \
         SHUT_LOGD("Extension %s detected%s", A, C ? " and used" : "");                                                 \
     }
-    if (hardext.esversion > 1) hardext.npot = 1;
-    if (strstr(Exts, "GL_APPLE_texture_2D_limited_npot ")) hardext.npot = 1;
-    if (strstr(Exts, "GL_IMG_texture_npot "))
-        hardext.npot =
-            1; // it should enable mipmap (so hardext.npot=2), but mipmap (so level > 0) needs to be POT-sized?!!
-    if (strstr(Exts, "GL_ARB_texture_non_power_of_two ") || strstr(Exts, "GL_OES_texture_npot ")) hardext.npot = 3;
+    if (hardext.esversion >= 3) {
+        /* Full NPOT (wrap + mipmap + glGenerateMipmap) is mandatory core in OpenGL ES 3.0+ */
+        hardext.npot = 3;
+    } else if (hardext.esversion > 1) {
+        hardext.npot = 1;
+    }
+    if (has_gl_ext(Exts, "GL_APPLE_texture_2D_limited_npot") && hardext.npot < 1) hardext.npot = 1;
+    if (has_gl_ext(Exts, "GL_IMG_texture_npot") && hardext.npot < 1) hardext.npot = 1;
+    if (has_gl_ext(Exts, "GL_ARB_texture_non_power_of_two") || has_gl_ext(Exts, "GL_OES_texture_npot"))
+        hardext.npot = 3;
     if (hardext.npot > 0) {
         SHUT_LOGD("Hardware %s NPOT detected and used",
                   hardext.npot == 3 ? "Full" : (hardext.npot == 2 ? "Limited+Mipmap" : "Limited"));
     }
-    S("GL_EXT_blend_minmax ", blendminmax, 1);
-    if (hardext.esversion > 2) {
-        SHUT_LOGD("Extension GL_EXT_draw_buffers is in core ES3, and so used");
+    if (hardext.esversion >= 3) {
+        hardext.blendminmax = 1;
         hardext.drawbuffers = 1;
+        hardext.elementuint = 1;
+        hardext.depthstencil = 1;
+        hardext.depth24 = 1;
+        hardext.rgba8 = 1;
+        hardext.rgtex = 1;
+        if (!globals4es.nodepthtex) {
+            hardext.depthtex = 1;
+            if (esMajor > 3 || (esMajor == 3 && esMinor >= 1)) {
+                hardext.stenciltex = 1;
+            }
+        }
+        if (globals4es.floattex) {
+            hardext.floattex = 1;
+            hardext.halffloattex = 1;
+            hardext.halffloatlinear = 1; /* GL_HALF_FLOAT + R11F_G11F_B10F linear/mipmap filtering is core in ES 3.0 */
+            if (esMajor > 3 || (esMajor == 3 && esMinor >= 2)) {
+                /* GL_EXT_color_buffer_float is core in OpenGL ES 3.2 (RGBA16F + RGBA32F renderable) */
+                hardext.floatfbo = 1;
+                hardext.halffloatfbo = 1;
+            }
+        }
+        hardext.highp = 2;
+        if (!globals4es.noshaderlod) hardext.shaderlod = 1;
+        hardext.fragdepth = 1;
+        hardext.derivatives = 1;
+        hardext.prgbinary = 1;
     } else {
-        S("GL_EXT_draw_buffers ", drawbuffers, 1);
+        S("GL_EXT_blend_minmax", blendminmax, 1);
+        S("GL_EXT_draw_buffers", drawbuffers, 1);
     }
     /*if(hardext.blendcolor==0) {
         // try by just loading the function
@@ -370,8 +456,12 @@ void GetHardwareExtensions(int notest) {
     if (globals4es.floattex) {
         S("GL_OES_texture_float ", floattex, 1);
         S("GL_OES_texture_half_float ", halffloattex, 1);
+        S("GL_OES_texture_float_linear ", floatlinear, 0);
+        S("GL_OES_texture_half_float_linear ", halffloatlinear, 0);
         S("GL_EXT_color_buffer_float ", floatfbo, 1);
         S("GL_EXT_color_buffer_half_float ", halffloatfbo, 1);
+        /* GL_EXT_color_buffer_float guarantees RGBA16F renderability as well as RGBA32F */
+        if (hardext.floatfbo) hardext.halffloatfbo = 1;
     }
     S("GL_AOS4_texture_format_RGB332", rgb332, 0);
     S("GL_AOS4_texture_format_RGB332REV", rgb332rev, 0);
@@ -415,14 +505,20 @@ void GetHardwareExtensions(int notest) {
         }
         if (hardext.prgbinary) {
             gles_glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS_OES, &hardext.prgbin_n);
+            if (gles_glGetError() != GL_NO_ERROR) hardext.prgbin_n = 0;
             SHUT_LOGD("Number of supported Program Binary Format: %d", hardext.prgbin_n);
         }
         S("GL_EXT_draw_elements_base_vertex", basevertex, 1);
-        int versionMajor, versionMinor;
-        gles_glGetIntegerv(GL_MAJOR_VERSION, &versionMajor);
-        gles_glGetIntegerv(GL_MINOR_VERSION, &versionMinor);
-
-        if (versionMajor > 3 || (versionMajor == 3 && versionMinor >= 2)) { // GLES 3.2+
+        if (!hardext.basevertex) {
+            S("GL_OES_draw_elements_base_vertex", basevertex, 1);
+        }
+        int versionMajor = esMajor, versionMinor = esMinor;
+        if (hardext.esversion >= 3) {
+            gles_glGetIntegerv(GL_MAJOR_VERSION, &versionMajor);
+            gles_glGetIntegerv(GL_MINOR_VERSION, &versionMinor);
+            gles_glGetError();
+        }
+        if (versionMajor > 3 || (versionMajor == 3 && versionMinor >= 2)) {
             hardext.basevertex = 1;
         }
     }
@@ -499,28 +595,36 @@ void GetHardwareExtensions(int notest) {
     if (hardext.maxdrawbuffers > MAX_DRAW_BUFFERS) hardext.maxdrawbuffers = MAX_DRAW_BUFFERS;
     SHUT_LOGD("Max Color Attachments: %d / Draw buffers: %d", hardext.maxdrawbuffers, hardext.maxcolorattach);
 #ifndef NOEGL
-    if (strstr(egl_eglQueryString(eglDisplay, EGL_EXTENSIONS), "EGL_KHR_gl_colorspace")) {
+    const char* dispExts = eglDisplay != EGL_NO_DISPLAY ? egl_eglQueryString(eglDisplay, EGL_EXTENSIONS) : NULL;
+    if (dispExts && has_gl_ext(dispExts, "EGL_KHR_gl_colorspace")) {
         SHUT_LOGD("sRGB surface supported");
         hardext.srgb = 1;
     }
-    if (strstr(egl_eglQueryString(eglDisplay, EGL_EXTENSIONS), "EGL_KHR_image_pixmap")) {
+    if (dispExts && has_gl_ext(dispExts, "EGL_KHR_image_pixmap")) {
         SHUT_LOGD("EGLImage from Pixmap supported");
         hardext.khr_pixmap = 1;
     }
-    if (strstr(egl_eglQueryString(eglDisplay, EGL_EXTENSIONS), "EGL_KHR_gl_texture_2D_image")) {
+    if (dispExts && has_gl_ext(dispExts, "EGL_KHR_gl_texture_2D_image")) {
         SHUT_LOGD("EGLImage to Texture2D supported");
         hardext.khr_texture_2d = 1;
     }
-    if (strstr(egl_eglQueryString(eglDisplay, EGL_EXTENSIONS), "EGL_KHR_gl_renderbuffer_image")) {
+    if (dispExts && has_gl_ext(dispExts, "EGL_KHR_gl_renderbuffer_image")) {
         SHUT_LOGD("EGLImage to RenderBuffer supported");
         hardext.khr_renderbuffer = 1;
     }
 
-    // End, cleanup
-    egl_eglMakeCurrent(eglDisplay, 0, 0, EGL_NO_CONTEXT);
-    egl_eglDestroySurface(eglDisplay, eglSurface);
-    egl_eglDestroyContext(eglDisplay, eglContext);
-
-    egl_eglTerminate(eglDisplay);
+    if (created_temp_context) {
+        if (prevContext != EGL_NO_CONTEXT && prevDisplay != EGL_NO_DISPLAY) {
+            egl_eglMakeCurrent(prevDisplay, prevDraw, prevRead, prevContext);
+        } else {
+            egl_eglMakeCurrent(eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        }
+        if (eglSurface != EGL_NO_SURFACE) egl_eglDestroySurface(eglDisplay, eglSurface);
+        if (eglContext != EGL_NO_CONTEXT) egl_eglDestroyContext(eglDisplay, eglContext);
+        /* Do NOT call eglTerminate(EGL_DEFAULT_DISPLAY) on Android — it tears down all launcher surfaces/configs! */
+#ifndef ANDROID
+        egl_eglTerminate(eglDisplay);
+#endif
+    }
 #endif
 }

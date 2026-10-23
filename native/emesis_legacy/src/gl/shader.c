@@ -8,6 +8,7 @@
 #include "glstate.h"
 #include "loader.h"
 #include "shaderconv.h"
+#include "shader_cache.h"
 #include "vgpu/shaderconv.h"
 #include "glsl/glsl_for_es.h"
 #include <ctype.h>
@@ -64,6 +65,16 @@ GLuint APIENTRY_GL4ES gl4es_glCreateShader(GLenum shaderType) {
         free(glshader->source);
         glshader->source = NULL;
     }
+    if (glshader->raw_compat_source) {
+        free(glshader->raw_compat_source);
+        glshader->raw_compat_source = NULL;
+    }
+    if (glshader->converted) {
+        free(glshader->converted);
+        glshader->converted = NULL;
+    }
+    uniform_decls_clear(&glshader->uniforms_declarations);
+    memset(&glshader->need, 0, sizeof(glshader->need));
     glshader->need.need_texcoord = -1;
 
     // all done
@@ -79,7 +90,10 @@ void actually_deleteshader(GLuint shader) {
         if (glshader->deleted && !glshader->attached) {
             kh_del(shaderlist, shaders, k);
             if (glshader->source) free(glshader->source);
+            if (glshader->raw_compat_source) free(glshader->raw_compat_source);
             if (glshader->converted) free(glshader->converted);
+            if (glshader->before_patch) free(glshader->before_patch);
+            uniform_decls_clear(&glshader->uniforms_declarations);
             free(glshader);
         }
     }
@@ -666,11 +680,168 @@ static char* replace_version_to_es(const char* text, int esversion) {
 }
 
 void set_es_version();
+static bool uses_legacy_compat_builtins(const char* src) {
+    if (!src) return false;
+    return strstr(src, "gl_Vertex") != NULL ||
+           strstr(src, "gl_Normal") != NULL ||
+           strstr(src, "gl_Color") != NULL ||
+           strstr(src, "gl_FrontColor") != NULL ||
+           strstr(src, "gl_BackColor") != NULL ||
+           strstr(src, "gl_SecondaryColor") != NULL ||
+           strstr(src, "gl_MultiTexCoord") != NULL ||
+           strstr(src, "gl_TexCoord") != NULL ||
+           strstr(src, "gl_Fog") != NULL ||
+           strstr(src, "gl_ModelView") != NULL ||
+           strstr(src, "gl_Projection") != NULL ||
+           strstr(src, "gl_TextureMatrix") != NULL ||
+           strstr(src, "ftransform") != NULL ||
+           strstr(src, "gl_FragData") != NULL ||
+           strstr(src, "gl_FragColor") != NULL;
+}
+
+static bool has_explicit_core_profile(const char* str) {
+    if (!str) return false;
+    const char* p = str;
+    while (*p) {
+        const char* line_end = strchr(p, '\n');
+        size_t len = line_end ? (size_t)(line_end - p) : strlen(p);
+        const char* cur = p;
+        while ((size_t)(cur - p) < len && (*cur == ' ' || *cur == '\t')) cur++;
+        if ((size_t)(p + len - cur) >= 8 && strncmp(cur, "#version", 8) == 0) {
+            for (const char* q = cur + 8; q + 4 <= p + len; ++q) {
+                if (strncmp(q, "core", 4) == 0 &&
+                    !isalnum((unsigned char)q[-1]) &&
+                    (q + 4 == p + len || !isalnum((unsigned char)q[4]))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (!line_end) break;
+        p = line_end + 1;
+    }
+    return false;
+}
+
+static int effective_target_es(void) {
+    int esv = (globals4es.esversion > 0) ? globals4es.esversion : (globals4es.es * 100);
+    if (hardext.glsl320es && esv >= 320) return 320;
+    if (hardext.glsl310es && esv >= 310) return 310;
+    if (hardext.glsl300es || esv >= 300) return 300;
+    return 100;
+}
+
+static void translate_shader_with_cache(shader_t* glshader) {
+    const char* base_src = glshader->raw_compat_source ? glshader->raw_compat_source : glshader->source;
+    if (!base_src) return;
+
+    int target_es = effective_target_es();
+    shaderconv_need_t req_need = glshader->need;
+
+    if (glshader->converted) {
+        free(glshader->converted);
+        glshader->converted = NULL;
+    }
+    uniform_decls_clear(&glshader->uniforms_declarations);
+
+    /* Fast path 1: RAM / Disk 128-bit shader translation cache */
+    emesis_hash128_t cache_key = emesis_shader_compute_key(glshader->type, target_es, &req_need, base_src);
+    char* cached_essl = NULL;
+    shaderconv_need_t cached_need = req_need;
+    int cached_is_essl = 0;
+    if (emesis_shader_cache_lookup(&cache_key, &cached_essl, &cached_is_essl,
+                                   &cached_need, &glshader->uniforms_declarations)) {
+        glshader->converted = cached_essl;
+        glshader->need = cached_need;
+        glshader->is_converted_essl_320 = cached_is_essl;
+        return;
+    }
+
+    int isFPEShader = (strstr(base_src, fpeshader_signature) != NULL) ? 1 : 0;
+    if (isFPEShader || target_es < 300) {
+        char* prev_src = glshader->source;
+        glshader->source = (char*)base_src;
+        char* cond = ConvertShaderConditionally(glshader);
+        glshader->source = prev_src;
+        glshader->converted = cond ? strdup(cond) : strdup(base_src);
+        if (cond && cond != glshader->converted) {
+            free(cond);
+        }
+        glshader->is_converted_essl_320 = 0;
+        emesis_shader_cache_store(&cache_key, glshader->converted, 0,
+                                  &glshader->need, &glshader->uniforms_declarations);
+        return;
+    }
+
+    int isBSL = first_three_lines_contains_BSL(base_src);
+
+    /* Strip uniform default initializers once up-front and capture default values cleanly */
+    char* stripped = process_uniform_declarations((char*)base_src, &glshader->uniforms_declarations);
+    if (!stripped) stripped = strdup(base_src);
+    remove_before_version(stripped);
+
+    int glsl_version = getGLSLVersion(stripped);
+    bool need_compat = (glsl_version < 150) ||
+                       check_version_compatibility(stripped) ||
+                       !has_explicit_core_profile(stripped) ||
+                       uses_legacy_compat_builtins(stripped);
+
+    char* work = stripped;
+    if (need_compat) {
+        char* builtin_conv = ConvertShaderBuiltInVariableOnly(
+            work, glshader->type == GL_VERTEX_SHADER ? 1 : 0, &glshader->need, 1);
+        free(work);
+        work = builtin_conv;
+
+        if (glshader->type == GL_FRAGMENT_SHADER) {
+            int sourceLength = (int)strlen(work) + 1;
+            if (contains_glFragColor(work)) {
+                work = ReplaceGLFragColor(work, &sourceLength);
+            } else if (strstr(work, "gl_FragData")) {
+                work = ReplaceGLFragData(work, &sourceLength);
+            }
+        }
+    }
+
+    int returnCode = -1;
+    char* result = GLSLtoGLSLES_c(work, glshader->type, (unsigned int)target_es,
+                                  (unsigned int)(glsl_version > 0 ? glsl_version : 120), &returnCode);
+    free(work);
+
+    if (result != NULL && returnCode >= 0) {
+        if (isBSL || strstr(result, "cloudBlendOpacity = step(viewLength, cloudViewLength);") != NULL) {
+            char* patched = bsl_patch(result);
+            if (patched) {
+                free(result);
+                result = patched;
+            }
+        }
+        glshader->converted = result;
+        glshader->is_converted_essl_320 = 0; /* already stamped with exact `#version <target_es> es` */
+    } else {
+        free(result);
+        /* Seamless ESSL 3.x fallback for any non-standard legacy GLSL 110/120 shader */
+        uniform_decls_clear(&glshader->uniforms_declarations);
+        glshader->need = req_need;
+        char* prev_src = glshader->source;
+        glshader->source = strdup(base_src);
+        char* cond = ConvertShaderConditionally(glshader);
+        char* final_cond = cond ? strdup(cond) : strdup(base_src);
+        if (cond) free(cond);
+        free(glshader->source);
+        glshader->source = prev_src;
+        glshader->converted = final_cond;
+        glshader->is_converted_essl_320 = 0;
+    }
+
+    emesis_shader_cache_store(&cache_key, glshader->converted, glshader->is_converted_essl_320,
+                              &glshader->need, &glshader->uniforms_declarations);
+}
+
 void APIENTRY_GL4ES gl4es_glShaderSource(GLuint shader, GLsizei count, const GLchar* const* string,
                                          const GLint* length) {
     if (!globals4es.esversion) set_es_version();
     DBG(SHUT_LOGD("glShaderSource(%d, %d, %p, %p)\n", shader, count, string, length))
-    // sanity check
     if (count <= 0 || !string) {
         errorShim(GL_INVALID_VALUE);
         return;
@@ -684,107 +855,67 @@ void APIENTRY_GL4ES gl4es_glShaderSource(GLuint shader, GLsizei count, const GLc
     }
 
     CHECK_SHADER(void, shader)
-    // get the size of the shader sources and than concatenate in a single string
-    int l = 0;
-    for (int i = 0; i < count; i++)
-        l += (length && length[i] >= 0) ? length[i] : strlen(string[i]);
-    if (glshader->source) free(glshader->source);
-    glshader->source = malloc(l + 1);
-    memset(glshader->source, 0, l + 1);
-    if (length) {
-        for (int i = 0; i < count; i++) {
-            if (length[i] >= 0)
-                strncat(glshader->source, string[i], length[i]);
-            else
-                strcat(glshader->source, string[i]);
-        }
-    } else {
-        for (int i = 0; i < count; i++)
-            strcat(glshader->source, string[i]);
+
+    /* O(N) single-pass length measurement + memcpy concatenation (replaces O(N^2) strcat) */
+    size_t total_len = 0;
+    size_t stack_lens[64];
+    size_t* part_lens = (count <= 64) ? stack_lens : (size_t*)malloc((size_t)count * sizeof(size_t));
+    if (!part_lens) {
+        errorShim(GL_OUT_OF_MEMORY);
+        return;
     }
+    for (int i = 0; i < count; i++) {
+        size_t slen = (length && length[i] >= 0) ? (size_t)length[i] : strlen(string[i]);
+        part_lens[i] = slen;
+        total_len += slen;
+    }
+
+    if (glshader->source) free(glshader->source);
+    if (glshader->raw_compat_source) {
+        free(glshader->raw_compat_source);
+        glshader->raw_compat_source = NULL;
+    }
+    if (glshader->converted) {
+        free(glshader->converted);
+        glshader->converted = NULL;
+    }
+    uniform_decls_clear(&glshader->uniforms_declarations);
+    memset(&glshader->need, 0, sizeof(glshader->need));
+    glshader->need.need_texcoord = -1;
+
+    glshader->source = (char*)malloc(total_len + 1);
+    if (!glshader->source) {
+        if (part_lens != stack_lens) free(part_lens);
+        errorShim(GL_OUT_OF_MEMORY);
+        return;
+    }
+    size_t offset = 0;
+    for (int i = 0; i < count; i++) {
+        if (part_lens[i] > 0) {
+            memcpy(glshader->source + offset, string[i], part_lens[i]);
+            offset += part_lens[i];
+        }
+    }
+    glshader->source[offset] = '\0';
+    if (part_lens != stack_lens) free(part_lens);
+
+    glshader->raw_compat_source = strdup(glshader->source);
+
     LOAD_GLES2(glShaderSource);
     if (gles_glShaderSource) {
-        // adapt shader if needed (i.e. not an es2 context and shader is not #version 100)
         if (is_direct_shader(glshader->source)) {
             glshader->converted = strdup(glshader->source);
         } else {
-            int glsl_version = getGLSLVersion(glshader->source);
-            DBG(SHUT_LOGD("[INFO] [Shader] Shader source: "))
-            DBG(SHUT_LOGD("%s", glshader->source))
-            int isFPEShader = (strstr(glshader->source, fpeshader_signature) != NULL) ? 1 : 0;
-            if (glsl_version < 140 && !isFPEShader) {
-                glshader->source = replace_version_line(glshader->source);
-                glsl_version = 460;
-            }
-            if (glsl_version < 140 || (globals4es.es < 3 && globals4es.esversion < 300)) {
-                glshader->converted = strdup(ConvertShaderConditionally(glshader));
-                glshader->is_converted_essl_320 = 0;
-            } else {
-                if (check_version_compatibility(glshader->source)) {
-                    // bool isBSL = first_three_lines_contains_BSL(glshader->source);
-                    bool isBuiltInVariableConverted = is_glsl_builtin_converted(glshader->source);
-                    remove_before_version(glshader->source);
-                    char* convertedSource = glshader->source;
-                    if (!isBuiltInVariableConverted)
-                        convertedSource = ConvertShaderBuiltInVariableOnly(
-                            convertedSource, glshader->type == GL_VERTEX_SHADER ? 1 : 0, &glshader->need,
-                            isBuiltInVariableConverted ? 0 : 1);
-                    free(glshader->source);
-                    if (glshader->type == GL_FRAGMENT_SHADER) {
-                        if (contains_glFragColor(glshader->source)) {
-                            convertedSource = replace_glFragColor(convertedSource);
-                            convertedSource = insert_gl_FragColor_if_missing(convertedSource);
-                        } else {
-                            int sourceLength = strlen(convertedSource) + 1;
-                            convertedSource = ReplaceGLFragData(convertedSource, &sourceLength);
-                        }
-                    }
-                    if (!isBuiltInVariableConverted) convertedSource = mark_glsl_builtin_converted(convertedSource);
-                    glshader->source = strdup(convertedSource);
-                    convertedSource = replace_version_line_460(convertedSource);
-                    int returnCode = 0; // TODO: handle returnCode
-                    char* result = GLSLtoGLSLES_c(convertedSource, glshader->type, globals4es.esversion, glsl_version,
-                                                  &returnCode);
-                    free(convertedSource);
-                    glshader->converted =
-                        strdup(result != NULL ? process_uniform_declarations(result, glshader->uniforms_declarations,
-                                                                             &glshader->uniforms_declarations_count)
-                                              : ConvertShaderConditionally(glshader));
-                    glshader->converted = process_uniform_declarations(
-                        glshader->converted, glshader->uniforms_declarations, &glshader->uniforms_declarations_count);
-
-                    /*if (isBSL)*/ glshader->converted = bsl_patch(glshader->converted);
-                    glshader->is_converted_essl_320 = 0;
-                } else {
-                    int returnCode = 0; // TODO: handle returnCode
-                    char* result = GLSLtoGLSLES_c(glshader->source, glshader->type, globals4es.esversion, glsl_version,
-                                                  &returnCode);
-                    glshader->converted =
-                        strdup(result != NULL ? process_uniform_declarations(result, glshader->uniforms_declarations,
-                                                                             &glshader->uniforms_declarations_count)
-                                              : ConvertShaderConditionally(glshader));
-                    glshader->is_converted_essl_320 = 1;
-                }
-            }
-            DBG(SHUT_LOGD("\n[INFO] [Shader] Converted Shader source: \n%s", glshader->converted))
+            translate_shader_with_cache(glshader);
         }
 
         GLchar* finalSource = (glshader->converted) ? glshader->converted : glshader->source;
-        char* tempSource = NULL;
-        if (globals4es.es >= 3 && globals4es.esversion >= 300 && glshader->is_converted_essl_320) {
-            char* esSource = replace_version_to_es(finalSource, globals4es.esversion);
-            if (esSource) {
-                tempSource = esSource;
-                finalSource = esSource;
-            }
-        }
         const GLchar* sources[] = {finalSource};
         gles_glShaderSource(shader, 1, sources, NULL);
-        if (tempSource) free(tempSource);
-
         errorGL();
-    } else
+    } else {
         noerrorShim();
+    }
 }
 
 #define SUPER()                                                                                                        \
@@ -810,16 +941,34 @@ void accumShaderNeeds(GLuint shader, shaderconv_need_t* need) {
 #undef GO
 #undef GO2
 }
+
 int isShaderCompatible(GLuint shader, shaderconv_need_t* need) {
     CHECK_SHADER(int, shader)
     if (!glshader->converted) return 0;
-#define GO(A)                                                                                                          \
-    if (need->need_##A > glshader->need.need_##A) return 0;
-#define GO2(A)                                                                                                         \
-    if (need->need_##A & glshader->need.need_##A) return 0;
-    SUPER()
-#undef GO
-#undef GO2
+    /* Matrix uniforms (mvmatrix, mvpmatrix, normalmatrix) are per-program uniforms, NOT inter-stage varyings!
+       On ESSL 3.0+, extra vertex outputs not read by fragment are legal; only missing vertex outputs needed
+       by fragment (or notexarray mismatch) require recompiling the vertex shader. */
+    if (need->need_notexarray != glshader->need.need_notexarray &&
+        (need->need_texcoord != -1 || glshader->need.need_texcoord != -1)) {
+        return 0;
+    }
+    if (effective_target_es() >= 300) {
+        if (glshader->type != GL_VERTEX_SHADER) {
+            return 1;
+        }
+        if (need->need_color > glshader->need.need_color) return 0;
+        if (need->need_secondary > glshader->need.need_secondary) return 0;
+        if (need->need_fogcoord > glshader->need.need_fogcoord) return 0;
+        if ((need->need_texs & ~glshader->need.need_texs) != 0) return 0;
+        if (!need->need_notexarray && need->need_texcoord > glshader->need.need_texcoord) return 0;
+        return 1;
+    }
+    if (need->need_color > glshader->need.need_color) return 0;
+    if (need->need_secondary > glshader->need.need_secondary) return 0;
+    if (need->need_fogcoord > glshader->need.need_fogcoord) return 0;
+    if (need->need_texcoord > glshader->need.need_texcoord) return 0;
+    if (need->need_clean > glshader->need.need_clean) return 0;
+    if ((need->need_texs & ~glshader->need.need_texs) != 0) return 0;
     return 1;
 }
 #undef SUPER
@@ -829,35 +978,18 @@ void redoShader(GLuint shader, shaderconv_need_t* need) {
     if (!gles_glShaderSource) return;
     CHECK_SHADER(void, shader)
     if (!glshader->converted) return;
-    // test, if no changes, no need to reconvert & recompile...
     if (memcmp(&glshader->need, need, sizeof(shaderconv_need_t)) == 0) return;
-    free(glshader->converted);
+
     memcpy(&glshader->need, need, sizeof(shaderconv_need_t));
-    if (is_direct_shader(glshader->source))
+    if (is_direct_shader(glshader->source)) {
+        free(glshader->converted);
         glshader->converted = strdup(glshader->source);
-    else {
-        int glsl_version = getGLSLVersion(glshader->source);
-        DBG(SHUT_LOGD("[INFO] [Shader] Shader source: "))
-        DBG(SHUT_LOGD("%s", glshader->source))
-        if (glsl_version < 150 || globals4es.esversion < 300) {
-            glshader->converted = strdup(ConvertShaderConditionally(glshader));
-            glshader->is_converted_essl_320 = 0;
-        } else {
-            int returnCode = 0;
-            char* result =
-                GLSLtoGLSLES_c(glshader->source, glshader->type, globals4es.esversion, glsl_version, &returnCode);
-            glshader->converted =
-                strdup(result != NULL ? process_uniform_declarations(result, glshader->uniforms_declarations,
-                                                                     &glshader->uniforms_declarations_count)
-                                      : ConvertShaderConditionally(glshader));
-            glshader->is_converted_essl_320 = 1;
-        }
-        DBG(SHUT_LOGD("\n[INFO] [Shader] Converted Shader source: \n%s", glshader->converted))
+    } else {
+        translate_shader_with_cache(glshader);
     }
-    // send source to GLES2 hardware if any
-    gles_glShaderSource(
-        shader, 1, (const GLchar* const*)((glshader->converted) ? (&glshader->converted) : (&glshader->source)), NULL);
-    // recompile...
+
+    const GLchar* finalSrc = glshader->converted ? glshader->converted : glshader->source;
+    gles_glShaderSource(shader, 1, &finalSrc, NULL);
     gl4es_glCompileShader(glshader->id);
 }
 

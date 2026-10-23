@@ -26,6 +26,7 @@ for abi in "${ABIS[@]}"; do
         -DCMAKE_MAKE_PROGRAM="${NINJA_BIN}" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_SYSTEM_NAME=Linux \
+        -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
         -DANDROID=ON \
         -DEMESIS_EXT_DEPS_DIR="${EXT_DEPS_DIR}" \
         -DCMAKE_C_COMPILER="${WRAP_DIR}/${abi}-cc" \

@@ -10,11 +10,19 @@
 #define MAX_UNIFORM_VARIABLE_NUMBER 1024
 
 typedef struct {
-    char variable[MAX_VARIABLE_LENGTH];
-    char initial_value[MAX_INITIAL_VALUE_LENGTH];
+    char* variable;
+    char* initial_value;
 } uniform_declaration_s;
 
-typedef uniform_declaration_s uniforms_declarations[MAX_UNIFORM_VARIABLE_NUMBER];
+typedef struct {
+    uniform_declaration_s* items;
+    int count;
+    int cap;
+} uniform_declarations_list_t;
+
+void uniform_decls_add(uniform_declarations_list_t* list, const char* variable, const char* initial_value);
+void uniform_decls_merge(uniform_declarations_list_t* dst, const uniform_declarations_list_t* src);
+void uniform_decls_clear(uniform_declarations_list_t* list);
 
 #define shaderconv_need_t struct shaderconv_need_s
 #include "oldprogram.h"
@@ -44,11 +52,11 @@ struct shader_s {
     int compiled;             // flag if compiled
     struct oldprogram_s* old; // in case the shader is an old ARB ASM-like program
     char* source;             // original source of the shader (or converted if coming from "old")
+    char* raw_compat_source;  // pre-builtin-conversion compatibility source (for fast varying redo)
     char* converted;          // converted source (or null if nothing)
     // shaderconv
     shaderconv_need_t need; // the varying need / provide of the shader
-    uniforms_declarations uniforms_declarations;
-    int uniforms_declarations_count;
+    uniform_declarations_list_t uniforms_declarations;
     int is_converted_essl_320;
     char* before_patch;
 }; // shader_t defined in oldprogram.h

@@ -75,6 +75,9 @@
             android:name="emesis_title_routing_mode"
             android:resource="@string/emesis_title_routing_mode" />
         <meta-data
+            android:name="emesis_title_disable_shader_cache"
+            android:resource="@string/emesis_title_disable_shader_cache" />
+        <meta-data
             android:name="emesis_title_hide_buffer_storage"
             android:resource="@string/emesis_title_hide_buffer_storage" />
         <meta-data

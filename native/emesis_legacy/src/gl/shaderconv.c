@@ -382,50 +382,99 @@ static const char* gl4es_VertexAttrib = "_gl4es_VertexAttrib_";
 char gl_VA[MAX_VATTRIB][32] = {0};
 char gl4es_VA[MAX_VATTRIB][32] = {0};
 
+static int compute_after_directives_headline(char* src) {
+    int line_idx = 0;
+    int after_directives_line = 0;
+    const char* p = src;
+    while (*p) {
+        if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) {
+                if (*p == '\n') line_idx++;
+                p++;
+            }
+            if (*p) p += 2;
+            continue;
+        }
+        const char* s = p;
+        while (*s == ' ' || *s == '\t') s++;
+        if (*s == '#') {
+            s++;
+            while (*s == ' ' || *s == '\t') s++;
+            if ((strncmp(s, "version", 7) == 0 && (s[7] == ' ' || s[7] == '\t' || s[7] == '\r' || s[7] == '\n' || s[7] == '\0')) ||
+                (strncmp(s, "extension", 9) == 0 && (s[9] == ' ' || s[9] == '\t'))) {
+                after_directives_line = line_idx + 1;
+            }
+        }
+        while (*p && *p != '\n') p++;
+        if (*p == '\n') {
+            line_idx++;
+            p++;
+        }
+    }
+    return after_directives_line;
+}
+
+static char* inject_main_body_init(char* src, int* tmpsize, const char* stmt) {
+    /* Locate `void main` outside comments and insert `stmt` right after its opening `{` */
+    char* m = strstr(src, "void main");
+    if (!m) m = strstr(src, "main(");
+    if (!m) m = strstr(src, "main (");
+    if (!m) return src;
+    char* brace = strchr(m, '{');
+    if (!brace) return src;
+    int offset = (int)(brace - src) + 1;
+    return InplaceInsertByIndex(src, tmpsize, offset, stmt);
+}
+
 char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderconv_need_t* need,
                                        int doInsertDefinitions) {
-    int tmpsize = strlen(pEntry) * 2 + 500;
+    size_t entryLen = strlen(pEntry);
+    int tmpsize = (int)(entryLen * 2 + 1024);
     char* Tmp = (char*)calloc(1, tmpsize);
-    strcpy(Tmp, pEntry);
+    memcpy(Tmp, pEntry, entryLen);
+    if (entryLen == 0 || Tmp[entryLen - 1] != '\n') {
+        Tmp[entryLen++] = '\n';
+    }
+    Tmp[entryLen] = '\0';
 
-    int headline = 3;
+    int headline = compute_after_directives_headline(Tmp);
     int notexarray = globals4es.notexarray || need->need_notexarray;
+    /* Desktop compatibility strings (no ES-only precision qualifiers that break GLSL 110/120) */
+    const char* compat_frontColor = "varying vec4 _gl4es_FrontColor;\n";
+    const char* compat_backColor = "varying vec4 _gl4es_BackColor;\n";
+    const char* compat_frontSecColor = "varying vec4 _gl4es_FrontSecondaryColor;\n";
+    const char* compat_backSecColor = "varying vec4 _gl4es_BackSecondaryColor;\n";
+    const char* compat_fogCoord = "varying float _gl4es_FogFragCoord;\n";
+    const char* compat_texCoordArr = "varying vec4 _gl4es_TexCoord[%d];\n";
+    const char* compat_texCoordAlt = "varying vec4 _gl4es_TexCoord_%d;\n";
+    const char* compat_ftransform = "\nvec4 ftransform() {\n return gl_ModelViewProjectionMatrix * gl_Vertex;\n}\n";
 
-    // Tmp = ShaderHacks(Tmp);
     //  builtin attribs
     if (isVertex) {
-        // ANGLE already has ftransform, so skip it
 #ifndef __APPLE__
-        // check for ftransform function
         if (doInsertDefinitions && strstr(Tmp, "ftransform(")) {
-            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_ftransformSource, Tmp, &tmpsize);
-            // don't increment headline count, as all variying and attributes should be created before
+            Tmp = InplaceInsert(GetLine(Tmp, headline), compat_ftransform, Tmp, &tmpsize);
         }
 #endif
-        // check for builtin OpenGL attributes...
         int n = sizeof(builtin_attrib) / sizeof(builtin_attrib_t);
         for (int i = 0; i < n; i++) {
             if (strstr(Tmp, builtin_attrib[i].glname)) {
-                // ok, this attribute is used
-                // replace gl_name by _gl4es_ one
                 Tmp = InplaceReplace(Tmp, &tmpsize, builtin_attrib[i].glname, builtin_attrib[i].name);
-                // insert a declaration of it
                 if (doInsertDefinitions) {
                     char def[100];
-                    sprintf(def, "attribute %s %s %s;\n", builtin_attrib[i].prec, builtin_attrib[i].type,
-                            builtin_attrib[i].name);
+                    sprintf(def, "attribute %s %s;\n", builtin_attrib[i].type, builtin_attrib[i].name);
                     Tmp = InplaceInsert(GetLine(Tmp, headline++), def, Tmp, &tmpsize);
                 }
             }
         }
         if (strstr(Tmp, gl_VertexAttrib)) {
-            // Generic VA from Old Programs
             for (int i = 0; i < MAX_VATTRIB; ++i) {
                 char A[100];
                 if (FindString(Tmp, gl_VA[i])) {
                     Tmp = InplaceReplace(Tmp, &tmpsize, gl_VA[i], gl4es_VA[i]);
                     if (doInsertDefinitions) {
-                        sprintf(A, "attribute highp vec4 %s%d;\n", gl4es_VertexAttrib, i);
+                        sprintf(A, "attribute vec4 %s%d;\n", gl4es_VertexAttrib, i);
                         Tmp = InplaceInsert(GetLine(Tmp, headline++), A, Tmp, &tmpsize);
                     }
                 }
@@ -434,6 +483,7 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
     }
     // builtin varying
     int nvarying = 0;
+    int has_color_ref = (strstr(Tmp, "gl_Color") != NULL || strstr(Tmp, "gl_FrontColor") != NULL);
     if (strstr(Tmp, "gl_Color") || need->need_color) {
         if (need->need_color < 1) need->need_color = 1;
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_Color",
@@ -442,16 +492,23 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
     if (strstr(Tmp, "gl_FrontColor") || need->need_color) {
         if (need->need_color < 1) need->need_color = 1;
         nvarying += 1;
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_frontColorSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_frontColorSource);
+        Tmp = InplaceInsert(GetLine(Tmp, headline), compat_frontColor, Tmp, &tmpsize);
+        headline += CountLine(compat_frontColor);
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_FrontColor", "_gl4es_FrontColor");
+        if (isVertex && !has_color_ref && doInsertDefinitions) {
+            Tmp = inject_main_body_init(Tmp, &tmpsize, "\n_gl4es_FrontColor = vec4(1.0);\n");
+        }
     }
     if (strstr(Tmp, "gl_BackColor") || (need->need_color == 2)) {
+        int had_back = (strstr(Tmp, "gl_BackColor") != NULL);
         need->need_color = 2;
         nvarying += 1;
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_backColorSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_backColorSource);
+        Tmp = InplaceInsert(GetLine(Tmp, headline), compat_backColor, Tmp, &tmpsize);
+        headline += CountLine(compat_backColor);
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_BackColor", "_gl4es_BackColor");
+        if (isVertex && !had_back && doInsertDefinitions) {
+            Tmp = inject_main_body_init(Tmp, &tmpsize, "\n_gl4es_BackColor = vec4(1.0);\n");
+        }
     }
     if (strstr(Tmp, "gl_SecondaryColor") || need->need_secondary) {
         if (need->need_secondary < 1) need->need_secondary = 1;
@@ -461,30 +518,41 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
                                  : "(gl_FrontFacing?gl_FrontSecondaryColor:gl_BackSecondaryColor)");
     }
     if (strstr(Tmp, "gl_FrontSecondaryColor") || need->need_secondary) {
+        int had_sec = (strstr(Tmp, "gl_FrontSecondaryColor") != NULL);
         if (need->need_secondary < 1) need->need_secondary = 1;
         nvarying += 1;
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_frontSecondaryColorSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_frontSecondaryColorSource);
+        Tmp = InplaceInsert(GetLine(Tmp, headline), compat_frontSecColor, Tmp, &tmpsize);
+        headline += CountLine(compat_frontSecColor);
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_FrontSecondaryColor", "_gl4es_FrontSecondaryColor");
+        if (isVertex && !had_sec && doInsertDefinitions) {
+            Tmp = inject_main_body_init(Tmp, &tmpsize, "\n_gl4es_FrontSecondaryColor = vec4(0.0);\n");
+        }
     }
     if (strstr(Tmp, "gl_BackSecondaryColor") || (need->need_secondary == 2)) {
+        int had_bsec = (strstr(Tmp, "gl_BackSecondaryColor") != NULL);
         need->need_secondary = 2;
         nvarying += 1;
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_backSecondaryColorSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_backSecondaryColorSource);
+        Tmp = InplaceInsert(GetLine(Tmp, headline), compat_backSecColor, Tmp, &tmpsize);
+        headline += CountLine(compat_backSecColor);
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_BackSecondaryColor", "_gl4es_BackSecondaryColor");
+        if (isVertex && !had_bsec && doInsertDefinitions) {
+            Tmp = inject_main_body_init(Tmp, &tmpsize, "\n_gl4es_BackSecondaryColor = vec4(0.0);\n");
+        }
     }
     if (strstr(Tmp, "gl_FogFragCoord") || need->need_fogcoord) {
+        int had_fog = (strstr(Tmp, "gl_FogFragCoord") != NULL);
         need->need_fogcoord = 1;
         nvarying += 1;
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_fogcoordSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_fogcoordSource);
+        Tmp = InplaceInsert(GetLine(Tmp, headline), compat_fogCoord, Tmp, &tmpsize);
+        headline += CountLine(compat_fogCoord);
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_FogFragCoord", "_gl4es_FogFragCoord");
+        if (isVertex && !had_fog && doInsertDefinitions) {
+            Tmp = inject_main_body_init(Tmp, &tmpsize, "\n_gl4es_FogFragCoord = 0.0;\n");
+        }
     }
     // Get the max_texunit and the calc notexarray
     if (strstr(Tmp, "gl_TexCoord") || need->need_texcoord != -1) {
         int ntex = need->need_texcoord;
-        // Try to determine max gl_TexCoord used
         char* p = Tmp;
         int notexarray_ok = 1;
         while ((p = strstr(p, gl_TexCoordSource))) {
@@ -496,45 +564,48 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
             } else
                 notexarray_ok = 0;
         }
-        // if failed to determine, take max...
         if (ntex == -1) ntex = hardext.maxtex;
-        // check constraint, and switch to notexarray if needed
         if (!notexarray && ntex + nvarying > hardext.maxvarying && !need->need_clean && notexarray_ok) {
             notexarray = 1;
             need->need_notexarray = 1;
         }
-        // prefer notexarray...
-        if (!isVertex && notexarray_ok && !need->need_clean) {
+        /* Always prefer scalar varyings (_gl4es_TexCoord_k) in BOTH vertex and fragment shaders
+           when statically indexed so vertex & fragment match on the first compile with zero redoShader! */
+        if (notexarray_ok && !need->need_clean) {
             notexarray = 1;
             need->need_notexarray = 1;
         }
-        // check constaints
         if (!notexarray && ntex + nvarying > hardext.maxvarying) ntex = hardext.maxvarying - nvarying;
         need->need_texcoord = ntex;
-        char d[100];
+        char d[128];
         if (notexarray) {
             for (int k = 0; k < ntex + 1; k++) {
                 char d2[100];
                 sprintf(d2, "gl_TexCoord[%d]", k);
-                if (strstr(Tmp, d2)) {
-                    sprintf(d, gl4es_texcoordSourceAlt, k);
+                int has_k = (strstr(Tmp, d2) != NULL);
+                int force_k = (isVertex && (need->need_texs & (1u << k)));
+                if (has_k || force_k) {
+                    sprintf(d, compat_texCoordAlt, k);
                     Tmp = InplaceInsert(GetLine(Tmp, headline), d, Tmp, &tmpsize);
                     headline += CountLine(d);
-                    sprintf(d, "_gl4es_TexCoord_%d", k);
-                    Tmp = InplaceReplace(Tmp, &tmpsize, d2, d);
+                    if (has_k) {
+                        sprintf(d, "_gl4es_TexCoord_%d", k);
+                        Tmp = InplaceReplace(Tmp, &tmpsize, d2, d);
+                    } else if (force_k && doInsertDefinitions) {
+                        sprintf(d, "\n_gl4es_TexCoord_%d = vec4(0.0);\n", k);
+                        Tmp = inject_main_body_init(Tmp, &tmpsize, d);
+                    }
                 }
-                // check if texture is there
                 sprintf(d2, "_gl4es_TexCoord_%d", k);
-                if (strstr(Tmp, d2)) need->need_texs |= (1 << k);
+                if (strstr(Tmp, d2)) need->need_texs |= (1u << k);
             }
         } else {
-            sprintf(d, gl4es_texcoordSource, ntex + 1);
+            sprintf(d, compat_texCoordArr, ntex + 1);
             Tmp = InplaceInsert(GetLine(Tmp, headline), d, Tmp, &tmpsize);
             headline += CountLine(d);
             Tmp = InplaceReplace(Tmp, &tmpsize, "gl_TexCoord", "_gl4es_TexCoord");
-            // set textures as all ntex used
             for (int k = 0; k < ntex + 1; k++)
-                need->need_texs |= (1 << k);
+                need->need_texs |= (1u << k);
         }
     }
 
@@ -542,8 +613,7 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
     {
         if (strstr(Tmp, "transpose(") || strstr(Tmp, "transpose ") || strstr(Tmp, "transpose\t")) {
             if (doInsertDefinitions) Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_transpose, Tmp, &tmpsize);
-            InplaceReplace(Tmp, &tmpsize, "transpose", "gl4es_transpose");
-            // don't increment headline count, as all variying and attributes should be created before
+            Tmp = InplaceReplace(Tmp, &tmpsize, "transpose", "gl4es_transpose");
         }
         // check for builtin matrix uniform...
         {
@@ -1374,8 +1444,8 @@ char* ConvertShader(const char* pEntry, int isVertex, shaderconv_need_t* need, i
             notexarray = 1;
             need->need_notexarray = 1;
         }
-        // prefer notexarray...
-        if (!isVertex && notexarray_ok && !need->need_clean) {
+        // prefer notexarray in both vertex and fragment shaders so link needs match immediately
+        if (notexarray_ok && !need->need_clean) {
             notexarray = 1;
             need->need_notexarray = 1;
         }
@@ -1387,12 +1457,19 @@ char* ConvertShader(const char* pEntry, int isVertex, shaderconv_need_t* need, i
             for (int k = 0; k < ntex + 1; k++) {
                 char d2[100];
                 sprintf(d2, "gl_TexCoord[%d]", k);
-                if (strstr(Tmp, d2)) {
+                int has_k = (strstr(Tmp, d2) != NULL);
+                int force_k = (isVertex && (need->need_texs & (1u << k)));
+                if (has_k || force_k) {
                     sprintf(d, gl4es_texcoordSourceAlt, k);
                     Tmp = InplaceInsert(GetLine(Tmp, headline), d, Tmp, &tmpsize);
                     headline += CountLine(d);
-                    sprintf(d, "_gl4es_TexCoord_%d", k);
-                    Tmp = InplaceReplace(Tmp, &tmpsize, d2, d);
+                    if (has_k) {
+                        sprintf(d, "_gl4es_TexCoord_%d", k);
+                        Tmp = InplaceReplace(Tmp, &tmpsize, d2, d);
+                    } else if (force_k) {
+                        sprintf(d, "\n_gl4es_TexCoord_%d = vec4(0.0);\n", k);
+                        Tmp = inject_main_body_init(Tmp, &tmpsize, d);
+                    }
                 }
                 // check if texture is there
                 sprintf(d2, "_gl4es_TexCoord_%d", k);

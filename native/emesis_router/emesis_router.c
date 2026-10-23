@@ -223,6 +223,15 @@ static void emesis_init_engine_once(void) {
                                     ? "libemesis_modern.so"
                                     : "libemesis_legacy.so";
 
+    /* Promote Legacy (<= 1.16.5) to GLES 3.x even when PojavLauncher sets LIBGL_ES=2 by default,
+       unlocking ESSL 3.20/3.10/3.00 shaders, MRT drawbuffers, shadow2D, texelFetch, and glProgramBinary. */
+    if (g_decision.engine == EMESIS_ENGINE_LEGACY) {
+        const char* force_es2 = getenv("EMESIS_FORCE_GLES2");
+        if (!force_es2 || strcmp(force_es2, "1") != 0) {
+            setenv("LIBGL_ES", "3", 1);
+        }
+    }
+
     char full_path[1024] = {0};
     if (g_self_dir[0]) {
         snprintf(full_path, sizeof(full_path), "%s/%s", g_self_dir, target_soname);
@@ -465,6 +474,20 @@ __attribute__((visibility("default"))) EGLContext eglCreateContext(EGLDisplay dp
     }
 
     if (!g_eglCreateContext) return EGL_NO_CONTEXT;
+    const char* force_es2 = getenv("EMESIS_FORCE_GLES2");
+    if (!force_es2 || strcmp(force_es2, "1") != 0) {
+        const EGLint es32_attribs[] = {EGL_CONTEXT_MAJOR_VERSION_KHR, 3, EGL_CONTEXT_MINOR_VERSION_KHR, 2, EGL_NONE};
+        const EGLint es31_attribs[] = {EGL_CONTEXT_MAJOR_VERSION_KHR, 3, EGL_CONTEXT_MINOR_VERSION_KHR, 1, EGL_NONE};
+        const EGLint es30_attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+
+        EGLContext ctx3 = g_eglCreateContext(dpy, config, share_context, es32_attribs);
+        if (ctx3 != EGL_NO_CONTEXT) return ctx3;
+        ctx3 = g_eglCreateContext(dpy, config, share_context, es31_attribs);
+        if (ctx3 != EGL_NO_CONTEXT) return ctx3;
+        ctx3 = g_eglCreateContext(dpy, config, share_context, es30_attribs);
+        if (ctx3 != EGL_NO_CONTEXT) return ctx3;
+    }
+
     const EGLint es3_default[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
     EGLContext ctx = g_eglCreateContext(dpy, config, share_context, attrib_list ? attrib_list : es3_default);
     /* Fallback to GLES 2 context for older 32-bit GPUs on MC <= 1.16.5 */

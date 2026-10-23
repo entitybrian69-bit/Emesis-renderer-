@@ -59,6 +59,7 @@ void gl4es_setCurrentFBO();
 
 void gl4es_saveCurrentFBO();
 void gl4es_restoreCurrentFBO();
+void gl4es_invalidate_fbo_phys_cache(GLuint glname, GLboolean is_rb);
 
 #endif // _GL4ES_FRAMEBUFFERS_H_
 #ifdef __cplusplus

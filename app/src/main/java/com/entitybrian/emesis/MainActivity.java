@@ -225,8 +225,8 @@ public class MainActivity extends Activity {
         archCard.addView(sectionHeader("UNIFIED AUTOMATIC PIPELINES"));
         archCard.addView(infoLine("Minecraft > 1.16.5 (1.17 – 1.21.x, 26.x+)",
                 "Emesis Modern Core — OpenGL 3.2+ Core Profile over GLES 3.x (auto-promotes GLES 3.2/3.1/3.0 context)"));
-        archCard.addView(infoLine("Minecraft <= 1.16.5 (Classic – 1.8.9 – 1.12.2 – 1.16.5)",
-                "Emesis Compatibility Core — OpenGL 2.1 / GLSL-SPIRV Pipeline with 32-bit GLES 2/3 auto-fallback"));
+        archCard.addView(infoLine("Minecraft <= 1.16.5 (Classic – 1.7.10 – 1.8.9 – 1.12.2 – 1.16.5)",
+                "Emesis Compatibility Core — GLES 3.2/3.1/3.0 + SPIR-V ESSL Shader Accelerator (ShadersMod, OptiFine, Angelica, Oculus) with Persistent Two-Tier Shader & GPU Binary Cache, 16-MRT FBO State-Diffing, GPU Quad IBO & Hardware PCF Shadows"));
         root.addView(archCard, cardParams());
 
         // 5. Interactive Native C Version Router Simulator

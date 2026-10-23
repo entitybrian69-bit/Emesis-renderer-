@@ -97,6 +97,7 @@ file(GLOB Legacy_C_SRC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/raster.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/render.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/shader.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/shader_cache.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/shaderconv.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/shader_hacks.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/stack.c"
@@ -159,7 +160,11 @@ target_link_options(emesis_legacy PRIVATE
 
 target_link_libraries(emesis_legacy PRIVATE
     glslang::glslang
+    glslang::SPIRV
+    glslang::glslang-default-resource-limits
     spirv-cross-c
+    spirv-cross-glsl
+    spirv-cross-core
     android
     log
     dl

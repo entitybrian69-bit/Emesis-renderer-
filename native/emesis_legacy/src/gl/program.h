@@ -120,6 +120,7 @@ typedef struct {
 } uniform_t;
 
 KHASH_MAP_DECLARE_INT(uniformlist, uniform_t*);
+KHASH_MAP_DECLARE_STR(uniformnamelist, GLint);
 
 typedef struct {
     void* cache; // buffer of the uniform size
@@ -225,6 +226,7 @@ typedef struct {
     int va_size[MAX_VATTRIB];
     khash_t(attribloclist) * attribloc;
     khash_t(uniformlist) * uniform;
+    khash_t(uniformnamelist) * uniform_by_name;
     int num_uniform;
     uniformcache_t cache;
     // builtin attrib
@@ -282,7 +284,7 @@ typedef struct {
     // that will be an fpe_cache_t*
     void* fpe_cache;
 
-    uniforms_declarations declarations;
+    uniform_declarations_list_t declarations;
     int frag_data_changed;
 } program_t;
 

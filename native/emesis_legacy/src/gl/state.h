@@ -232,6 +232,13 @@ typedef struct {
     GLenum read_type;
     int n_draw;
     GLenum drawbuff[MAX_DRAW_BUFFERS]; // TODO: define a MAX_DRAWBUFF?
+    /* Physical GLES FBO attachment & glDrawBuffers cache (prevents TBDR tile-flush thrashing across sub-passes) */
+    unsigned char phys_valid[MAX_DRAW_BUFFERS];
+    GLuint phys_color[MAX_DRAW_BUFFERS];
+    GLenum phys_t_color[MAX_DRAW_BUFFERS];
+    int phys_l_color[MAX_DRAW_BUFFERS];
+    int phys_n_draw;
+    GLenum phys_drawbuff[MAX_DRAW_BUFFERS];
 } glframebuffer_t;
 
 typedef struct {

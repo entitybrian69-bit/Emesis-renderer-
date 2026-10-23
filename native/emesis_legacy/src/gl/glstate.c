@@ -518,6 +518,24 @@ void DeleteGLState(void* oldstate) {
     // TODO: delete the "immediate" stuff and bitmap texture?
     // scratch buffer
     if (state->scratch) free(state->scratch);
+    if (state->quad_ibo_u16.data || state->quad_ibo_u16.real_buffer) {
+        if (state->quad_ibo_u16.real_buffer) {
+            LOAD_GLES(glDeleteBuffers);
+            if (gles_glDeleteBuffers) gles_glDeleteBuffers(1, &state->quad_ibo_u16.real_buffer);
+        }
+        free(state->quad_ibo_u16.data);
+        memset(&state->quad_ibo_u16, 0, sizeof(state->quad_ibo_u16));
+        state->quad_ibo_u16_quads = 0;
+    }
+    if (state->quad_ibo_u32.data || state->quad_ibo_u32.real_buffer) {
+        if (state->quad_ibo_u32.real_buffer) {
+            LOAD_GLES(glDeleteBuffers);
+            if (gles_glDeleteBuffers) gles_glDeleteBuffers(1, &state->quad_ibo_u32.real_buffer);
+        }
+        free(state->quad_ibo_u32.data);
+        memset(&state->quad_ibo_u32, 0, sizeof(state->quad_ibo_u32));
+        state->quad_ibo_u32_quads = 0;
+    }
     // merger buffers
     if (state->merger_master) free(state->merger_master);
     if (state->merger_secondary) free(state->merger_secondary);

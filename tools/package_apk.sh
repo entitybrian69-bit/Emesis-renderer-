@@ -35,7 +35,7 @@ needle = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
 replacement = (
     '<manifest xmlns:android="http://schemas.android.com/apk/res/android"\n'
     '    package="com.entitybrian.emesis"\n'
-    '    android:versionCode="101"\n'
+    '    android:versionCode="102"\n'
     '    android:versionName="1.0.0">\n\n'
     '    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />'
 )

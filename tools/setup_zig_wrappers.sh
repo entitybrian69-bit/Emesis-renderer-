@@ -8,6 +8,59 @@ WRAP_DIR="/tmp/emesis_zig_wrappers"
 
 mkdir -p "$WRAP_DIR"
 
+if [ -f "${NDK_HEADERS}/android/legacy_stdlib_inlines.h" ] && ! grep -q "EMESIS_API21_STRTOD_L" "${NDK_HEADERS}/android/legacy_stdlib_inlines.h"; then
+    cat >> "${NDK_HEADERS}/android/legacy_stdlib_inlines.h" <<'EOF'
+
+/* EMESIS_API21_STRTOD_L: Android < 26 static inline shims for libc++ */
+#if defined(__ANDROID_API__) && (__ANDROID_API__ < 26)
+#include <stdlib.h>
+#include <xlocale.h>
+__BEGIN_DECLS
+static __inline double strtod_l(const char* __s, char** __end_ptr, locale_t __l) {
+    (void)__l;
+    return strtod(__s, __end_ptr);
+}
+static __inline float strtof_l(const char* __s, char** __end_ptr, locale_t __l) {
+    (void)__l;
+    return strtof(__s, __end_ptr);
+}
+static __inline long strtol_l(const char* __s, char** __end_ptr, int __base, locale_t __l) {
+    (void)__l;
+    return strtol(__s, __end_ptr, __base);
+}
+__END_DECLS
+#endif
+EOF
+fi
+
+cat > "$WRAP_DIR/bionic_api21_compat.h" <<'EOF'
+#ifndef EMESIS_BIONIC_API21_COMPAT_H
+#define EMESIS_BIONIC_API21_COMPAT_H
+#if defined(__ANDROID__) && (__ANDROID_API__ < 26)
+#include <stdlib.h>
+#include <xlocale.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+static __inline double strtod_l(const char* __s, char** __end_ptr, locale_t __l) {
+    (void)__l;
+    return strtod(__s, __end_ptr);
+}
+static __inline float strtof_l(const char* __s, char** __end_ptr, locale_t __l) {
+    (void)__l;
+    return strtof(__s, __end_ptr);
+}
+static __inline long strtol_l(const char* __s, char** __end_ptr, int __base, locale_t __l) {
+    (void)__l;
+    return strtol(__s, __end_ptr, __base);
+}
+#ifdef __cplusplus
+}
+#endif
+#endif
+#endif
+EOF
+
 make_abi_wrappers() {
     local abi="$1"
     local zig_target="$2"

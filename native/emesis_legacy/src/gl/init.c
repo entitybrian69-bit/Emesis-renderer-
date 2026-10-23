@@ -218,8 +218,8 @@ void initialize_gl4es() {
     case 3:
         break;
     default:
-        // automatic ES backend selection
-        globals4es.es = DEFAULT_ES;
+        // Prefer GLES 3.x by default for full < 1.17 ESSL 3.x shader support (hardext falls back to 2.0 if needed)
+        globals4es.es = 3;
         break;
     }
 #ifndef __APPLE__
@@ -745,17 +745,36 @@ void initialize_gl4es() {
     if (hardext.prgbin_n > 0 && !globals4es.notexarray) {
         env(LIBGL_NOPSA, globals4es.nopsa, "Don't use PrecompiledShaderArchive");
         if (globals4es.nopsa == 0) {
+            char game_cwd[1024] = {0};
+            if (getcwd(game_cwd, sizeof(game_cwd)) == NULL) game_cwd[0] = '\0';
             cwd[0] = '\0';
-            // TODO: What to do on ANDROID and EMSCRIPTEN?
             const char* custom_psa = GetEnvVar("LIBGL_PSA_FOLDER");
 #ifdef __linux__
             const char* home = GetEnvVar("HOME");
-            if (custom_psa)
-                strcpy(cwd, custom_psa);
-            else if (home)
-                strcpy(cwd, home);
+            const char* pojav_dir = GetEnvVar("POJAV_GAME_DIR");
+            const char* mc_dir = GetEnvVar("MC_DIR");
+            const char* tmp_dir = GetEnvVar("TMPDIR");
+            const char* candidates[7] = {
+                custom_psa,
+                EmesisDirectory,
+                pojav_dir,
+                mc_dir,
+                (strcmp(game_cwd, "/") != 0) ? game_cwd : NULL,
+                home,
+                tmp_dir
+            };
+            for (int ci = 0; ci < 7; ++ci) {
+                const char* c = candidates[ci];
+                if (!c || !c[0]) continue;
+                (void)mkdir(c, 0775);
+                if (access(c, W_OK | X_OK) == 0) {
+                    strncpy(cwd, c, sizeof(cwd) - 32);
+                    cwd[sizeof(cwd) - 32] = '\0';
+                    break;
+                }
+            }
             if (strlen(cwd))
-                if (cwd[strlen(cwd)] != '/') strcat(cwd, "/");
+                if (cwd[strlen(cwd) - 1] != '/') strcat(cwd, "/");
 #elif defined AMIGAOS4
             if (custom_psa)
                 strcpy(cwd, custom_psa);
@@ -763,7 +782,7 @@ void initialize_gl4es() {
                 strcpy(cwd, "PROGDIR:");
 #endif
             if (strlen(cwd)) {
-                strcat(cwd, ".gl4es.psa");
+                strcat(cwd, ".emesis_fpe.psa");
                 fpe_InitPSA(cwd);
                 fpe_readPSA();
             }

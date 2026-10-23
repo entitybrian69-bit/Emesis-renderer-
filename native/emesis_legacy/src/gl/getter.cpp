@@ -90,7 +90,7 @@ extern "C"
 
     void BuildExtensionsList() {
         if (!glstate->extensions) {
-            glstate->extensions = (GLubyte*)malloc(5000); // arbitrary size...
+            glstate->extensions = (GLubyte*)malloc(8192);
             char* extensions = (char*)glstate->extensions;
             strcpy(extensions,
                    "GL_EXT_abgr "
@@ -212,21 +212,38 @@ extern "C"
                 strcat(extensions, "GL_ARB_texture_rg ");
             }
             if (hardext.floattex || (globals4es.floattex == 2)) {
-                strcat(extensions, "GL_EXT_texture_float ");
-                strcat(extensions, "GL_ARB_texture_float ");
+                strcat(extensions, "GL_EXT_texture_float "
+                                   "GL_ARB_texture_float "
+                                   "GL_EXT_packed_float "
+                                   "GL_EXT_texture_shared_exponent ");
             }
             if (hardext.halffloattex || (globals4es.floattex == 2)) {
-                strcat(extensions, "GL_EXT_texture_half_float ");
+                strcat(extensions, "GL_EXT_texture_half_float "
+                                   "GL_ARB_half_float_pixel "
+                                   "GL_ARB_half_float_vertex ");
             }
             if (hardext.floatfbo || (globals4es.floattex == 2)) {
-                strcat(extensions, "GL_EXT_color_buffer_float ");
+                strcat(extensions, "GL_EXT_color_buffer_float "
+                                   "GL_ARB_color_buffer_float ");
             }
             if (hardext.halffloatfbo || (globals4es.floattex == 2)) {
                 strcat(extensions, "GL_EXT_color_buffer_half_float ");
+                if (!hardext.floatfbo) strcat(extensions, "GL_ARB_color_buffer_float ");
             }
             if (hardext.depthtex) {
-                strcat(extensions, "GL_EXT_depth_texture ");
-                strcat(extensions, "GL_ARB_depth_texture ");
+                strcat(extensions, "GL_EXT_depth_texture "
+                                   "GL_ARB_depth_texture "
+                                   "GL_ARB_shadow "
+                                   "GL_EXT_shadow_funcs ");
+            }
+            if (hardext.esversion >= 3) {
+                strcat(extensions, "GL_EXT_gpu_shader4 "
+                                   "GL_ARB_gpu_shader5 "
+                                   "GL_ARB_shading_language_420pack "
+                                   "GL_EXT_texture_array "
+                                   "GL_ARB_seamless_cube_map "
+                                   "GL_ARB_occlusion_query "
+                                   "GL_ARB_occlusion_query2 ");
             }
             if (hardext.esversion > 1) {
                 strcat(extensions, "GL_EXT_fog_coord ");

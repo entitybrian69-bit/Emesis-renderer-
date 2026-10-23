@@ -8,7 +8,7 @@ extern "C" {
 #define DEFAULT_EMESIS_DIRECTORY_PATH "/sdcard/EmesisRenderer"
 #define CONFIG_FILE_PATH "/config.json"
 #define LOG_FILE_PATH "/latest.log"
-    
+
 void config_refresh();
 int config_get_int(char* name);
 char* config_get_string(char* name);

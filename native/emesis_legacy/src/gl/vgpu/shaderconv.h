@@ -7,8 +7,8 @@
 
 #include "../shader.h"
 
-void set_uniforms_default_value(GLuint program, uniforms_declarations uniformVector, int uniformCount);
-char* process_uniform_declarations(char* glslCode, uniforms_declarations uniformVector, int* uniformCount);
+void set_uniforms_default_value(GLuint program, const uniform_declarations_list_t* uniformList);
+char* process_uniform_declarations(char* glslCode, uniform_declarations_list_t* uniformList);
 char* ConvertShaderVgpu(struct shader_s* shader_source);
 
 char * GLSLHeader(char* source);
