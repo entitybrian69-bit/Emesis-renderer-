@@ -1,9 +1,6 @@
 name: Publish Emesis Renderer Release
 
 on:
-  push:
-    branches:
-      - "arena/fac24748-emesis-renderer"
   workflow_dispatch:
 
 permissions:
