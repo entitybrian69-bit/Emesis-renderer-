@@ -286,6 +286,12 @@ typedef struct {
 
     uniform_declarations_list_t declarations;
     int frag_data_changed;
+    char* vert_essl_copy;
+    char* frag_essl_copy;
+    uint32_t uniform_gen;
+    uint32_t synced_parent_gen;
+    uniform_t** parent_sync_list;
+    int parent_sync_count;
 } program_t;
 
 KHASH_MAP_DECLARE_INT(programlist, program_t*);
@@ -341,6 +347,7 @@ int gl4es_getProgramBinary(GLuint program, int* length, GLenum* format, void** b
 
 void GoUniformfv(program_t* glprogram, GLint location, int size, int count, const GLfloat* value);
 void GoUniformiv(program_t* glprogram, GLint location, int size, int count, const GLint* value);
+void GoUniformuiv(program_t* glprogram, GLint location, int size, int count, const GLuint* value);
 void GoUniformMatrix2fv(program_t* glprogram, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
 void GoUniformMatrix3fv(program_t* glprogram, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
 void GoUniformMatrix4fv(program_t* glprogram, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);

@@ -69,26 +69,94 @@ char * InplaceInsertByIndex(char * source, int *sourceLength, const int insertPo
     return source;
 }
 
+static inline int is_all_separator_char(unsigned char c) {
+    switch (c) {
+        case '\0': case ' ': case '\t': case '\n': case '\r':
+        case '.': case ',': case ';': case '(': case ')':
+        case '[': case ']': case '{': case '}': case '-':
+        case '<': case '>': case '+': case '*': case '/':
+        case '%': case '&': case '\\': case '"': case '\'':
+        case '^': case '$': case '=': case '!': case ':':
+        case '?':
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 char* gl4es_inplace_replace(char* pBuffer, int* size, const char* S, const char* D)
 {
-    int lS = strlen(S), lD = strlen(D);
-    pBuffer = gl4es_resize_if_needed(pBuffer, size, (lD-lS)*gl4es_count_string(pBuffer, S));
-    char* p = pBuffer;
-    while((p = strstr(p, S)))
-    {
-        // found an occurrence of S
-        // check if good to replace, strchr also found '\0' :)
-        if(strchr(AllSeparators, p[lS])!=NULL && (p==pBuffer || strchr(AllSeparators, p[-1])!=NULL)) {
-            // move out rest of string
-            memmove(p+lD, p+lS, strlen(p)-lS+1);
-            // replace
-            memcpy(p, D, strlen(D));
-            // next
-            p+=lD;
-        } else p+=lS;
+    if (!pBuffer || !S || !S[0] || !D) return pBuffer;
+    char* first = strstr(pBuffer, S);
+    if (!first) return pBuffer;
+
+    size_t lS = strlen(S), lD = strlen(D);
+    int matches = 0;
+    const char* scan = first;
+    while (scan) {
+        if (is_all_separator_char((unsigned char)scan[lS]) &&
+            (scan == pBuffer || is_all_separator_char((unsigned char)scan[-1]))) {
+            matches++;
+        }
+        scan = strstr(scan + lS, S);
     }
-    
-    return pBuffer;
+    if (matches == 0) return pBuffer;
+
+    size_t srcLen = strlen(pBuffer);
+    long diff = ((long)lD - (long)lS) * (long)matches;
+    size_t newLen = (size_t)((long)srcLen + diff);
+
+    if (lD == lS) {
+        char* p = first;
+        while (p) {
+            if (is_all_separator_char((unsigned char)p[lS]) &&
+                (p == pBuffer || is_all_separator_char((unsigned char)p[-1]))) {
+                memcpy(p, D, lD);
+                p = strstr(p + lD, S);
+            } else {
+                p = strstr(p + lS, S);
+            }
+        }
+        return pBuffer;
+    }
+
+    int allocCap = *size;
+    if ((int)(newLen + 1) > allocCap) {
+        allocCap = (int)(newLen + 1) * 2;
+    }
+    char* out = (char*)malloc((size_t)allocCap);
+    if (!out) return pBuffer;
+
+    const char* cur = pBuffer;
+    const char* hit = first;
+    char* dst = out;
+    while (hit) {
+        if (is_all_separator_char((unsigned char)hit[lS]) &&
+            (hit == pBuffer || is_all_separator_char((unsigned char)hit[-1]))) {
+            size_t chunk = (size_t)(hit - cur);
+            if (chunk) {
+                memcpy(dst, cur, chunk);
+                dst += chunk;
+            }
+            if (lD) {
+                memcpy(dst, D, lD);
+                dst += lD;
+            }
+            cur = hit + lS;
+            hit = strstr(cur, S);
+        } else {
+            hit = strstr(hit + lS, S);
+        }
+    }
+    size_t tail = (pBuffer + srcLen) - cur;
+    if (tail) {
+        memcpy(dst, cur, tail);
+        dst += tail;
+    }
+    *dst = '\0';
+    free(pBuffer);
+    *size = allocCap;
+    return out;
 }
 
 char* gl4es_inplace_insert(char* pBuffer, const char* S, char* master, int* size)
@@ -188,11 +256,12 @@ char* gl4es_find_string_nc(char* pBuffer, const char* S)
 
 char* gl4es_resize_if_needed(char* pBuffer, int *size, int addsize) {
     char* p = pBuffer;
-    int newsize = strlen(pBuffer)+addsize+1;
-    if (newsize>*size) {
-        //newsize += 100;
-        p = (char*)realloc(pBuffer, newsize);
-        *size=newsize;
+    int newsize = (int)strlen(pBuffer) + addsize + 1;
+    if (newsize > *size) {
+        int grown = (*size > 0) ? (*size * 2) : 256;
+        if (grown < newsize) grown = newsize + (newsize >> 1) + 64;
+        p = (char*)realloc(pBuffer, (size_t)grown);
+        *size = grown;
     }
     return p;
 }
@@ -299,21 +368,60 @@ int gl4es_countstring_simple(char* pBuffer, const char* S)
 
 char* gl4es_inplace_replace_simple(char* pBuffer, int* size, const char* S, const char* D)
 {
-    int lS = strlen(S), lD = strlen(D);
-    pBuffer = gl4es_resize_if_needed(pBuffer, size, (lD-lS)*gl4es_countstring_simple(pBuffer, S));
-    char* p = pBuffer;
-    while((p = strstr(p, S)))
-    {
-        // found an occurrence of S
-        // move out rest of string
-        memmove(p+lD, p+lS, strlen(p)-lS+1);
-        // replace
-        memcpy(p, D, strlen(D));
-        // next
-        p+=lD;
+    if (!pBuffer || !S || !S[0] || !D) return pBuffer;
+    char* first = strstr(pBuffer, S);
+    if (!first) return pBuffer;
+
+    size_t lS = strlen(S), lD = strlen(D);
+    if (lD == lS) {
+        char* p = first;
+        while (p) {
+            memcpy(p, D, lD);
+            p = strstr(p + lD, S);
+        }
+        return pBuffer;
     }
-    
-    return pBuffer;
+
+    int matches = 0;
+    const char* scan = first;
+    while (scan) {
+        matches++;
+        scan = strstr(scan + lS, S);
+    }
+    size_t srcLen = strlen(pBuffer);
+    size_t newLen = (size_t)((long)srcLen + ((long)lD - (long)lS) * (long)matches);
+    int allocCap = *size;
+    if ((int)(newLen + 1) > allocCap) {
+        allocCap = (int)(newLen + 1) * 2;
+    }
+    char* out = (char*)malloc((size_t)allocCap);
+    if (!out) return pBuffer;
+
+    const char* cur = pBuffer;
+    const char* hit = first;
+    char* dst = out;
+    while (hit) {
+        size_t chunk = (size_t)(hit - cur);
+        if (chunk) {
+            memcpy(dst, cur, chunk);
+            dst += chunk;
+        }
+        if (lD) {
+            memcpy(dst, D, lD);
+            dst += lD;
+        }
+        cur = hit + lS;
+        hit = strstr(cur, S);
+    }
+    size_t tail = (pBuffer + srcLen) - cur;
+    if (tail) {
+        memcpy(dst, cur, tail);
+        dst += tail;
+    }
+    *dst = '\0';
+    free(pBuffer);
+    *size = allocCap;
+    return out;
 }
 
 

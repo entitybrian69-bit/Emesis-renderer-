@@ -573,9 +573,8 @@ void APIENTRY_GL4ES gl4es_glCopyImageSubData(GLuint srcName, GLenum srcTarget, G
                 gles_glGenFramebuffers(2, s_ciFBO);
                 s_ciOwner = (void*)glstate;
             }
-            GLint prevRead = 0, prevDraw = 0;
-            gles_glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
-            gles_glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDraw);
+            GLuint prevRead = glstate->fbo.fbo_read ? glstate->fbo.fbo_read->id : 0;
+            GLuint prevDraw = glstate->fbo.fbo_draw ? glstate->fbo.fbo_draw->id : 0;
 
             int is_depth = (srcTex && (is_depth_format(srcTex->internalformat) || is_depth_format(srcTex->format))) ||
                            (dstTex && (is_depth_format(dstTex->internalformat) || is_depth_format(dstTex->format)));

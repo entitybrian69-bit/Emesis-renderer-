@@ -5,12 +5,14 @@
 
 int uniformsize(GLenum type);
 int is_uniform_int(GLenum type);
+int is_uniform_uint(GLenum type);
 int is_uniform_float(GLenum type);
 int is_uniform_matrix(GLenum type);
 int n_uniform(GLenum type);
 
 void APIENTRY_GL4ES gl4es_glGetUniformfv(GLuint program, GLint location, GLfloat *params);
 void APIENTRY_GL4ES gl4es_glGetUniformiv(GLuint program, GLint location, GLint *params);
+void APIENTRY_GL4ES gl4es_glGetUniformuiv(GLuint program, GLint location, GLuint *params);
 
 void APIENTRY_GL4ES gl4es_glUniform1f(GLint location, GLfloat v0);
 void APIENTRY_GL4ES gl4es_glUniform2f(GLint location, GLfloat v0, GLfloat v1);
@@ -20,6 +22,10 @@ void APIENTRY_GL4ES gl4es_glUniform1i(GLint location, GLint v0);
 void APIENTRY_GL4ES gl4es_glUniform2i(GLint location, GLint v0, GLint v1); 
 void APIENTRY_GL4ES gl4es_glUniform3i(GLint location, GLint v0, GLint v1, GLint v2); 
 void APIENTRY_GL4ES gl4es_glUniform4i(GLint location, GLint v0, GLint v1, GLint v2, GLint v3);
+void APIENTRY_GL4ES gl4es_glUniform1ui(GLint location, GLuint v0);
+void APIENTRY_GL4ES gl4es_glUniform2ui(GLint location, GLuint v0, GLuint v1);
+void APIENTRY_GL4ES gl4es_glUniform3ui(GLint location, GLuint v0, GLuint v1, GLuint v2);
+void APIENTRY_GL4ES gl4es_glUniform4ui(GLint location, GLuint v0, GLuint v1, GLuint v2, GLuint v3);
 
 void APIENTRY_GL4ES gl4es_glUniform1fv(GLint location, GLsizei count, const GLfloat *value); 
 void APIENTRY_GL4ES gl4es_glUniform2fv(GLint location, GLsizei count, const GLfloat *value); 
@@ -29,6 +35,10 @@ void APIENTRY_GL4ES gl4es_glUniform1iv(GLint location, GLsizei count, const GLin
 void APIENTRY_GL4ES gl4es_glUniform2iv(GLint location, GLsizei count, const GLint *value);
 void APIENTRY_GL4ES gl4es_glUniform3iv(GLint location, GLsizei count, const GLint *value);
 void APIENTRY_GL4ES gl4es_glUniform4iv(GLint location, GLsizei count, const GLint *value);
+void APIENTRY_GL4ES gl4es_glUniform1uiv(GLint location, GLsizei count, const GLuint *value);
+void APIENTRY_GL4ES gl4es_glUniform2uiv(GLint location, GLsizei count, const GLuint *value);
+void APIENTRY_GL4ES gl4es_glUniform3uiv(GLint location, GLsizei count, const GLuint *value);
+void APIENTRY_GL4ES gl4es_glUniform4uiv(GLint location, GLsizei count, const GLuint *value);
 
 void APIENTRY_GL4ES gl4es_glUniformMatrix2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
 void APIENTRY_GL4ES gl4es_glUniformMatrix3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
@@ -72,6 +82,14 @@ void APIENTRY_GL4ES gl4es_glProgramUniform1iv(GLuint program, GLint location, GL
 void APIENTRY_GL4ES gl4es_glProgramUniform2iv(GLuint program, GLint location, GLsizei count, const GLint *value);
 void APIENTRY_GL4ES gl4es_glProgramUniform3iv(GLuint program, GLint location, GLsizei count, const GLint *value);
 void APIENTRY_GL4ES gl4es_glProgramUniform4iv(GLuint program, GLint location, GLsizei count, const GLint *value);
+void APIENTRY_GL4ES gl4es_glProgramUniform1ui(GLuint program, GLint location, GLuint v0);
+void APIENTRY_GL4ES gl4es_glProgramUniform2ui(GLuint program, GLint location, GLuint v0, GLuint v1);
+void APIENTRY_GL4ES gl4es_glProgramUniform3ui(GLuint program, GLint location, GLuint v0, GLuint v1, GLuint v2);
+void APIENTRY_GL4ES gl4es_glProgramUniform4ui(GLuint program, GLint location, GLuint v0, GLuint v1, GLuint v2, GLuint v3);
+void APIENTRY_GL4ES gl4es_glProgramUniform1uiv(GLuint program, GLint location, GLsizei count, const GLuint *value);
+void APIENTRY_GL4ES gl4es_glProgramUniform2uiv(GLuint program, GLint location, GLsizei count, const GLuint *value);
+void APIENTRY_GL4ES gl4es_glProgramUniform3uiv(GLuint program, GLint location, GLsizei count, const GLuint *value);
+void APIENTRY_GL4ES gl4es_glProgramUniform4uiv(GLuint program, GLint location, GLsizei count, const GLuint *value);
 
 void APIENTRY_GL4ES gl4es_glProgramUniformMatrix2fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
 void APIENTRY_GL4ES gl4es_glProgramUniformMatrix3fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);

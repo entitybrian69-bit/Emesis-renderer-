@@ -263,6 +263,12 @@ GLuint APIENTRY_GL4ES gl4es_glCreateProgram(void) {
             glprogram->uniform = NULL;
         }
         if (glprogram->cache.cache) free(glprogram->cache.cache);
+        if (glprogram->vert_essl_copy) free(glprogram->vert_essl_copy);
+        if (glprogram->frag_essl_copy) free(glprogram->frag_essl_copy);
+        if (glprogram->parent_sync_list) free(glprogram->parent_sync_list);
+        if (glprogram->attach) free(glprogram->attach);
+        if (glprogram->default_need) free(glprogram->default_need);
+        if (glprogram->fpe_cache) fpe_disposeCache((fpe_cache_t*)glprogram->fpe_cache, 1);
         uniform_decls_clear(&glprogram->declarations);
         memset(glprogram, 0, sizeof(program_t));
     }
@@ -306,6 +312,18 @@ void deleteProgram(program_t* glprogram, khint_t k_program) {
     }
     // clean cache
     if (glprogram->cache.cache) free(glprogram->cache.cache);
+    if (glprogram->vert_essl_copy) {
+        free(glprogram->vert_essl_copy);
+        glprogram->vert_essl_copy = NULL;
+    }
+    if (glprogram->frag_essl_copy) {
+        free(glprogram->frag_essl_copy);
+        glprogram->frag_essl_copy = NULL;
+    }
+    if (glprogram->parent_sync_list) {
+        free(glprogram->parent_sync_list);
+        glprogram->parent_sync_list = NULL;
+    }
     // clean fpe cache if it exist
     if (glprogram->fpe_cache) fpe_disposeCache((fpe_cache_t*)glprogram->fpe_cache, 1);
     // delete program
@@ -325,8 +343,10 @@ void APIENTRY_GL4ES gl4es_glDeleteProgram(GLuint program) {
         errorGL();
     } else
         noerrorShim();
-    // TODO: check GL ERROR to not clean in case of error?
     // clean attached shaders
+    glprogram->last_vert = NULL;
+    glprogram->last_frag = NULL;
+    glprogram->last_comp = NULL;
     for (int i = 0; i < glprogram->attach_size; i++) {
         actually_detachshader(glprogram->attach[i]); // auto delete if marked as delete!
     }
@@ -342,19 +362,29 @@ void APIENTRY_GL4ES gl4es_glDetachShader(GLuint program, GLuint shader) {
     int f = 0;
     while (f < glprogram->attach_size && glprogram->attach[f] != shader)
         f++;
-    // if program is linked, don't try anything....
-    if (glprogram->linked) {
-        noerrorShim();
+    if (f == glprogram->attach_size) {
+        errorShim(GL_INVALID_OPERATION);
         return;
     }
-    // send to hardware
+    if (f + 1 < glprogram->attach_size) {
+        memmove(&glprogram->attach[f], &glprogram->attach[f + 1],
+                (size_t)(glprogram->attach_size - f - 1) * sizeof(GLuint));
+    }
+    glprogram->attach_size--;
+
+    if (glprogram->last_vert == glshader) glprogram->last_vert = NULL;
+    if (glprogram->last_frag == glshader) glprogram->last_frag = NULL;
+    if (glprogram->last_comp == glshader) glprogram->last_comp = NULL;
+
+    // send to hardware (even on linked programs so GLES driver can release compiled shader IR/AST)
     LOAD_GLES2(glDetachShader);
     if (gles_glDetachShader) {
         gles_glDetachShader(glprogram->id, glshader->id);
         errorGL();
-    } else
+    } else {
         noerrorShim();
-    // marked as detached
+    }
+    // marked as detached (frees shader_t + calls gles_glDeleteShader if marked deleted)
     actually_detachshader(shader);
 }
 
@@ -688,6 +718,13 @@ static void clear_program(program_t* glprogram) {
         khint_t k;
         kh_foreach(glprogram->uniform, k, m, free(m->name); free(m); kh_del(uniformlist, glprogram->uniform, k);)
     }
+    if (glprogram->parent_sync_list) {
+        free(glprogram->parent_sync_list);
+        glprogram->parent_sync_list = NULL;
+    }
+    glprogram->parent_sync_count = 0;
+    glprogram->uniform_gen = 1;
+    glprogram->synced_parent_gen = 0;
     glprogram->cache.size = 0; // reset cache buffer
 }
 
@@ -805,10 +842,11 @@ static void fill_program(program_t* glprogram) {
         uniform_t* m;
         khint_t k;
         kh_foreach(glprogram->uniform, k, m,
-                   if ((m->type >= GL_SAMPLER_2D && m->type <= GL_SAMPLER_CUBE) ||
-                       m->type == GL_SAMPLER_3D || m->type == GL_SAMPLER_2D_SHADOW ||
+                   if ((m->type >= 0x8B5D && m->type <= 0x8B64) ||
                        (m->type >= 0x8DC0 && m->type <= 0x8DDD) ||
-                       (m->type >= 0x904C && m->type <= 0x906C))
+                       (m->type >= 0x900C && m->type <= 0x900F) ||
+                       (m->type >= 0x904C && m->type <= 0x906C) ||
+                       (m->type >= 0x9108 && m->type <= 0x910D))
                        memset((char*)glprogram->cache.cache + m->cache_offs, 0xff, m->cache_size);)
     }
 
@@ -999,6 +1037,7 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
             gl4es_glShaderSource(vtx, 1, fpe_VertexShader(&needs, NULL), NULL);
             gl4es_glCompileShader(vtx);
             gl4es_glAttachShader(glprogram->id, vtx);
+            gl4es_glDeleteShader(vtx);
         }
         if (!glprogram->last_frag) {
             if (glprogram->default_need) free(glprogram->default_need);
@@ -1009,6 +1048,7 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
             gl4es_glShaderSource(vtx, 1, fpe_FragmentShader(&needs, NULL), NULL);
             gl4es_glCompileShader(vtx);
             gl4es_glAttachShader(glprogram->id, vtx);
+            gl4es_glDeleteShader(vtx);
         }
         int compatible = 1;
         for (int i = 0; i < glprogram->attach_size && compatible; i++) {
@@ -1029,11 +1069,10 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
                 if (attribute) gl4es_glBindAttribLocation(glprogram->id, i, attribute);
             }
         }
-        if (glprogram->last_vert && glprogram->frag_data_changed == 1) {
+        if (glprogram->last_vert && glprogram->last_frag && glprogram->frag_data_changed == 1) {
             LOAD_GLES2(glShaderSource);
             LOAD_GLES2(glCompileShader);
-            LOAD_GLES2(glAttachShader);
-            if (gles_glShaderSource && gles_glCompileShader && gles_glAttachShader) {
+            if (gles_glShaderSource && gles_glCompileShader) {
                 gles_glShaderSource(glprogram->last_frag->id, 1, (const GLchar* const*)&glprogram->last_frag->converted,
                                     NULL);
                 gles_glCompileShader(glprogram->last_frag->id);
@@ -1045,7 +1084,7 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
                                         (const GLchar* const*)&glprogram->last_frag->before_patch, NULL);
                     gles_glCompileShader(glprogram->last_frag->id);
                 }
-                gles_glAttachShader(glprogram->id, glprogram->last_frag->id);
+                glprogram->last_frag->gles_compiled = 1;
             } else {
                 noerrorShim();
             }
@@ -1062,6 +1101,17 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
                               ? glprogram->last_comp->converted
                               : (glprogram->last_comp ? glprogram->last_comp->source : NULL);
 
+    if (glprogram->vert_essl_copy) {
+        free(glprogram->vert_essl_copy);
+        glprogram->vert_essl_copy = NULL;
+    }
+    if (glprogram->frag_essl_copy) {
+        free(glprogram->frag_essl_copy);
+        glprogram->frag_essl_copy = NULL;
+    }
+    if (vs_essl) glprogram->vert_essl_copy = strdup(vs_essl);
+    if (fs_essl) glprogram->frag_essl_copy = strdup(fs_essl);
+
     /* Fast path: load pre-linked native GPU program binary from disk cache (.ep1) */
     if (!glprogram->frag_data_changed &&
         emesis_program_cache_try_load(glprogram->id, vs_essl, fs_essl, cs_essl, caller_attrib_sig)) {
@@ -1071,6 +1121,11 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
         apply_program_uniform_defaults(program, glprogram);
         noerrorShimNoPurge();
         return;
+    }
+
+    /* .ep1 cache miss: ensure all attached shaders are compiled in the GLES driver before linking */
+    for (int i = 0; i < glprogram->attach_size; ++i) {
+        ensure_shader_gles_compiled(getShader(glprogram->attach[i]));
     }
 
     LOAD_GLES2(glLinkProgram);

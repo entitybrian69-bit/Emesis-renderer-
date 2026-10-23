@@ -331,15 +331,125 @@ std::string forceSupporterOutput(const std::string& glslCode) {
 
 std::string removeLayoutBinding(const std::string& glslCode) {
     if (glslCode.find("binding") == std::string::npos) return glslCode;
-    static const std::regex bindingRegex(R"(layout\s*\(\s*binding\s*=\s*\d+\s*\)\s*)",
-                                         std::regex::ECMAScript | std::regex::optimize);
-    static const std::regex bindingRegex2(R"(layout\s*\(\s*binding\s*=\s*\d+\s*,)",
-                                          std::regex::ECMAScript | std::regex::optimize);
-    std::string result = std::regex_replace(glslCode, bindingRegex, "");
-    if (result.find("binding") != std::string::npos) {
-        result = std::regex_replace(result, bindingRegex2, "layout(");
+    std::string out;
+    out.reserve(glslCode.size());
+    const size_t n = glslCode.size();
+    size_t i = 0;
+    while (i < n) {
+        size_t pos = glslCode.find("layout", i);
+        if (pos == std::string::npos) {
+            out.append(glslCode, i, n - i);
+            break;
+        }
+        bool word_prev = (pos == 0) || (!std::isalnum((unsigned char)glslCode[pos - 1]) && glslCode[pos - 1] != '_');
+        size_t p = pos + 6;
+        bool word_next = (p >= n) || (!std::isalnum((unsigned char)glslCode[p]) && glslCode[p] != '_');
+        if (!word_prev || !word_next) {
+            out.append(glslCode, i, p - i);
+            i = p;
+            continue;
+        }
+        size_t ws = p;
+        while (ws < n && (glslCode[ws] == ' ' || glslCode[ws] == '\t')) ++ws;
+        if (ws >= n || glslCode[ws] != '(') {
+            out.append(glslCode, i, ws - i);
+            i = ws;
+            continue;
+        }
+        size_t close = glslCode.find(')', ws + 1);
+        if (close == std::string::npos) {
+            out.append(glslCode, i, n - i);
+            break;
+        }
+        /* Parse comma-separated qualifiers inside layout(...) and drop `binding = <int>` */
+        out.append(glslCode, i, pos - i);
+        std::string kept;
+        bool removed_any = false;
+        size_t cur = ws + 1;
+        while (cur <= close) {
+            size_t comma = glslCode.find(',', cur);
+            if (comma == std::string::npos || comma > close) comma = close;
+            size_t s = cur, e = comma;
+            while (s < e && std::isspace((unsigned char)glslCode[s])) ++s;
+            while (e > s && std::isspace((unsigned char)glslCode[e - 1])) --e;
+            bool is_binding = false;
+            if (e - s >= 7 && glslCode.compare(s, 7, "binding") == 0) {
+                size_t k = s + 7;
+                while (k < e && std::isspace((unsigned char)glslCode[k])) ++k;
+                if (k < e && glslCode[k] == '=') {
+                    ++k;
+                    while (k < e && std::isspace((unsigned char)glslCode[k])) ++k;
+                    size_t d0 = k;
+                    while (k < e && std::isdigit((unsigned char)glslCode[k])) ++k;
+                    if (k > d0 && k == e) is_binding = true;
+                }
+            }
+            if (is_binding) {
+                removed_any = true;
+            } else if (e > s) {
+                if (!kept.empty()) kept += ", ";
+                kept.append(glslCode, s, e - s);
+            }
+            cur = comma + 1;
+        }
+        if (!removed_any) {
+            out.append(glslCode, pos, close + 1 - pos);
+            i = close + 1;
+        } else if (!kept.empty()) {
+            out += "layout(";
+            out += kept;
+            out += ")";
+            i = close + 1;
+        } else {
+            size_t after = close + 1;
+            while (after < n && (glslCode[after] == ' ' || glslCode[after] == '\t')) ++after;
+            i = after;
+        }
     }
-    return result;
+    return out;
+}
+
+static std::string injectSafePowForMobileGPU(const std::string& glslCode) {
+    if (glslCode.find("pow") == std::string::npos) return glslCode;
+    std::string out;
+    out.reserve(glslCode.size() + 384);
+    const size_t n = glslCode.size();
+    size_t i = 0;
+    bool replaced = false;
+    while (i < n) {
+        size_t pos = glslCode.find("pow", i);
+        if (pos == std::string::npos) {
+            out.append(glslCode, i, n - i);
+            break;
+        }
+        bool prev_ok = (pos == 0) ||
+                       (!std::isalnum((unsigned char)glslCode[pos - 1]) &&
+                        glslCode[pos - 1] != '_' && glslCode[pos - 1] != '.');
+        size_t p = pos + 3;
+        bool next_ident = (p < n) && (std::isalnum((unsigned char)glslCode[p]) || glslCode[p] == '_');
+        size_t lp = p;
+        if (prev_ok && !next_ident) {
+            while (lp < n && (glslCode[lp] == ' ' || glslCode[lp] == '\t')) ++lp;
+        }
+        if (prev_ok && !next_ident && lp < n && glslCode[lp] == '(') {
+            out.append(glslCode, i, pos - i);
+            out += "_emesis_pow(";
+            i = lp + 1;
+            replaced = true;
+        } else {
+            out.append(glslCode, i, p - i);
+            i = p;
+        }
+    }
+    if (!replaced) return glslCode;
+    static const char* kSafePowDefs =
+        "highp float _emesis_pow(highp float x, highp float y) { return pow(max(x, 1e-8), y); }\n"
+        "highp vec2 _emesis_pow(highp vec2 x, highp vec2 y) { return pow(max(x, vec2(1e-8)), y); }\n"
+        "highp vec3 _emesis_pow(highp vec3 x, highp vec3 y) { return pow(max(x, vec3(1e-8)), y); }\n"
+        "highp vec4 _emesis_pow(highp vec4 x, highp vec4 y) { return pow(max(x, vec4(1e-8)), y); }\n";
+    size_t insertPos = find_insertion_point(out);
+    out.insert(insertPos, kSafePowDefs);
+    return out;
 }
 
 std::string processOutColorLocations(const std::string& glslCode) {
@@ -610,6 +720,36 @@ static void inject_ngg_macro_definition(std::string& glslCode) {
         "#define NGG_NGG_VERSION " xstr(MAJOR) xstr(MINOR) xstr(REVISION) "\n";
     size_t insertionPos = find_insertion_point(glslCode);
     glslCode.insert(insertionPos, macro_definitions);
+    if (glslCode.find("MC_RENDER_STAGE_") != std::string::npos) {
+        static const char* stage_fallbacks =
+            "#ifndef MC_RENDER_STAGE_NONE\n"
+            "#define MC_RENDER_STAGE_NONE 0\n"
+            "#define MC_RENDER_STAGE_SKY 1\n"
+            "#define MC_RENDER_STAGE_SUNSET 2\n"
+            "#define MC_RENDER_STAGE_CUSTOM_SKY 3\n"
+            "#define MC_RENDER_STAGE_SUN 4\n"
+            "#define MC_RENDER_STAGE_MOON 5\n"
+            "#define MC_RENDER_STAGE_STARS 6\n"
+            "#define MC_RENDER_STAGE_VOID 7\n"
+            "#define MC_RENDER_STAGE_TERRAIN_SOLID 8\n"
+            "#define MC_RENDER_STAGE_TERRAIN_CUTOUT_MIPPED 9\n"
+            "#define MC_RENDER_STAGE_TERRAIN_CUTOUT 10\n"
+            "#define MC_RENDER_STAGE_ENTITIES 11\n"
+            "#define MC_RENDER_STAGE_BLOCK_ENTITIES 12\n"
+            "#define MC_RENDER_STAGE_DESTROY 13\n"
+            "#define MC_RENDER_STAGE_OUTLINE 14\n"
+            "#define MC_RENDER_STAGE_DEBUG 15\n"
+            "#define MC_RENDER_STAGE_HAND_SOLID 16\n"
+            "#define MC_RENDER_STAGE_TERRAIN_TRANSLUCENT 17\n"
+            "#define MC_RENDER_STAGE_TRIPWIRE 18\n"
+            "#define MC_RENDER_STAGE_PARTICLES 19\n"
+            "#define MC_RENDER_STAGE_CLOUDS 20\n"
+            "#define MC_RENDER_STAGE_RAIN_SNOW 21\n"
+            "#define MC_RENDER_STAGE_WORLD_BORDER 22\n"
+            "#define MC_RENDER_STAGE_HAND_TRANSLUCENT 23\n"
+            "#endif\n";
+        glslCode.insert(find_insertion_point(glslCode), stage_fallbacks);
+    }
 }
 
 static void upgrade_to_compatibility_version(std::string& glsl) {
@@ -938,6 +1078,7 @@ std::string GLSLtoGLSLES_2(const char* glsl_code, GLenum glsl_type, unsigned int
     }
     essl = processOutColorLocations(essl);
     essl = forceSupporterOutput(essl);
+    essl = injectSafePowForMobileGPU(essl);
 
     return_code = atomicCounterEmulated ? 1 : 0;
     return essl;

@@ -153,6 +153,15 @@ void APIENTRY_GL4ES fpe_ReleventState_DefaultVertex(fpe_state_t* dest, fpe_state
 }
 
 void APIENTRY_GL4ES fpe_ReleventState(fpe_state_t* dest, fpe_state_t* src, int fixed) {
+    if (!fixed) {
+        memset(dest, 0, sizeof(fpe_state_t));
+        dest->plane = src->plane;
+        if (src->alphatest && src->alphafunc != FPE_ALWAYS) {
+            dest->alphatest = 1;
+            dest->alphafunc = src->alphafunc;
+        }
+        return;
+    }
     // filter out some non relevant state (like texture stuff if texture is disabled)
     memcpy(dest, src, sizeof(fpe_state_t));
     // alpha test
@@ -418,6 +427,12 @@ void APIENTRY_GL4ES fpe_program(int ispoint) {
                 gl4es_glAttachShader(glstate->fpe->prog, glstate->fpe->vert);
                 gl4es_glAttachShader(glstate->fpe->prog, glstate->fpe->frag);
                 gl4es_glLinkProgram(glstate->fpe->prog);
+                gl4es_glDetachShader(glstate->fpe->prog, glstate->fpe->vert);
+                gl4es_glDeleteShader(glstate->fpe->vert);
+                glstate->fpe->vert = 0;
+                gl4es_glDetachShader(glstate->fpe->prog, glstate->fpe->frag);
+                gl4es_glDeleteShader(glstate->fpe->frag);
+                glstate->fpe->frag = 0;
                 gl4es_glGetProgramiv(glstate->fpe->prog, GL_LINK_STATUS, &status);
                 if (status != GL_TRUE) {
                     char buff[1000];
@@ -448,45 +463,81 @@ void APIENTRY_GL4ES fpe_program(int ispoint) {
 
 program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* state) {
     // state is not empty and glprogram already has some cache (it may be empty, but kh'thingy is initialized)
-    // TODO: what if program is composed of more then 1 vertex or fragment shader?
     fpe_fpe_t* fpe = fpe_GetCache((fpe_cache_t*)glprogram->fpe_cache, state, 0);
     if (fpe->glprogram == NULL) {
         GLint status;
+        const char* vs_src = glprogram->vert_essl_copy
+                                 ? glprogram->vert_essl_copy
+                                 : (glprogram->last_vert
+                                        ? (glprogram->last_vert->converted ? glprogram->last_vert->converted
+                                                                           : glprogram->last_vert->source)
+                                        : NULL);
+        const char* fs_src = glprogram->frag_essl_copy
+                                 ? glprogram->frag_essl_copy
+                                 : (glprogram->last_frag
+                                        ? (glprogram->last_frag->converted ? glprogram->last_frag->converted
+                                                                           : glprogram->last_frag->source)
+                                        : NULL);
         fpe->vert = gl4es_glCreateShader(GL_VERTEX_SHADER);
-        gl4es_glShaderSource(fpe->vert, 1, fpe_CustomVertexShader(glprogram->last_vert->source, state, 0), NULL);
+        gl4es_glShaderSource(fpe->vert, 1, fpe_CustomVertexShader(vs_src, state, 0), NULL);
         gl4es_glCompileShader(fpe->vert);
         gl4es_glGetShaderiv(fpe->vert, GL_COMPILE_STATUS, &status);
         if (status != GL_TRUE) {
             char buff[1000];
             gl4es_glGetShaderInfoLog(fpe->vert, 1000, NULL, buff);
             DBGLOGD("LIBGL: FPE Custom Vertex shader compile failed: %s\n", buff);
+            gl4es_glDeleteShader(fpe->vert);
+            fpe->vert = 0;
             return glprogram; // fallback to non-customized custom program..
         }
         fpe->frag = gl4es_glCreateShader(GL_FRAGMENT_SHADER);
-        gl4es_glShaderSource(fpe->frag, 1, fpe_CustomFragmentShader(glprogram->last_frag->source, state), NULL);
+        gl4es_glShaderSource(fpe->frag, 1, fpe_CustomFragmentShader(fs_src, state), NULL);
         gl4es_glCompileShader(fpe->frag);
         gl4es_glGetShaderiv(fpe->frag, GL_COMPILE_STATUS, &status);
         if (status != GL_TRUE) {
             char buff[1000];
             gl4es_glGetShaderInfoLog(fpe->frag, 1000, NULL, buff);
             DBGLOGD("LIBGL: FPE Custom Fragment shader compile failed: %s\n", buff);
+            gl4es_glDeleteShader(fpe->vert);
+            gl4es_glDeleteShader(fpe->frag);
+            fpe->vert = 0;
+            fpe->frag = 0;
             return glprogram; // fallback to non-customized custom program..
         }
         fpe->prog = gl4es_glCreateProgram();
+        {
+            khash_t(programlist)* programs = glstate->glsl->programs;
+            khint_t k_child = kh_get(programlist, programs, fpe->prog);
+            if (k_child != kh_end(programs)) {
+                program_t* child_prog = kh_value(programs, k_child);
+                if (child_prog) {
+                    uniform_decls_merge(&child_prog->declarations, &glprogram->declarations);
+                }
+            }
+        }
         gl4es_glAttachShader(fpe->prog, fpe->vert);
         gl4es_glAttachShader(fpe->prog, fpe->frag);
-        // re-run the BindAttribLocation if any
+        // re-run the BindAttribLocation via gl4es wrapper so caller_attrib_sig & attribloc match parent
         {
             attribloc_t* al;
-            LOAD_GLES2(glBindAttribLocation); // using real one to avoid overwriting of attribloc...
-            kh_foreach_value(glprogram->attribloc, al, gles_glBindAttribLocation(fpe->prog, al->index, al->name););
+            kh_foreach_value(glprogram->attribloc, al,
+                             if (al->name && strncmp(al->name, "gl_", 3) != 0)
+                                 gl4es_glBindAttribLocation(fpe->prog, al->index, al->name););
         }
         gl4es_glLinkProgram(fpe->prog);
+        gl4es_glDetachShader(fpe->prog, fpe->vert);
+        gl4es_glDeleteShader(fpe->vert);
+        fpe->vert = 0;
+        gl4es_glDetachShader(fpe->prog, fpe->frag);
+        gl4es_glDeleteShader(fpe->frag);
+        fpe->frag = 0;
         gl4es_glGetProgramiv(fpe->prog, GL_LINK_STATUS, &status);
         if (status != GL_TRUE) {
             char buff[1000];
             gl4es_glGetProgramInfoLog(fpe->prog, 1000, NULL, buff);
             DBGLOGD("LIBGL: FPE Custom Program link failed: %s\n", buff);
+            gl4es_glDeleteProgram(fpe->prog);
+            fpe->prog = 0;
             return glprogram; // fallback to non-customized custom program..
         }
         // now find the program
@@ -496,10 +547,15 @@ program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* st
             k_program = kh_get(programlist, programs, fpe->prog);
             if (k_program != kh_end(programs)) fpe->glprogram = kh_value(programs, k_program);
         }
-        // adjust the uniforms to point to father cache...
-        {
+        // adjust the uniforms to point to father cache and build flat parent_sync_list
+        if (fpe->glprogram) {
             khash_t(uniformlist)* father_uniforms = glprogram->uniform;
             khash_t(uniformlist)* uniforms = fpe->glprogram->uniform;
+            int total_u = kh_size(uniforms);
+            if (total_u > 0) {
+                fpe->glprogram->parent_sync_list = (uniform_t**)malloc((size_t)total_u * sizeof(uniform_t*));
+            }
+            int sync_cnt = 0;
             uniform_t *m, *n;
             khint_t k;
             kh_foreach(
@@ -508,8 +564,12 @@ program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* st
                     if (n) {
                         m->parent_offs = n->cache_offs;
                         m->parent_size = n->cache_size;
+                        if (fpe->glprogram->parent_sync_list) {
+                            fpe->glprogram->parent_sync_list[sync_cnt++] = m;
+                        }
                     }
                 })
+            fpe->glprogram->parent_sync_count = sync_cnt;
         }
         // all done
         DBG(DBGLOGD("creating FPE Custom Program : %d(%p)\n", fpe->prog, fpe->glprogram);)
@@ -520,10 +580,15 @@ program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* st
 
 program_t* APIENTRY_GL4ES fpe_CustomShader_DefaultVertex(program_t* glprogram, fpe_state_t* state_vertex) {
     // state is not empty and glprogram already has some cache (it may be empty, but kh'thingy is initialized)
-    // TODO: what if program is composed of more then 1 vertex or fragment shader?
     fpe_fpe_t* fpe = fpe_GetCache((fpe_cache_t*)glprogram->fpe_cache, state_vertex, 0);
     if (fpe->glprogram == NULL) {
         GLint status;
+        const char* fs_src = glprogram->frag_essl_copy
+                                 ? glprogram->frag_essl_copy
+                                 : (glprogram->last_frag
+                                        ? (glprogram->last_frag->converted ? glprogram->last_frag->converted
+                                                                           : glprogram->last_frag->source)
+                                        : NULL);
         fpe->vert = gl4es_glCreateShader(GL_VERTEX_SHADER);
         gl4es_glShaderSource(fpe->vert, 1, fpe_VertexShader(glprogram->default_need, state_vertex), NULL);
         gl4es_glCompileShader(fpe->vert);
@@ -532,33 +597,58 @@ program_t* APIENTRY_GL4ES fpe_CustomShader_DefaultVertex(program_t* glprogram, f
             char buff[1000];
             gl4es_glGetShaderInfoLog(fpe->vert, 1000, NULL, buff);
             DBGLOGD("LIBGL: FPE Default Vertex shader compile failed: %s\n", buff);
+            gl4es_glDeleteShader(fpe->vert);
+            fpe->vert = 0;
             return glprogram; // fallback to non-customized custom program..
         }
         fpe->frag = gl4es_glCreateShader(GL_FRAGMENT_SHADER);
-        gl4es_glShaderSource(fpe->frag, 1, fpe_CustomFragmentShader(glprogram->last_frag->source, state_vertex), NULL);
+        gl4es_glShaderSource(fpe->frag, 1, fpe_CustomFragmentShader(fs_src, state_vertex), NULL);
         gl4es_glCompileShader(fpe->frag);
         gl4es_glGetShaderiv(fpe->frag, GL_COMPILE_STATUS, &status);
         if (status != GL_TRUE) {
             char buff[1000];
             gl4es_glGetShaderInfoLog(fpe->frag, 1000, NULL, buff);
             DBGLOGD("LIBGL: FPE Custom Fragment shader compile failed: %s\n", buff);
+            gl4es_glDeleteShader(fpe->vert);
+            gl4es_glDeleteShader(fpe->frag);
+            fpe->vert = 0;
+            fpe->frag = 0;
             return glprogram; // fallback to non-customized custom program..
         }
         fpe->prog = gl4es_glCreateProgram();
+        {
+            khash_t(programlist)* programs = glstate->glsl->programs;
+            khint_t k_child = kh_get(programlist, programs, fpe->prog);
+            if (k_child != kh_end(programs)) {
+                program_t* child_prog = kh_value(programs, k_child);
+                if (child_prog) {
+                    uniform_decls_merge(&child_prog->declarations, &glprogram->declarations);
+                }
+            }
+        }
         gl4es_glAttachShader(fpe->prog, fpe->vert);
         gl4es_glAttachShader(fpe->prog, fpe->frag);
         // re-run the BindAttribLocation if any
         {
             attribloc_t* al;
-            LOAD_GLES2(glBindAttribLocation); // using real one to avoid overwriting of attribloc...
-            kh_foreach_value(glprogram->attribloc, al, gles_glBindAttribLocation(fpe->prog, al->index, al->name););
+            kh_foreach_value(glprogram->attribloc, al,
+                             if (al->name && strncmp(al->name, "gl_", 3) != 0)
+                                 gl4es_glBindAttribLocation(fpe->prog, al->index, al->name););
         }
         gl4es_glLinkProgram(fpe->prog);
+        gl4es_glDetachShader(fpe->prog, fpe->vert);
+        gl4es_glDeleteShader(fpe->vert);
+        fpe->vert = 0;
+        gl4es_glDetachShader(fpe->prog, fpe->frag);
+        gl4es_glDeleteShader(fpe->frag);
+        fpe->frag = 0;
         gl4es_glGetProgramiv(fpe->prog, GL_LINK_STATUS, &status);
         if (status != GL_TRUE) {
             char buff[1000];
             gl4es_glGetProgramInfoLog(fpe->prog, 1000, NULL, buff);
             DBGLOGD("LIBGL: FPE Custom Program with Default Vertex link failed: %s\n", buff);
+            gl4es_glDeleteProgram(fpe->prog);
+            fpe->prog = 0;
             return glprogram; // fallback to non-customized custom program..
         }
         // now find the program
@@ -568,10 +658,15 @@ program_t* APIENTRY_GL4ES fpe_CustomShader_DefaultVertex(program_t* glprogram, f
             k_program = kh_get(programlist, programs, fpe->prog);
             if (k_program != kh_end(programs)) fpe->glprogram = kh_value(programs, k_program);
         }
-        // adjust the uniforms to point to father cache...
-        {
+        // adjust the uniforms to point to father cache and build flat parent_sync_list
+        if (fpe->glprogram) {
             khash_t(uniformlist)* father_uniforms = glprogram->uniform;
             khash_t(uniformlist)* uniforms = fpe->glprogram->uniform;
+            int total_u = kh_size(uniforms);
+            if (total_u > 0) {
+                fpe->glprogram->parent_sync_list = (uniform_t**)malloc((size_t)total_u * sizeof(uniform_t*));
+            }
+            int sync_cnt = 0;
             uniform_t *m, *n;
             khint_t k;
             kh_foreach(
@@ -580,8 +675,12 @@ program_t* APIENTRY_GL4ES fpe_CustomShader_DefaultVertex(program_t* glprogram, f
                     if (n) {
                         m->parent_offs = n->cache_offs;
                         m->parent_size = n->cache_size;
+                        if (fpe->glprogram->parent_sync_list) {
+                            fpe->glprogram->parent_sync_list[sync_cnt++] = m;
+                        }
                     }
                 })
+            fpe->glprogram->parent_sync_count = sync_cnt;
         }
         // all done
         DBG(DBGLOGD("creating FPE Custom Program : %d(%p)\n", fpe->prog, fpe->glprogram);)
@@ -590,54 +689,72 @@ program_t* APIENTRY_GL4ES fpe_CustomShader_DefaultVertex(program_t* glprogram, f
     return fpe->glprogram;
 }
 
+static void sync_single_child_uniform(uniformcache_t* cache, program_t* glprogram, uniform_t* m) {
+    const void* src = (const void*)((uintptr_t)cache->cache + m->parent_offs);
+    void* dst = (void*)((uintptr_t)glprogram->cache.cache + m->cache_offs);
+    if (m->cache_size > 0 && memcmp(dst, src, m->cache_size) == 0) {
+        return;
+    }
+    switch (m->type) {
+    case GL_FLOAT:
+    case GL_FLOAT_VEC2:
+    case GL_FLOAT_VEC3:
+    case GL_FLOAT_VEC4:
+        GoUniformfv(glprogram, m->id, n_uniform(m->type), 1, (const GLfloat*)src);
+        break;
+    case GL_UNSIGNED_INT:
+    case 0x8DC6: /* GL_UNSIGNED_INT_VEC2 */
+    case 0x8DC7: /* GL_UNSIGNED_INT_VEC3 */
+    case 0x8DC8: /* GL_UNSIGNED_INT_VEC4 */
+        GoUniformuiv(glprogram, m->id, n_uniform(m->type), 1, (const GLuint*)src);
+        break;
+    case GL_FLOAT_MAT2:
+        GoUniformMatrix2fv(glprogram, m->id, 1, false, (const GLfloat*)src);
+        break;
+    case GL_FLOAT_MAT3:
+        GoUniformMatrix3fv(glprogram, m->id, 1, false, (const GLfloat*)src);
+        break;
+    case GL_FLOAT_MAT4:
+        GoUniformMatrix4fv(glprogram, m->id, 1, false, (const GLfloat*)src);
+        break;
+    default:
+        /* Covers GL_INT*, GL_BOOL*, and all ES2/ES3 sampler & image uniform types */
+        if (m->type == GL_INT || m->type == GL_INT_VEC2 || m->type == GL_INT_VEC3 || m->type == GL_INT_VEC4 ||
+            m->type == GL_BOOL || m->type == GL_BOOL_VEC2 || m->type == GL_BOOL_VEC3 || m->type == GL_BOOL_VEC4 ||
+            (m->type >= 0x8B5D && m->type <= 0x8B64) ||
+            (m->type >= 0x8DC0 && m->type <= 0x8DDD) ||
+            (m->type >= 0x900C && m->type <= 0x900F) ||
+            (m->type >= 0x904C && m->type <= 0x906C) ||
+            (m->type >= 0x9108 && m->type <= 0x910D)) {
+            GoUniformiv(glprogram, m->id, n_uniform(m->type), 1, (const GLint*)src);
+        } else {
+            DBGLOGD("LIBGL: Warning, sync uniform on father/son program with unknown uniform type %s\n",
+                    PrintEnum(m->type));
+        }
+        break;
+    }
+}
+
 void APIENTRY_GL4ES fpe_SyncUniforms(uniformcache_t* cache, program_t* glprogram) {
-    // TODO: Optimize this...
-    khash_t(uniformlist)* uniforms = glprogram->uniform;
-    uniform_t* m;
-    khint_t k;
-    DBG(int cnt = 0;)
-    // don't use m->size, as each element has it's own uniform...
-    kh_foreach(
-        uniforms, k, m, if (m->parent_size) {
-            DBG(++cnt;)
-            switch (m->type) {
-            case GL_FLOAT:
-            case GL_FLOAT_VEC2:
-            case GL_FLOAT_VEC3:
-            case GL_FLOAT_VEC4:
-                GoUniformfv(glprogram, m->id, n_uniform(m->type), 1,
-                            (GLfloat*)((uintptr_t)cache->cache + m->parent_offs));
-                break;
-            case GL_SAMPLER_2D:
-            case GL_SAMPLER_3D:
-            case GL_SAMPLER_CUBE:
-            case GL_SAMPLER_2D_SHADOW:
-            case GL_INT:
-            case GL_INT_VEC2:
-            case GL_INT_VEC3:
-            case GL_INT_VEC4:
-            case GL_BOOL:
-            case GL_BOOL_VEC2:
-            case GL_BOOL_VEC3:
-            case GL_BOOL_VEC4:
-                GoUniformiv(glprogram, m->id, n_uniform(m->type), 1,
-                            (GLint*)((uintptr_t)cache->cache + m->parent_offs));
-                break;
-            case GL_FLOAT_MAT2:
-                GoUniformMatrix2fv(glprogram, m->id, 1, false, (GLfloat*)((uintptr_t)cache->cache + m->parent_offs));
-                break;
-            case GL_FLOAT_MAT3:
-                GoUniformMatrix3fv(glprogram, m->id, 1, false, (GLfloat*)((uintptr_t)cache->cache + m->parent_offs));
-                break;
-            case GL_FLOAT_MAT4:
-                GoUniformMatrix4fv(glprogram, m->id, 1, false, (GLfloat*)((uintptr_t)cache->cache + m->parent_offs));
-                break;
-            default:
-                DBGLOGD("LIBGL: Warning, sync uniform on father/son program with unknown uniform type %s\n",
-                        PrintEnum(m->type));
-            }
-        });
-    DBG(DBGLOGD("Uniform sync'd with %d and father (%d uniforms)\n", glprogram->id, cnt);)
+    program_t* father = glstate->glsl->glprogram;
+    if (father && glprogram->synced_parent_gen == father->uniform_gen) {
+        return;
+    }
+    if (glprogram->parent_sync_list) {
+        int cnt = glprogram->parent_sync_count;
+        uniform_t** list = glprogram->parent_sync_list;
+        for (int i = 0; i < cnt; ++i) {
+            sync_single_child_uniform(cache, glprogram, list[i]);
+        }
+    } else {
+        khash_t(uniformlist)* uniforms = glprogram->uniform;
+        uniform_t* m;
+        khint_t k;
+        kh_foreach(uniforms, k, m, if (m->parent_size) { sync_single_child_uniform(cache, glprogram, m); });
+    }
+    if (father) {
+        glprogram->synced_parent_gen = father->uniform_gen;
+    }
 }
 // ********* Fixed Pipeling function wrapper *********
 
@@ -1110,9 +1227,6 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
     }
     // activate program if needed
     if (glstate->glsl->program) {
-        // but first, check if some fixedpipeline state (like GL_ALPHA_TEST) need to alter the original program
-        fpe_state_t state;
-        fpe_ReleventState(&state, glstate->fpe_state, 0);
         GLuint program = glstate->glsl->program;
         program_t* glprogram = glstate->glsl->glprogram;
         if (glprogram->default_vertex) {
@@ -1122,13 +1236,17 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
             glprogram =
                 fpe_CustomShader_DefaultVertex(glprogram, &vertex_state); // fetch from cache if exist or create it
             program = glprogram->id;
-        } else if (!fpe_IsEmpty(&state)) {
-            // need to create a new program for that...
-            DBG(DBGLOGD("GLSL program %d need customization => ", program);)
-            if (!glprogram->fpe_cache) glprogram->fpe_cache = fpe_NewCache();
-            glprogram = fpe_CustomShader(glprogram, &state); // fetch from cache if exist or create it
-            program = glprogram->id;
-            DBG(DBGLOGD("%d\n", program);)
+        } else if (glstate->fpe_state->plane ||
+                   (glstate->fpe_state->alphatest && glstate->fpe_state->alphafunc != FPE_ALWAYS)) {
+            fpe_state_t state;
+            fpe_ReleventState(&state, glstate->fpe_state, 0);
+            if (!fpe_IsEmpty(&state)) {
+                DBG(DBGLOGD("GLSL program %d need customization => ", program);)
+                if (!glprogram->fpe_cache) glprogram->fpe_cache = fpe_NewCache();
+                glprogram = fpe_CustomShader(glprogram, &state); // fetch from cache if exist or create it
+                program = glprogram->id;
+                DBG(DBGLOGD("%d\n", program);)
+            }
         }
         if (glstate->gleshard->program != program) {
             glstate->gleshard->program = program;
@@ -1148,16 +1266,14 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
         }
     }
     program_t* glprogram = glstate->gleshard->glprogram;
-    // Texture Unit managements
-    int need_hackfbo = 0;
-    int tu_idx = 0;
-    while (tu_idx < MAX_TEX_UNITS && glprogram->texunits[tu_idx].type) {
-        // grab the uniform value
-        glprogram->texunits[tu_idx].req_tu = GetUniformi(glprogram, glprogram->texunits[tu_idx].id);
-        glprogram->texunits[tu_idx].act_tu = glprogram->texunits[tu_idx].req_tu;
-        ++tu_idx;
-    }
+    // Texture Unit managements (only needed when legacy fbounbind workaround is enabled)
     if (globals4es.fbounbind && glstate->fbo.current_fb->id) {
+        int tu_idx = 0;
+        while (tu_idx < MAX_TEX_UNITS && glprogram->texunits[tu_idx].type) {
+            glprogram->texunits[tu_idx].req_tu = GetUniformi(glprogram, glprogram->texunits[tu_idx].id);
+            glprogram->texunits[tu_idx].act_tu = glprogram->texunits[tu_idx].req_tu;
+            ++tu_idx;
+        }
         // check if need to unbind/bind fbo because texture is both attached and used
         tu_idx = 0;
         int need = 0;
@@ -1179,10 +1295,8 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
             DBG(DBGLOGD("LIBGL: Need to Bind/Unbind FBO!");)
             LOAD_GLES2_OR_OES(glBindFramebuffer);
             LOAD_GLES2_OR_OES(glFramebufferTexture2D);
-            // gles_glFramebufferTexture2D(GL_FRAMEBUFFER, tex->binded_attachment, GL_TEXTURE_2D, 0, 0);
             gles_glBindFramebuffer(GL_FRAMEBUFFER, 0);
             gles_glBindFramebuffer(GL_FRAMEBUFFER, glstate->fbo.current_fb->id);
-            // gles_glFramebufferTexture2D(GL_FRAMEBUFFER, tex->binded_attachment, GL_TEXTURE_2D, tex->glname, 0);
         }
     }
     // setup fixed pipeline builtin matrix uniform if needed

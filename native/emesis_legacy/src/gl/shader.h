@@ -50,9 +50,9 @@ struct shader_s {
     int attached;             // number of time the shader is attached
     int deleted;              // flagged for deletion
     int compiled;             // flag if compiled
+    int gles_compiled;        // flag if compiled in GLES driver
     struct oldprogram_s* old; // in case the shader is an old ARB ASM-like program
     char* source;             // original source of the shader (or converted if coming from "old")
-    char* raw_compat_source;  // pre-builtin-conversion compatibility source (for fast varying redo)
     char* converted;          // converted source (or null if nothing)
     // shaderconv
     shaderconv_need_t need; // the varying need / provide of the shader
@@ -82,6 +82,7 @@ void accumShaderNeeds(GLuint shader, shaderconv_need_t* need);
 int isShaderCompatible(GLuint shader, shaderconv_need_t* need);
 void redoShader(GLuint shader, shaderconv_need_t* need);
 struct shader_s* getShader(GLuint shader);
+void ensure_shader_gles_compiled(struct shader_s* glshader);
 
 #define CHECK_SHADER(type, shader)                                                                                     \
     if (!shader) {                                                                                                     \

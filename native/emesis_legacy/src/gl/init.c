@@ -619,7 +619,7 @@ void initialize_gl4es() {
     }
 
     globals4es.fbomakecurrent = 0;
-    if ((hardext.vendor & VEND_ARM) || (globals4es.usefb)) globals4es.fbomakecurrent = 1;
+    if (((hardext.vendor & VEND_ARM) && hardext.esversion < 3) || (globals4es.usefb)) globals4es.fbomakecurrent = 1;
     switch (ReturnEnvVarIntDef("LIBGL_FBOMAKECURRENT", -1)) {
     case 0:
         if (globals4es.fbomakecurrent) {
@@ -636,7 +636,10 @@ void initialize_gl4es() {
     }
 
     globals4es.fbounbind = 0;
-    if ((hardext.vendor & VEND_ARM) || (hardext.vendor & VEND_IMGTEC)) globals4es.fbounbind = 1;
+    /* Only enable legacy GLES 2.0 Utgard/SGX FBO unbind/rebind workaround on ES < 3.0;
+       on ES 3.x TBDR GPUs (Mali Bifrost/Valhall, PowerVR Rogue) per-draw FBO unbind flushes tile buffers! */
+    if (hardext.esversion < 3 && ((hardext.vendor & VEND_ARM) || (hardext.vendor & VEND_IMGTEC)))
+        globals4es.fbounbind = 1;
     switch (ReturnEnvVarIntDef("LIBGL_FBOUNBIND", -1)) {
     case 0:
         if (globals4es.fbounbind) {

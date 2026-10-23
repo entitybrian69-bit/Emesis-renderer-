@@ -61,17 +61,21 @@ GLuint APIENTRY_GL4ES gl4es_glCreateShader(GLenum shaderType) {
     }
     glshader->id = shader;
     glshader->type = shaderType;
+    glshader->deleted = 0;
+    glshader->attached = 0;
+    glshader->compiled = 0;
+    glshader->gles_compiled = 0;
     if (glshader->source) {
         free(glshader->source);
         glshader->source = NULL;
     }
-    if (glshader->raw_compat_source) {
-        free(glshader->raw_compat_source);
-        glshader->raw_compat_source = NULL;
-    }
     if (glshader->converted) {
         free(glshader->converted);
         glshader->converted = NULL;
+    }
+    if (glshader->before_patch) {
+        free(glshader->before_patch);
+        glshader->before_patch = NULL;
     }
     uniform_decls_clear(&glshader->uniforms_declarations);
     memset(&glshader->need, 0, sizeof(glshader->need));
@@ -88,13 +92,17 @@ void actually_deleteshader(GLuint shader) {
     if (k != kh_end(shaders)) {
         shader_t* glshader = kh_value(shaders, k);
         if (glshader->deleted && !glshader->attached) {
+            GLuint hw_id = glshader->id;
             kh_del(shaderlist, shaders, k);
             if (glshader->source) free(glshader->source);
-            if (glshader->raw_compat_source) free(glshader->raw_compat_source);
             if (glshader->converted) free(glshader->converted);
             if (glshader->before_patch) free(glshader->before_patch);
             uniform_decls_clear(&glshader->uniforms_declarations);
             free(glshader);
+            LOAD_GLES2(glDeleteShader);
+            if (gles_glDeleteShader && hw_id) {
+                gles_glDeleteShader(hw_id);
+            }
         }
     }
 }
@@ -122,29 +130,24 @@ void APIENTRY_GL4ES gl4es_glDeleteShader(GLuint shader) {
     noerrorShim();
     if (!glshader->attached) {
         actually_deleteshader(shader);
-
-        // delete the shader in GLES2 hardware (if any)
-        LOAD_GLES2(glDeleteShader);
-        if (gles_glDeleteShader) {
-            errorGL();
-            gles_glDeleteShader(shader);
-        }
     }
 }
 
-void APIENTRY_GL4ES gl4es_glCompileShader(GLuint shader) {
-    DBG(SHUT_LOGD("glCompileShader(%d)\n", shader))
-    // look for the shader
-    CHECK_SHADER(void, shader)
+bool is_direct_shader(char* glsl);
 
-    glshader->compiled = 1;
+void ensure_shader_gles_compiled(shader_t* glshader) {
+    if (!glshader || glshader->gles_compiled) return;
+    LOAD_GLES2(glShaderSource);
     LOAD_GLES2(glCompileShader);
-    if (gles_glCompileShader) {
+    if (gles_glShaderSource && gles_glCompileShader) {
+        const GLchar* finalSource = glshader->converted ? glshader->converted : glshader->source;
+        if (finalSource) {
+            gles_glShaderSource(glshader->id, 1, &finalSource, NULL);
+        }
         gles_glCompileShader(glshader->id);
+        glshader->gles_compiled = 1;
         errorGL();
-        // if(globals4es.logshader) {
-        { // always log the error of shader
-            // get compile status and print shaders sources if compile fail...
+        {
             LOAD_GLES2(glGetShaderiv);
             LOAD_GLES2(glGetShaderInfoLog);
             GLint status = 0;
@@ -159,8 +162,24 @@ void APIENTRY_GL4ES gl4es_glCompileShader(GLuint shader) {
                 DBG(SHUT_LOGD("Compiler message is\n%s\nLIBGL: End of Error log\n", tmp);)
             }
         }
-    } else
+    } else {
         noerrorShim();
+    }
+}
+
+void APIENTRY_GL4ES gl4es_glCompileShader(GLuint shader) {
+    DBG(SHUT_LOGD("glCompileShader(%d)\n", shader))
+    // look for the shader
+    CHECK_SHADER(void, shader)
+
+    glshader->compiled = 1;
+    /* Defer GLES driver AST/IR compilation for validated translated shaders until glLinkProgram
+       misses the .ep1 program binary cache; compile raw/direct shaders immediately for status checks */
+    if (!glshader->converted || (glshader->source && is_direct_shader(glshader->source))) {
+        ensure_shader_gles_compiled(glshader);
+    } else {
+        noerrorShim();
+    }
 }
 
 bool can_run_essl3(int esversion, const char* glsl) {
@@ -732,7 +751,7 @@ static int effective_target_es(void) {
 }
 
 static void translate_shader_with_cache(shader_t* glshader) {
-    const char* base_src = glshader->raw_compat_source ? glshader->raw_compat_source : glshader->source;
+    const char* base_src = glshader->source;
     if (!base_src) return;
 
     int target_es = effective_target_es();
@@ -871,14 +890,16 @@ void APIENTRY_GL4ES gl4es_glShaderSource(GLuint shader, GLsizei count, const GLc
     }
 
     if (glshader->source) free(glshader->source);
-    if (glshader->raw_compat_source) {
-        free(glshader->raw_compat_source);
-        glshader->raw_compat_source = NULL;
-    }
     if (glshader->converted) {
         free(glshader->converted);
         glshader->converted = NULL;
     }
+    if (glshader->before_patch) {
+        free(glshader->before_patch);
+        glshader->before_patch = NULL;
+    }
+    glshader->compiled = 0;
+    glshader->gles_compiled = 0;
     uniform_decls_clear(&glshader->uniforms_declarations);
     memset(&glshader->need, 0, sizeof(glshader->need));
     glshader->need.need_texcoord = -1;
@@ -899,20 +920,23 @@ void APIENTRY_GL4ES gl4es_glShaderSource(GLuint shader, GLsizei count, const GLc
     glshader->source[offset] = '\0';
     if (part_lens != stack_lens) free(part_lens);
 
-    glshader->raw_compat_source = strdup(glshader->source);
-
     LOAD_GLES2(glShaderSource);
     if (gles_glShaderSource) {
-        if (is_direct_shader(glshader->source)) {
+        int direct = is_direct_shader(glshader->source) ? 1 : 0;
+        if (direct) {
             glshader->converted = strdup(glshader->source);
         } else {
             translate_shader_with_cache(glshader);
         }
 
-        GLchar* finalSource = (glshader->converted) ? glshader->converted : glshader->source;
-        const GLchar* sources[] = {finalSource};
-        gles_glShaderSource(shader, 1, sources, NULL);
-        errorGL();
+        if (direct || !glshader->converted) {
+            GLchar* finalSource = (glshader->converted) ? glshader->converted : glshader->source;
+            const GLchar* sources[] = {finalSource};
+            gles_glShaderSource(shader, 1, sources, NULL);
+            errorGL();
+        } else {
+            noerrorShim();
+        }
     } else {
         noerrorShim();
     }
@@ -987,10 +1011,8 @@ void redoShader(GLuint shader, shaderconv_need_t* need) {
     } else {
         translate_shader_with_cache(glshader);
     }
-
-    const GLchar* finalSrc = glshader->converted ? glshader->converted : glshader->source;
-    gles_glShaderSource(shader, 1, &finalSrc, NULL);
-    gl4es_glCompileShader(glshader->id);
+    glshader->gles_compiled = 0;
+    glshader->compiled = 1;
 }
 
 void APIENTRY_GL4ES gl4es_glGetShaderSource(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* source) {
@@ -1046,10 +1068,12 @@ void APIENTRY_GL4ES gl4es_glGetShaderInfoLog(GLuint shader, GLsizei maxLength, G
     DBG(SHUT_LOGD("glGetShaderInfoLog(%d, %d, %p, %p)\n", shader, maxLength, length, infoLog))
     // find shader
     CHECK_SHADER(void, shader)
-    // if (maxLength <= 0) {
-    //     errorShim(GL_INVALID_OPERATION);
-    //     return;
-    // }
+    if (glshader->compiled && !glshader->gles_compiled) {
+        if (maxLength > 0 && infoLog) infoLog[0] = '\0';
+        if (length) *length = 0;
+        noerrorShim();
+        return;
+    }
     LOAD_GLES2(glGetShaderInfoLog);
     if (gles_glGetShaderInfoLog) {
         gles_glGetShaderInfoLog(glshader->id, maxLength, length, infoLog);
@@ -1074,7 +1098,9 @@ void APIENTRY_GL4ES gl4es_glGetShaderiv(GLuint shader, GLenum pname, GLint* para
         *params = (glshader->deleted) ? GL_TRUE : GL_FALSE;
         break;
     case GL_COMPILE_STATUS:
-        if (gles_glGetShaderiv) {
+        if (glshader->compiled && !glshader->gles_compiled) {
+            *params = GL_TRUE;
+        } else if (gles_glGetShaderiv) {
             gles_glGetShaderiv(glshader->id, pname, params);
             errorGL();
         } else {
@@ -1082,7 +1108,9 @@ void APIENTRY_GL4ES gl4es_glGetShaderiv(GLuint shader, GLenum pname, GLint* para
         }
         break;
     case GL_INFO_LOG_LENGTH:
-        if (gles_glGetShaderiv) {
+        if (glshader->compiled && !glshader->gles_compiled) {
+            *params = 0;
+        } else if (gles_glGetShaderiv) {
             gles_glGetShaderiv(glshader->id, pname, params);
             errorGL();
         } else {

@@ -647,8 +647,8 @@ extern "C"
                           : 0;
             break;
         case GL_TEXTURE_BINDING_2D_ARRAY:
-            *params = glstate->texture.bound[glstate->texture.active][ENABLED_TEX2D]
-                          ? glstate->texture.bound[glstate->texture.active][ENABLED_TEX2D]->texture
+            *params = glstate->texture.bound[glstate->texture.active][ENABLED_TEXTURE_2D_ARRAY]
+                          ? glstate->texture.bound[glstate->texture.active][ENABLED_TEXTURE_2D_ARRAY]->texture
                           : 0;
             break;
         case GL_ARRAY_BUFFER_BINDING:
@@ -1013,7 +1013,7 @@ extern "C"
             noerrorShim();
             return;
         case GL_TEXTURE_BINDING_2D_ARRAY:
-            tex = glstate->texture.bound[glstate->texture.active][ENABLED_TEX2D];
+            tex = glstate->texture.bound[glstate->texture.active][ENABLED_TEXTURE_2D_ARRAY];
             *params = tex ? tex->texture : 0;
             noerrorShim();
             return;

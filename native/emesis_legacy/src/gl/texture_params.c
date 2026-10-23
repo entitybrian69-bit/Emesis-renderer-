@@ -176,10 +176,12 @@ void APIENTRY_GL4ES gl4es_glBindTexture(GLenum target, GLuint texture) {
     DBG(SHUT_LOGD("glBindTexture(%s, %u), active=%i, client=%i, list.active=%p (compiling=%d, pending=%d)\n",
                   PrintEnum(target), texture, glstate->texture.active, glstate->texture.client, glstate->list.active,
                   glstate->list.compiling, glstate->list.pending);)
-    if (target == GL_TEXTURE_BUFFER || target == GL_TEXTURE_3D) {
+    if (target == GL_TEXTURE_BUFFER || target == GL_TEXTURE_3D || target == GL_TEXTURE_2D_ARRAY) {
         gltexture_t* tex = texture ? gl4es_getTexture(target, texture) : glstate->texture.zero;
         if (target == GL_TEXTURE_3D) {
             glstate->texture.bound[glstate->texture.active][ENABLED_TEX3D] = tex;
+        } else if (target == GL_TEXTURE_2D_ARRAY) {
+            glstate->texture.bound[glstate->texture.active][ENABLED_TEXTURE_2D_ARRAY] = tex;
         }
         LOAD_GLES(glBindTexture);
         realize_active();
@@ -214,6 +216,7 @@ void APIENTRY_GL4ES gl4es_glBindTexture(GLenum target, GLuint texture) {
         case GL_TEXTURE_CUBE_MAP_NEGATIVE_Y:
         case GL_TEXTURE_CUBE_MAP_POSITIVE_Z:
         case GL_TEXTURE_CUBE_MAP_NEGATIVE_Z:
+            realize_active();
             gles_glBindTexture(target, tex ? tex->glname : 0);
             break;
         case GL_TEXTURE_1D:
@@ -349,9 +352,31 @@ void APIENTRY_GL4ES gl4es_glTexParameterfv(GLenum target, GLenum pname, const GL
     DBG(SHUT_LOGD("glTexParameterfv(%s, %s, [%f(%s)...])\n", PrintEnum(target), PrintEnum(pname), params[0],
                   PrintEnum(params[0]));)
 
-    if (target == GL_TEXTURE_BUFFER || target == GL_TEXTURE_3D) {
+    if (target == GL_TEXTURE_BUFFER) {
         LOAD_GLES(glTexParameterfv);
         gles_glTexParameterfv(target, pname, params);
+        return;
+    }
+    if (target == GL_TEXTURE_3D || target == GL_TEXTURE_2D_ARRAY) {
+        if (pname == GL_TEXTURE_LOD_BIAS || pname == GL_TEXTURE_BORDER_COLOR || pname == GL_GENERATE_MIPMAP) {
+            noerrorShim();
+            return;
+        }
+        GLfloat safe_p = params[0];
+        if (pname == GL_TEXTURE_WRAP_S || pname == GL_TEXTURE_WRAP_T || pname == GL_TEXTURE_WRAP_R) {
+            GLenum w = (GLenum)params[0];
+            if (w == GL_CLAMP || w == GL_CLAMP_TO_BORDER) safe_p = (GLfloat)GL_CLAMP_TO_EDGE;
+        }
+        LOAD_GLES(glTexParameterfv);
+        realize_active();
+        if (pname == GL_TEXTURE_COMPARE_MODE || pname == GL_TEXTURE_COMPARE_FUNC ||
+            pname == GL_TEXTURE_BASE_LEVEL || pname == GL_TEXTURE_MAX_LEVEL) {
+            void gles_glTexParameteri(glTexParameteri_ARG_EXPAND);
+            gles_glTexParameteri(target, pname, (GLint)safe_p);
+        } else {
+            gles_glTexParameterfv(target, pname, &safe_p);
+        }
+        errorGL();
         return;
     }
 

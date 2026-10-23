@@ -1469,112 +1469,250 @@ const char* const* fpe_FragmentShader(shaderconv_need_t* need, fpe_state_t* stat
     return (const char* const*)&shad;
 }
 
+#include <ctype.h>
+#include "vgpu/shaderconv.h"
+
+static int is_essl_3xx_source(const char* src) {
+    if (!src) return 0;
+    while (*src == ' ' || *src == '\t' || *src == '\r' || *src == '\n') ++src;
+    return (strncmp(src, "#version 300 es", 15) == 0 ||
+            strncmp(src, "#version 310 es", 15) == 0 ||
+            strncmp(src, "#version 320 es", 15) == 0);
+}
+
+static void find_frag_color0_expr(const char* src, char* out_expr, size_t out_sz) {
+    out_expr[0] = '\0';
+    if (!src || out_sz < 4) return;
+    if (gl4es_find_string(src, "gl_FragColor")) {
+        snprintf(out_expr, out_sz, "gl_FragColor");
+        return;
+    }
+    if (gl4es_find_string(src, "gl4es_FragColor")) {
+        snprintf(out_expr, out_sz, "gl4es_FragColor");
+        return;
+    }
+    if (strstr(src, "gl_FragData")) {
+        snprintf(out_expr, out_sz, "gl_FragData[0]");
+        return;
+    }
+
+    /* Scan global declarations for `layout(... location = 0 ...) out ... vec4 <name>` or implicit `out ... vec4 <name>` */
+    char fallback[128] = {0};
+    int brace_depth = 0;
+    const char* p = src;
+    while (*p) {
+        if (p[0] == '/' && p[1] == '/') {
+            p += 2;
+            while (*p && *p != '\n') ++p;
+            continue;
+        }
+        if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) ++p;
+            if (*p) p += 2;
+            continue;
+        }
+        if (*p == '#') {
+            while (*p && *p != '\n') ++p;
+            continue;
+        }
+        if (*p == '{') { ++brace_depth; ++p; continue; }
+        if (*p == '}') { if (brace_depth > 0) --brace_depth; ++p; continue; }
+        if (brace_depth > 0) { ++p; continue; }
+
+        int has_loc0 = 0;
+        int has_other_loc = 0;
+        if (strncmp(p, "layout", 6) == 0 && !isalnum((unsigned char)p[6]) && p[6] != '_' &&
+            (p == src || (!isalnum((unsigned char)p[-1]) && p[-1] != '_'))) {
+            const char* q = p + 6;
+            while (*q && isspace((unsigned char)*q)) ++q;
+            if (*q == '(') {
+                const char* close = strchr(q + 1, ')');
+                if (close) {
+                    const char* loc = q + 1;
+                    while (loc < close) {
+                        const char* hit = strstr(loc, "location");
+                        if (!hit || hit >= close) break;
+                        const char* eq = hit + 8;
+                        while (eq < close && isspace((unsigned char)*eq)) ++eq;
+                        if (eq < close && *eq == '=') {
+                            ++eq;
+                            while (eq < close && isspace((unsigned char)*eq)) ++eq;
+                            long val = strtol(eq, NULL, 10);
+                            if (val == 0) has_loc0 = 1;
+                            else has_other_loc = 1;
+                        }
+                        loc = hit + 8;
+                    }
+                    p = close + 1;
+                    while (*p && isspace((unsigned char)*p)) ++p;
+                }
+            }
+        }
+
+        if (strncmp(p, "out", 3) == 0 && isspace((unsigned char)p[3]) &&
+            (p == src || (!isalnum((unsigned char)p[-1]) && p[-1] != '_'))) {
+            const char* q = p + 3;
+            while (*q && *q != ';' && *q != '{') {
+                while (*q && isspace((unsigned char)*q)) ++q;
+                if (strncmp(q, "highp", 5) == 0 && isspace((unsigned char)q[5])) { q += 5; continue; }
+                if (strncmp(q, "mediump", 7) == 0 && isspace((unsigned char)q[7])) { q += 7; continue; }
+                if (strncmp(q, "lowp", 4) == 0 && isspace((unsigned char)q[4])) { q += 4; continue; }
+                if (strncmp(q, "centroid", 8) == 0 && isspace((unsigned char)q[8])) { q += 8; continue; }
+                if (strncmp(q, "vec4", 4) == 0 && isspace((unsigned char)q[4])) {
+                    q += 4;
+                    while (*q && isspace((unsigned char)*q)) ++q;
+                    const char* id0 = q;
+                    while (*q && (isalnum((unsigned char)*q) || *q == '_')) ++q;
+                    size_t idlen = (size_t)(q - id0);
+                    if (idlen > 0 && idlen + 4 < out_sz) {
+                        const char* after = q;
+                        while (*after && isspace((unsigned char)*after)) ++after;
+                        int is_arr = (*after == '[');
+                        if (has_loc0) {
+                            memcpy(out_expr, id0, idlen);
+                            if (is_arr) memcpy(out_expr + idlen, "[0]", 4);
+                            else out_expr[idlen] = '\0';
+                            return;
+                        } else if (!has_other_loc && fallback[0] == '\0' && idlen + 4 < sizeof(fallback)) {
+                            memcpy(fallback, id0, idlen);
+                            if (is_arr) memcpy(fallback + idlen, "[0]", 4);
+                            else fallback[idlen] = '\0';
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        ++p;
+    }
+    if (fallback[0] != '\0') {
+        snprintf(out_expr, out_sz, "%s", fallback);
+    }
+}
+
 const char* const* fpe_CustomVertexShader(const char* initial, fpe_state_t* state, int default_fragment) {
     int planes = state->plane;
     char buff[1024];
     if (!shad_cap) shad_cap = 1024;
     if (!shad) shad = (char*)malloc(shad_cap);
-    int headline = gl4es_getline_for(initial, "main");
-    if (headline) --headline;
+    if (!initial) {
+        shad[0] = '\0';
+        return (const char* const*)&shad;
+    }
 
+    int color = default_fragment ? (strstr(initial, "_gl4es_Color") ? 0 : 1) : 0;
     strcpy(shad, "");
     ShadAppend(initial);
-
-    int color = default_fragment ? (strstr(initial, "_gl4es_Color") ? 0 : 1) : 0; // need to add a simple color variant?
-    if (default_fragment) {
-        DBG(SHUT_LOGD("fpe_CustomVertexShader(%p, %p, %d)\n%s\ncolor=%d\n", initial, state, default_fragment, initial,
-                      color);)
+    if (!planes && !color) {
+        return (const char* const*)&shad;
     }
-    // add some uniform and varying
+
+    size_t cur_len = strlen(shad);
+    if (cur_len > 0 && shad[cur_len - 1] != '\n') {
+        ShadAppend("\n");
+    }
+
+    int essl3 = is_essl_3xx_source(initial);
     if (planes) {
         for (int i = 0; i < hardext.maxplanes; i++) {
             if ((planes >> i) & 1) {
                 sprintf(buff, "uniform highp vec4 _gl4es_ClipPlane_%d;\n", i);
                 ShadAppend(buff);
-                ++headline;
-                sprintf(buff, "varying mediump float clippedvertex_%d;\n", i);
+                sprintf(buff, "%s mediump float clippedvertex_%d;\n", essl3 ? "out" : "varying", i);
                 ShadAppend(buff);
-                ++headline;
             }
         }
     }
     if (color) {
-        sprintf(buff, "attribute lowp vec4 _gl4es_Color;\n");
+        sprintf(buff, "%s lowp vec4 _gl4es_Color;\n", essl3 ? "in" : "attribute");
         ShadAppend(buff);
-        ++headline;
-        sprintf(buff, "varying lowp vec4 Color;\n");
+        sprintf(buff, "%s lowp vec4 Color;\n", essl3 ? "out" : "varying");
         ShadAppend(buff);
-        ++headline;
-    }
-    // wrap main if needed
-    if (planes || color) {
-        // wrap real main...
-        shad = gl4es_inplace_replace(shad, &shad_cap, "main", "_gl4es_main");
     }
 
-    // let's start
+    shad = ReplaceFunctionName(shad, &shad_cap, "main", "_gl4es_main");
+
     if (strstr(shad, "_gl4es_main")) {
         ShadAppend("\nvoid main() {\n");
         if (color) {
-            sprintf(buff, "Color = _gl4es_Color;\n");
+            ShadAppend("Color = _gl4es_Color;\n");
         }
         ShadAppend("_gl4es_main();\n");
         if (planes) {
-            int clipvertex = 0;
-            if (strstr(shad, "gl4es_ClipVertex")) clipvertex = 1;
+            const char* vexpr = "gl_ModelViewMatrix * gl_Vertex";
+            if (strstr(shad, "gl4es_ClipVertex")) vexpr = "gl4es_ClipVertex";
+            else if (strstr(shad, "_gl4es_ModelViewMatrix") && strstr(shad, "_gl4es_Vertex"))
+                vexpr = "_gl4es_ModelViewMatrix * _gl4es_Vertex";
             for (int i = 0; i < hardext.maxplanes; i++) {
                 if ((planes >> i) & 1) {
-                    sprintf(buff, "clippedvertex_%d = dot(%s, _gl4es_ClipPlane_%d);\n", i,
-                            clipvertex ? "gl4es_ClipVertex" : "gl_ModelViewMatrix * gl_Vertex", i);
+                    sprintf(buff, "clippedvertex_%d = dot(%s, _gl4es_ClipPlane_%d);\n", i, vexpr, i);
                     ShadAppend(buff);
                 }
             }
         }
-        ShadAppend("}");
+        ShadAppend("}\n");
     }
 
     return (const char* const*)&shad;
 }
 
 const char* const* fpe_CustomFragmentShader(const char* initial, fpe_state_t* state) {
-    // the shader is unconverted yet!
     if (!shad_cap) shad_cap = 1024;
     if (!shad) shad = (char*)malloc(shad_cap);
+    if (!initial) {
+        shad[0] = '\0';
+        return (const char* const*)&shad;
+    }
 
     int planes = state->plane;
     int alpha_test = state->alphatest;
     int alpha_func = state->alphafunc;
     char buff[1024];
-    int headline = GetLineFor(initial, "main");
-    if (headline) --headline;
 
     strcpy(shad, "");
     ShadAppend(initial);
+    if (!planes && (!alpha_test || alpha_func == FPE_ALWAYS)) {
+        return (const char* const*)&shad;
+    }
 
-    // add some varying
+    char color0_expr[128] = {0};
+    if (alpha_test && alpha_func > FPE_NEVER) {
+        find_frag_color0_expr(shad, color0_expr, sizeof(color0_expr));
+        /* Depth-only fragment shaders (e.g. shadow.fsh with no color output) have no alpha output to test */
+        if (color0_expr[0] == '\0' && !planes) {
+            return (const char* const*)&shad;
+        }
+    }
+
+    size_t cur_len = strlen(shad);
+    if (cur_len > 0 && shad[cur_len - 1] != '\n') {
+        ShadAppend("\n");
+    }
+
+    int essl3 = is_essl_3xx_source(initial);
     if (planes) {
         for (int i = 0; i < hardext.maxplanes; i++) {
             if ((planes >> i) & 1) {
-                sprintf(buff, "varying mediump float clippedvertex_%d;\n", i);
+                sprintf(buff, "%s mediump float clippedvertex_%d;\n", essl3 ? "in" : "varying", i);
                 ShadAppend(buff);
             }
         }
     }
-    if (alpha_test || planes) {
-        // wrap real main...
-        shad = InplaceReplace(shad, &shad_cap, "main", "_gl4es_main");
+    if (alpha_test && alpha_func > FPE_NEVER && color0_expr[0] != '\0') {
+        ShadAppend("#ifdef GL_ES\nuniform highp float _gl4es_AlphaRef;\n#else\nuniform float _gl4es_AlphaRef;\n#endif\n");
     }
-    int is_fragcolor = (strstr(shad, "gl_FragColor") != NULL || strstr(shad, "gl4es_FragColor") != NULL) ? 1 : 0;
+
+    shad = ReplaceFunctionName(shad, &shad_cap, "main", "_gl4es_main");
+
     if (strstr(shad, "_gl4es_main")) {
         ShadAppend("void main() {\n");
         ShadAppend(" _gl4es_main();\n");
-        //*** Plane Culling
         if (planes) {
             ShadAppend(" if((");
             int k = 0;
             for (int i = 0; i < hardext.maxplanes; i++) {
                 if ((planes >> i) & 1) {
-                    // sprintf(buff, "%smin(0., dot(clipvertex, gl_ClipPlane[%d]))", k?"+":"",  i);
                     sprintf(buff, "%smin(0., clippedvertex_%d)", k ? "+" : "", i);
                     ShadAppend(buff);
                     k = 1;
@@ -1583,12 +1721,7 @@ const char* const* fpe_CustomFragmentShader(const char* initial, fpe_state_t* st
             ShadAppend(")<0.) discard;\n");
         }
 
-        //*** Alpha Test
         if (alpha_test) {
-            if (alpha_test && alpha_func > FPE_NEVER) {
-                shad = InplaceInsert(GetLine(shad, headline), gl4es_alphaRefSource, shad, &shad_cap);
-                headline += CountLine(gl4es_alphaRefSource);
-            }
             if (comments) {
                 sprintf(buff, "// Alpha Test, fct=%X\n", alpha_func);
                 ShadAppend(buff);
@@ -1596,18 +1729,16 @@ const char* const* fpe_CustomFragmentShader(const char* initial, fpe_state_t* st
             if (alpha_func == FPE_ALWAYS) {
                 // nothing here...
             } else if (alpha_func == FPE_NEVER) {
-                ShadAppend("discard;\n"); // Never pass...
-            } else {
-                // FPE_LESS FPE_EQUAL FPE_LEQUAL FPE_GREATER FPE_NOTEQUAL FPE_GEQUAL
-                // but need to negate the operator
+                ShadAppend(" discard;\n");
+            } else if (color0_expr[0] != '\0') {
                 const char* alpha_test_op[] = {">=", "!=", ">", "<=", "==", "<"};
                 sprintf(buff, " if (floor(%s.a*255.) %s _gl4es_AlphaRef) discard;\n",
-                        is_fragcolor ? "gl_FragColor" : "gl_FragData[0]", alpha_test_op[alpha_func - FPE_LESS]);
+                        color0_expr, alpha_test_op[alpha_func - FPE_LESS]);
                 ShadAppend(buff);
             }
         }
 
-        ShadAppend("}");
+        ShadAppend("}\n");
     }
 
     return (const char* const*)&shad;

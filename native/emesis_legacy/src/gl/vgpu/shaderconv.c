@@ -1537,38 +1537,104 @@ char* RemoveUnsupportedExtensions(char* source) {
  * @param newName The new name for the variable
  * @return The shader as a string, maybe in a different memory location
  */
+static inline int is_var_char_before(unsigned char c) {
+    switch (c) {
+        case '{': case '}': case '(': case '[': case ']':
+        case ';': case '+': case '-': case '*': case '/':
+        case '~': case '!': case '%': case '<': case '>':
+        case ',': case '&': case '|': case '=':
+        case ' ': case '\n': case '\t': case '\r':
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+static inline int is_var_char_after(unsigned char c) {
+    switch (c) {
+        case ')': case '[': case ']': case ';': case '+':
+        case '-': case '*': case '/': case '%': case '<':
+        case '>': case ',': case '|': case '&': case '.':
+        case '=': case ' ': case '\n': case '\t': case '\r':
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 char* ReplaceVariableName(char* source, int* sourceLength, char* initialName, char* newName) {
+    if (!source || !initialName || !initialName[0] || !newName) return source;
+    char* first = strstr(source, initialName);
+    if (!first) return source;
 
-    char* toReplace = malloc(strlen(initialName) + 3);
-    char* replacement = malloc(strlen(newName) + 3);
-    char* charBefore = "{}([];+-*/~!%<>,&| \n\t";
-    char* charAfter = ")[];+-*/%<>;,|&. \n\t";
-
-    // Prepare the fixed part of the strings
-    strcpy(toReplace + 1, initialName);
-    toReplace[strlen(initialName) + 2] = '\0';
-
-    strcpy(replacement + 1, newName);
-    replacement[strlen(newName) + 2] = '\0';
-
-    for (int i = 0; i < strlen(charBefore); ++i) {
-        for (int j = 0; j < strlen(charAfter); ++j) {
-            // Prepare the string to replace
-            toReplace[0] = charBefore[i];
-            toReplace[strlen(initialName) + 1] = charAfter[j];
-
-            // Prepare the replacement string
-            replacement[0] = charBefore[i];
-            replacement[strlen(newName) + 1] = charAfter[j];
-
-            source = InplaceReplaceSimple(source, sourceLength, toReplace, replacement);
+    size_t lS = strlen(initialName), lD = strlen(newName);
+    int matches = 0;
+    const char* scan = first;
+    while (scan) {
+        if (scan > source && is_var_char_before((unsigned char)scan[-1]) &&
+            is_var_char_after((unsigned char)scan[lS])) {
+            matches++;
         }
+        scan = strstr(scan + lS, initialName);
+    }
+    if (matches == 0) return source;
+
+    if (lD == lS) {
+        char* p = first;
+        while (p) {
+            if (p > source && is_var_char_before((unsigned char)p[-1]) &&
+                is_var_char_after((unsigned char)p[lS])) {
+                memcpy(p, newName, lD);
+            }
+            p = strstr(p + lS, initialName);
+        }
+        return source;
     }
 
-    free(toReplace);
-    free(replacement);
+    size_t srcLen = strlen(source);
+    size_t newLen = (size_t)((long)srcLen + ((long)lD - (long)lS) * (long)matches);
+    int allocCap = *sourceLength;
+    if ((int)(newLen + 1) > allocCap) {
+        allocCap = (int)(newLen + 1) * 2;
+    }
+    char* out = (char*)malloc((size_t)allocCap);
+    if (!out) return source;
 
-    return source;
+    const char* cur = source;
+    const char* hit = first;
+    char* dst = out;
+    while (hit) {
+        if (hit > source && is_var_char_before((unsigned char)hit[-1]) &&
+            is_var_char_after((unsigned char)hit[lS])) {
+            size_t chunk = (size_t)(hit - cur);
+            if (chunk) {
+                memcpy(dst, cur, chunk);
+                dst += chunk;
+            }
+            if (lD) {
+                memcpy(dst, newName, lD);
+                dst += lD;
+            }
+            cur = hit + lS;
+            hit = strstr(cur, initialName);
+        } else {
+            hit = strstr(hit + lS, initialName);
+        }
+    }
+    size_t tail = (source + srcLen) - cur;
+    if (tail) {
+        memcpy(dst, cur, tail);
+        dst += tail;
+    }
+    *dst = '\0';
+    free(source);
+    *sourceLength = allocCap;
+    return out;
+}
+
+static inline int has_open_paren_after_ws(const char* p) {
+    while (*p == ' ' || *p == '\n' || *p == '\t' || *p == '\r') ++p;
+    return (*p == '(');
 }
 
 /**
@@ -1580,30 +1646,70 @@ char* ReplaceVariableName(char* source, int* sourceLength, char* initialName, ch
  * @return The shader as a string, maybe in a different memory location
  */
 char* ReplaceFunctionName(char* source, int* sourceLength, char* initialName, char* finalName) {
-    for (unsigned long currentPosition = 0; 1; currentPosition += strlen(initialName)) {
-        unsigned long newPosition = strstrPos(source + currentPosition, initialName);
-        if (newPosition == 0) // No more calls
-            break;
+    if (!source || !initialName || !initialName[0] || !finalName) return source;
+    char* first = strstr(source, initialName);
+    if (!first) return source;
 
-        // Check if that is indeed a function call on the right side
-        if (source[GetNextTokenPosition(source, currentPosition + newPosition + strlen(initialName), '(', " \n\t")] !=
-            '(') {
-            currentPosition += newPosition;
-            continue; // Skip to the next potential call
+    size_t lS = strlen(initialName), lD = strlen(finalName);
+    int matches = 0;
+    const char* scan = first;
+    while (scan) {
+        if ((scan == source || !isValidFunctionName(scan[-1])) && has_open_paren_after_ws(scan + lS)) {
+            matches++;
         }
-
-        // Check the naming on the left side
-        if (isValidFunctionName(source[currentPosition + newPosition - 1])) {
-            currentPosition += newPosition;
-            continue; // Skip to the next potential call
-        }
-
-        // This is a valid function call/definition, replace it
-        source = InplaceReplaceByIndex(source, sourceLength, currentPosition + newPosition,
-                                       currentPosition + newPosition + strlen(initialName) - 1, finalName);
-        currentPosition += newPosition;
+        scan = strstr(scan + lS, initialName);
     }
-    return source;
+    if (matches == 0) return source;
+
+    if (lD == lS) {
+        char* p = first;
+        while (p) {
+            if ((p == source || !isValidFunctionName(p[-1])) && has_open_paren_after_ws(p + lS)) {
+                memcpy(p, finalName, lD);
+            }
+            p = strstr(p + lS, initialName);
+        }
+        return source;
+    }
+
+    size_t srcLen = strlen(source);
+    size_t newLen = (size_t)((long)srcLen + ((long)lD - (long)lS) * (long)matches);
+    int allocCap = *sourceLength;
+    if ((int)(newLen + 1) > allocCap) {
+        allocCap = (int)(newLen + 1) * 2;
+    }
+    char* out = (char*)malloc((size_t)allocCap);
+    if (!out) return source;
+
+    const char* cur = source;
+    const char* hit = first;
+    char* dst = out;
+    while (hit) {
+        if ((hit == source || !isValidFunctionName(hit[-1])) && has_open_paren_after_ws(hit + lS)) {
+            size_t chunk = (size_t)(hit - cur);
+            if (chunk) {
+                memcpy(dst, cur, chunk);
+                dst += chunk;
+            }
+            if (lD) {
+                memcpy(dst, finalName, lD);
+                dst += lD;
+            }
+            cur = hit + lS;
+            hit = strstr(cur, initialName);
+        } else {
+            hit = strstr(hit + lS, initialName);
+        }
+    }
+    size_t tail = (source + srcLen) - cur;
+    if (tail) {
+        memcpy(dst, cur, tail);
+        dst += tail;
+    }
+    *dst = '\0';
+    free(source);
+    *sourceLength = allocCap;
+    return out;
 }
 
 /** Remove 'const ' storage qualifier from variables inside {..} blocks

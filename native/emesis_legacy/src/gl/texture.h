@@ -102,6 +102,7 @@ extern "C"
         ENABLED_TEX3D,
         ENABLED_TEXTURE_RECTANGLE,
         ENABLED_CUBE_MAP,
+        ENABLED_TEXTURE_2D_ARRAY,
         ENABLED_TEXTURE_LAST
     } texture_enabled_t;
 
@@ -201,6 +202,8 @@ extern "C"
             return ENABLED_CUBE_MAP;
         case GL_TEXTURE_RECTANGLE_ARB:
             return ENABLED_TEXTURE_RECTANGLE;
+        case 0x8C1A /* GL_TEXTURE_2D_ARRAY */:
+            return ENABLED_TEXTURE_2D_ARRAY;
         case GL_TEXTURE_2D:
         default:
             return ENABLED_TEX2D;
@@ -216,6 +219,8 @@ extern "C"
             return GL_TEXTURE_RECTANGLE_ARB;
         case ENABLED_CUBE_MAP:
             return GL_TEXTURE_CUBE_MAP;
+        case ENABLED_TEXTURE_2D_ARRAY:
+            return 0x8C1A /* GL_TEXTURE_2D_ARRAY */;
         case ENABLED_TEX2D:
         default:
             return GL_TEXTURE_2D;
