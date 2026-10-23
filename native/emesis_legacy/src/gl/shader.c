@@ -182,7 +182,11 @@ void APIENTRY_GL4ES gl4es_glCompileShader(GLuint shader) {
     }
 }
 
+void set_es_version();
+
 bool can_run_essl3(int esversion, const char* glsl) {
+    if (!glsl) return false;
+    while (*glsl == ' ' || *glsl == '\t' || *glsl == '\r' || *glsl == '\n') ++glsl;
     int glsl_version = 0;
     if (strncmp(glsl, "#version 100", 12) == 0) {
         return true;
@@ -195,17 +199,17 @@ bool can_run_essl3(int esversion, const char* glsl) {
     } else {
         return false;
     }
-    if (esversion >= glsl_version) {
-        return true;
-    } else {
-        return false;
-    }
+    return (esversion >= glsl_version);
 }
 
 bool is_direct_shader(char* glsl) {
-    bool es2_ability = glstate->glsl->es2 && !strncmp(glsl, "#version 100", 12);
-    bool es3_ability = globals4es.es >= 3 &&
-                       can_run_essl3(globals4es.esversion != -1 ? globals4es.esversion : globals4es.es * 100, glsl);
+    if (!glsl) return false;
+    const char* s = glsl;
+    while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') ++s;
+    bool es2_ability = glstate->glsl->es2 && !strncmp(s, "#version 100", 12);
+    if (globals4es.es >= 3 && globals4es.esversion <= 0) set_es_version();
+    int esv = (globals4es.esversion > 0) ? globals4es.esversion : (globals4es.es * 100);
+    bool es3_ability = globals4es.es >= 3 && can_run_essl3(esv, s);
     return es2_ability || es3_ability;
 }
 

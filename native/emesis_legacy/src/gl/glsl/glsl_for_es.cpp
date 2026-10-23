@@ -750,6 +750,17 @@ static void inject_ngg_macro_definition(std::string& glslCode) {
             "#endif\n";
         glslCode.insert(find_insertion_point(glslCode), stage_fallbacks);
     }
+    if (glslCode.find("MC_RENDER_QUALITY") != std::string::npos ||
+        glslCode.find("MC_SHADOW_QUALITY") != std::string::npos) {
+        static const char* quality_fallbacks =
+            "#ifndef MC_RENDER_QUALITY\n"
+            "#define MC_RENDER_QUALITY 1.0\n"
+            "#endif\n"
+            "#ifndef MC_SHADOW_QUALITY\n"
+            "#define MC_SHADOW_QUALITY 1.0\n"
+            "#endif\n";
+        glslCode.insert(find_insertion_point(glslCode), quality_fallbacks);
+    }
 }
 
 static void upgrade_to_compatibility_version(std::string& glsl) {

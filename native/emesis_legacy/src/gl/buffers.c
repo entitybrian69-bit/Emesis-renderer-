@@ -388,19 +388,36 @@ void APIENTRY_GL4ES gl4es_glDeleteBuffers(GLsizei n, const GLuint* buffers) {
                         LOAD_GLES(glDeleteBuffers);
                         deleteSingleBuffer(buff->real_buffer);
                     }
-                    if (glstate->vao->vertex == buff) glstate->vao->vertex = NULL;
-                    if (glstate->vao->elements == buff) glstate->vao->elements = NULL;
-                    if (glstate->vao->pack == buff) glstate->vao->pack = NULL;
-                    if (glstate->vao->unpack == buff) glstate->vao->unpack = NULL;
-                    if (glstate->vao->uniform == buff) glstate->vao->uniform = NULL;
-                    if (glstate->vao->textureBuffer == buff) glstate->vao->textureBuffer = NULL;
-                    if (glstate->vao->indirect == buff) glstate->vao->indirect = NULL;
-                    for (int j = 0; j < hardext.maxvattrib; j++)
-                        if (glstate->vao->vertexattrib[j].buffer == buff) {
-                            glstate->vao->vertexattrib[j].buffer = NULL;
-                            glstate->vao->vertexattrib[j].real_buffer = 0;
-                            glstate->vao->vertexattrib[j].real_pointer = 0;
+                    if (glstate->gleshard) {
+                        for (int j = 0; j < hardext.maxvattrib; j++) {
+                            if (glstate->gleshard->vertexattrib[j].buffer == buff) {
+                                glstate->gleshard->vertexattrib[j].buffer = NULL;
+                                glstate->gleshard->vertexattrib[j].real_buffer = 0;
+                                glstate->gleshard->vertexattrib[j].real_pointer = 0;
+                            }
                         }
+                    }
+                    if (glstate->vaos) {
+                        glvao_t* v;
+                        kh_foreach_value(glstate->vaos, v, {
+                            if (v->vertex == buff) v->vertex = NULL;
+                            if (v->elements == buff) v->elements = NULL;
+                            if (v->pack == buff) v->pack = NULL;
+                            if (v->unpack == buff) v->unpack = NULL;
+                            if (v->read == buff) v->read = NULL;
+                            if (v->write == buff) v->write = NULL;
+                            if (v->uniform == buff) v->uniform = NULL;
+                            if (v->textureBuffer == buff) v->textureBuffer = NULL;
+                            if (v->indirect == buff) v->indirect = NULL;
+                            for (int j = 0; j < hardext.maxvattrib; j++) {
+                                if (v->vertexattrib[j].buffer == buff) {
+                                    v->vertexattrib[j].buffer = NULL;
+                                    v->vertexattrib[j].real_buffer = 0;
+                                    v->vertexattrib[j].real_pointer = 0;
+                                }
+                            }
+                        });
+                    }
                     DBG(SHUT_LOGD("\t buff->data = %p\n", buff->data);)
                     if (buff->data) free(buff->data);
                     kh_del(buff, list, k);
@@ -947,6 +964,14 @@ void deleteSingleBuffer(GLuint buffer) {
     if (glstate->bind_buffer.indirect == buffer) glstate->bind_buffer.indirect = 0;
     if (glstate->bind_buffer.pack == buffer) glstate->bind_buffer.pack = 0;
     if (glstate->bind_buffer.unpack == buffer) glstate->bind_buffer.unpack = 0;
+    if (glstate->gleshard) {
+        for (int j = 0; j < hardext.maxvattrib; j++) {
+            if (glstate->gleshard->vertexattrib[j].real_buffer == buffer) {
+                glstate->gleshard->vertexattrib[j].buffer = NULL;
+                glstate->gleshard->vertexattrib[j].real_buffer = 0;
+            }
+        }
+    }
     gles_glDeleteBuffers(1, &buffer);
 }
 
@@ -1132,9 +1157,12 @@ void APIENTRY_GL4ES gl4es_glDeleteVertexArrays(GLsizei n, const GLuint* arrays) 
                 k = kh_get(glvao, list, t);
                 if (k != kh_end(list)) {
                     glvao = kh_value(list, k);
+                    if (glstate->vao == glvao) {
+                        glstate->vao = glstate->defaultvao;
+                    }
                     VaoSharedClear(glvao);
                     kh_del(glvao, list, k);
-                    // free(glvao);  //let the use delete those
+                    free(glvao);
                 }
             }
         }

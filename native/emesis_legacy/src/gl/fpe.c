@@ -12,6 +12,7 @@
 #include "program.h"
 #include "shader.h"
 #include "shaderconv.h"
+#include "uniform.h"
 
 #include "fpe.h"
 
@@ -464,6 +465,7 @@ void APIENTRY_GL4ES fpe_program(int ispoint) {
 program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* state) {
     // state is not empty and glprogram already has some cache (it may be empty, but kh'thingy is initialized)
     fpe_fpe_t* fpe = fpe_GetCache((fpe_cache_t*)glprogram->fpe_cache, state, 0);
+    if (fpe->failed) return glprogram;
     if (fpe->glprogram == NULL) {
         GLint status;
         const char* vs_src = glprogram->vert_essl_copy
@@ -488,6 +490,7 @@ program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* st
             DBGLOGD("LIBGL: FPE Custom Vertex shader compile failed: %s\n", buff);
             gl4es_glDeleteShader(fpe->vert);
             fpe->vert = 0;
+            fpe->failed = 1;
             return glprogram; // fallback to non-customized custom program..
         }
         fpe->frag = gl4es_glCreateShader(GL_FRAGMENT_SHADER);
@@ -502,6 +505,7 @@ program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* st
             gl4es_glDeleteShader(fpe->frag);
             fpe->vert = 0;
             fpe->frag = 0;
+            fpe->failed = 1;
             return glprogram; // fallback to non-customized custom program..
         }
         fpe->prog = gl4es_glCreateProgram();
@@ -538,6 +542,7 @@ program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* st
             DBGLOGD("LIBGL: FPE Custom Program link failed: %s\n", buff);
             gl4es_glDeleteProgram(fpe->prog);
             fpe->prog = 0;
+            fpe->failed = 1;
             return glprogram; // fallback to non-customized custom program..
         }
         // now find the program
@@ -547,8 +552,12 @@ program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* st
             k_program = kh_get(programlist, programs, fpe->prog);
             if (k_program != kh_end(programs)) fpe->glprogram = kh_value(programs, k_program);
         }
+        if (!fpe->glprogram) {
+            fpe->failed = 1;
+            return glprogram;
+        }
         // adjust the uniforms to point to father cache and build flat parent_sync_list
-        if (fpe->glprogram) {
+        {
             khash_t(uniformlist)* father_uniforms = glprogram->uniform;
             khash_t(uniformlist)* uniforms = fpe->glprogram->uniform;
             int total_u = kh_size(uniforms);
@@ -581,6 +590,7 @@ program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* st
 program_t* APIENTRY_GL4ES fpe_CustomShader_DefaultVertex(program_t* glprogram, fpe_state_t* state_vertex) {
     // state is not empty and glprogram already has some cache (it may be empty, but kh'thingy is initialized)
     fpe_fpe_t* fpe = fpe_GetCache((fpe_cache_t*)glprogram->fpe_cache, state_vertex, 0);
+    if (fpe->failed) return glprogram;
     if (fpe->glprogram == NULL) {
         GLint status;
         const char* fs_src = glprogram->frag_essl_copy
@@ -599,6 +609,7 @@ program_t* APIENTRY_GL4ES fpe_CustomShader_DefaultVertex(program_t* glprogram, f
             DBGLOGD("LIBGL: FPE Default Vertex shader compile failed: %s\n", buff);
             gl4es_glDeleteShader(fpe->vert);
             fpe->vert = 0;
+            fpe->failed = 1;
             return glprogram; // fallback to non-customized custom program..
         }
         fpe->frag = gl4es_glCreateShader(GL_FRAGMENT_SHADER);
@@ -613,6 +624,7 @@ program_t* APIENTRY_GL4ES fpe_CustomShader_DefaultVertex(program_t* glprogram, f
             gl4es_glDeleteShader(fpe->frag);
             fpe->vert = 0;
             fpe->frag = 0;
+            fpe->failed = 1;
             return glprogram; // fallback to non-customized custom program..
         }
         fpe->prog = gl4es_glCreateProgram();
@@ -649,6 +661,7 @@ program_t* APIENTRY_GL4ES fpe_CustomShader_DefaultVertex(program_t* glprogram, f
             DBGLOGD("LIBGL: FPE Custom Program with Default Vertex link failed: %s\n", buff);
             gl4es_glDeleteProgram(fpe->prog);
             fpe->prog = 0;
+            fpe->failed = 1;
             return glprogram; // fallback to non-customized custom program..
         }
         // now find the program
@@ -658,8 +671,12 @@ program_t* APIENTRY_GL4ES fpe_CustomShader_DefaultVertex(program_t* glprogram, f
             k_program = kh_get(programlist, programs, fpe->prog);
             if (k_program != kh_end(programs)) fpe->glprogram = kh_value(programs, k_program);
         }
+        if (!fpe->glprogram) {
+            fpe->failed = 1;
+            return glprogram;
+        }
         // adjust the uniforms to point to father cache and build flat parent_sync_list
-        if (fpe->glprogram) {
+        {
             khash_t(uniformlist)* father_uniforms = glprogram->uniform;
             khash_t(uniformlist)* uniforms = fpe->glprogram->uniform;
             int total_u = kh_size(uniforms);
@@ -690,9 +707,15 @@ program_t* APIENTRY_GL4ES fpe_CustomShader_DefaultVertex(program_t* glprogram, f
 }
 
 static void sync_single_child_uniform(uniformcache_t* cache, program_t* glprogram, uniform_t* m) {
+    if (!cache || !cache->cache || !glprogram || !glprogram->cache.cache || m->parent_size <= 0 || m->cache_size <= 0) {
+        return;
+    }
+    size_t elem_sz = (size_t)uniformsize(m->type);
+    if (elem_sz == 0) return;
+    if (elem_sz > (size_t)m->cache_size || elem_sz > (size_t)m->parent_size) return;
     const void* src = (const void*)((uintptr_t)cache->cache + m->parent_offs);
     void* dst = (void*)((uintptr_t)glprogram->cache.cache + m->cache_offs);
-    if (m->cache_size > 0 && memcmp(dst, src, m->cache_size) == 0) {
+    if (memcmp(dst, src, elem_sz) == 0) {
         return;
     }
     switch (m->type) {
@@ -1596,8 +1619,7 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
                 void* ptr = (void*)((uintptr_t)w->pointer + ((w->buffer) ? (uintptr_t)w->buffer->data : 0));
                 if (dirty || v->size != w->size || v->type != w->type || v->normalized != w->normalized ||
                     v->stride != w->stride || v->buffer != w->buffer || (w->real_buffer == 0 && v->pointer != ptr) ||
-                    v->real_buffer != w->real_buffer || (w->real_buffer != 0 && v->real_pointer != w->real_pointer) ||
-                    w->real_buffer != glstate->bind_buffer.array) {
+                    v->real_buffer != w->real_buffer || (w->real_buffer != 0 && v->real_pointer != w->real_pointer)) {
                     if ((w->size == GL_BGRA || w->type == GL_DOUBLE) && scratch->size < 8) {
                         // need to adjust, so first need the min/max (a shame as I already must have that somewhere)
                         int imin, imax;
@@ -1708,6 +1730,7 @@ void realize_blitenv(int alpha) {
     LOAD_GLES2(glUseProgram);
     if (glstate->gleshard->program != ((alpha) ? glstate->blit->program_alpha : glstate->blit->program)) {
         glstate->gleshard->program = ((alpha) ? glstate->blit->program_alpha : glstate->blit->program);
+        glstate->gleshard->glprogram = NULL;
         gles_glUseProgram(glstate->gleshard->program);
     }
     // set VertexAttrib if needed

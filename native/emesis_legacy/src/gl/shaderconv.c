@@ -669,19 +669,22 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
         }
         // check for builtin matrix uniform...
         {
+            int has_tex_matrix = (strstr(Tmp, "gl_TextureMatrix") != NULL);
             // first check number of texture matrices used
             int ntex = -1;
-            // Try to determine max Texture matrice used, for each transposed inverse or regular...
-            for (int i = 0; i < 4; ++i) {
-                char* p = Tmp;
-                while ((p = strstr(p, gl_TexMatrixSources[i]))) {
-                    p += strlen(gl_TexMatrixSources[i]);
-                    if (*p >= '0' && *p <= '9') {
-                        int n = 0;
-                        while (*p >= '0' && *p <= '9')
-                            n = n * 10 + (*(p++) - '0');
+            if (has_tex_matrix) {
+                // Try to determine max Texture matrice used, for each transposed inverse or regular...
+                for (int i = 0; i < 4; ++i) {
+                    char* p = Tmp;
+                    while ((p = strstr(p, gl_TexMatrixSources[i]))) {
+                        p += strlen(gl_TexMatrixSources[i]);
+                        if (*p >= '0' && *p <= '9') {
+                            int n = 0;
+                            while (*p >= '0' && *p <= '9')
+                                n = n * 10 + (*(p++) - '0');
 
-                        if (ntex < n) ntex = n;
+                            if (ntex < n) ntex = n;
+                        }
                     }
                 }
             }
@@ -693,7 +696,7 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
                 ++ntex;
             // change gl_TextureMatrix[X] to gl_TextureMatrix_X if possible
             int change_textmat = notexarray;
-            if (!change_textmat) {
+            if (has_tex_matrix && !change_textmat) {
                 change_textmat = 1;
                 char* p = Tmp;
                 while (change_textmat && (p = strstr(p, "gl_TextureMatrix["))) {
@@ -703,7 +706,7 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
                     if ((*p) != ']') change_textmat = 0;
                 }
             }
-            if (change_textmat) {
+            if (has_tex_matrix && change_textmat) {
                 for (int k = 0; k < ntex + 1; k++) {
                     char d[100];
                     char d2[100];
@@ -715,35 +718,41 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
                 }
             }
 
-            int n = sizeof(builtin_matrix) / sizeof(builtin_matrix_t);
-            for (int i = 0; i < n; i++) {
-                if (strstr(Tmp, builtin_matrix[i].glname)) {
-                    // ok, this matrix is used
-                    // replace gl_name by _gl4es_ one
-                    Tmp = InplaceReplace(Tmp, &tmpsize, builtin_matrix[i].glname, builtin_matrix[i].name);
-                    // insert a declaration of it
-                    char def[100];
-                    int ishighp = (isVertex || hardext.highp) ? 1 : 0;
-                    if (builtin_matrix[i].matrix == MAT_N) {
-                        if (need->need_normalmatrix && !hardext.highp) ishighp = 0;
-                        if (!hardext.highp && !isVertex) need->need_normalmatrix = 1;
+            if (has_tex_matrix || strstr(Tmp, "gl_ModelView") || strstr(Tmp, "gl_Projection") ||
+                strstr(Tmp, "gl_NormalMatrix")) {
+                int n = sizeof(builtin_matrix) / sizeof(builtin_matrix_t);
+                for (int i = 0; i < n; i++) {
+                    if (!has_tex_matrix && strncmp(builtin_matrix[i].glname, "gl_TextureMatrix", 16) == 0) {
+                        continue;
                     }
-                    if (builtin_matrix[i].matrix == MAT_MV) {
-                        if (need->need_mvmatrix && !hardext.highp) ishighp = 0;
-                        if (!hardext.highp && !isVertex) need->need_mvmatrix = 1;
-                    }
-                    if (builtin_matrix[i].matrix == MAT_MVP) {
-                        if (need->need_mvpmatrix && !hardext.highp) ishighp = 0;
-                        if (!hardext.highp && !isVertex) need->need_mvpmatrix = 1;
-                    }
-                    if (doInsertDefinitions) {
-                        if (builtin_matrix[i].texarray)
-                            sprintf(def, "uniform %s%s %s[%d];\n", (ishighp) ? "highp " : "mediump ",
-                                    builtin_matrix[i].type, builtin_matrix[i].name, ntex);
-                        else
-                            sprintf(def, "uniform %s%s %s;\n", (ishighp) ? "highp " : "mediump ",
-                                    builtin_matrix[i].type, builtin_matrix[i].name);
-                        Tmp = InplaceInsert(GetLine(Tmp, headline++), def, Tmp, &tmpsize);
+                    if (strstr(Tmp, builtin_matrix[i].glname)) {
+                        // ok, this matrix is used
+                        // replace gl_name by _gl4es_ one
+                        Tmp = InplaceReplace(Tmp, &tmpsize, builtin_matrix[i].glname, builtin_matrix[i].name);
+                        // insert a declaration of it
+                        char def[100];
+                        int ishighp = (isVertex || hardext.highp) ? 1 : 0;
+                        if (builtin_matrix[i].matrix == MAT_N) {
+                            if (need->need_normalmatrix && !hardext.highp) ishighp = 0;
+                            if (!hardext.highp && !isVertex) need->need_normalmatrix = 1;
+                        }
+                        if (builtin_matrix[i].matrix == MAT_MV) {
+                            if (need->need_mvmatrix && !hardext.highp) ishighp = 0;
+                            if (!hardext.highp && !isVertex) need->need_mvmatrix = 1;
+                        }
+                        if (builtin_matrix[i].matrix == MAT_MVP) {
+                            if (need->need_mvpmatrix && !hardext.highp) ishighp = 0;
+                            if (!hardext.highp && !isVertex) need->need_mvpmatrix = 1;
+                        }
+                        if (doInsertDefinitions) {
+                            if (builtin_matrix[i].texarray)
+                                sprintf(def, "uniform %s%s %s[%d];\n", (ishighp) ? "highp " : "mediump ",
+                                        builtin_matrix[i].type, builtin_matrix[i].name, ntex);
+                            else
+                                sprintf(def, "uniform %s%s %s;\n", (ishighp) ? "highp " : "mediump ",
+                                        builtin_matrix[i].type, builtin_matrix[i].name);
+                            Tmp = InplaceInsert(GetLine(Tmp, headline++), def, Tmp, &tmpsize);
+                        }
                     }
                 }
             }
@@ -784,142 +793,151 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
     }
 
     // check for builtin OpenGL gl_LightSource & friends
-    if (strstr(Tmp, "gl_LightSourceParameters") || strstr(Tmp, "gl_LightSource")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_LightSourceParametersSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_LightSourceParametersSource);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_LightSourceParameters", "_gl4es_LightSourceParameters");
-    }
-    if (strstr(Tmp, "gl_LightModelParameters") || strstr(Tmp, "gl_LightModel")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_LightModelParametersSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_LightModelParametersSource);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_LightModelParameters", "_gl4es_LightModelParameters");
-    }
-    if (strstr(Tmp, "gl_LightModelProducts") || strstr(Tmp, "gl_FrontLightModelProduct") ||
-        strstr(Tmp, "gl_BackLightModelProduct")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_LightModelProductsSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_LightModelProductsSource);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_LightModelProducts", "_gl4es_LightModelProducts");
-    }
-    if (strstr(Tmp, "gl_LightProducts") || strstr(Tmp, "gl_FrontLightProduct") || strstr(Tmp, "gl_BackLightProduct")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_LightProductsSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_LightProductsSource);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_LightProducts", "_gl4es_LightProducts");
-    }
-    if (strstr(Tmp, "gl_MaterialParameters ") || (strstr(Tmp, "gl_FrontMaterial")) || strstr(Tmp, "gl_BackMaterial")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_MaterialParametersSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_MaterialParametersSource);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_MaterialParameters", "_gl4es_MaterialParameters");
-    }
-    if (strstr(Tmp, "gl_LightSource")) {
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_LightSource", "_gl4es_LightSource");
-    }
-    if (strstr(Tmp, "gl_LightModel")) Tmp = InplaceReplace(Tmp, &tmpsize, "gl_LightModel", "_gl4es_LightModel");
-    if (strstr(Tmp, "gl_FrontLightModelProduct"))
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_FrontLightModelProduct", "_gl4es_FrontLightModelProduct");
-    if (strstr(Tmp, "gl_BackLightModelProduct"))
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_BackLightModelProduct", "_gl4es_BackLightModelProduct");
-    if (strstr(Tmp, "gl_FrontLightProduct"))
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_FrontLightProduct", "_gl4es_FrontLightProduct");
-    if (strstr(Tmp, "gl_BackLightProduct"))
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_BackLightProduct", "_gl4es_BackLightProduct");
-    if (strstr(Tmp, "gl_FrontMaterial"))
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_FrontMaterial", "_gl4es_FrontMaterial");
-    if (strstr(Tmp, "gl_BackMaterial")) Tmp = InplaceReplace(Tmp, &tmpsize, "gl_BackMaterial", "_gl4es_BackMaterial");
-    if (strstr(Tmp, "gl_MaxLights")) {
-        Tmp = InplaceInsert(GetLine(Tmp, 2), gl4es_MaxLightsSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_MaxLightsSource);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_MaxLights", "_gl4es_MaxLights");
+    if (strstr(Tmp, "gl_Light") || strstr(Tmp, "gl_MaterialParameters") || strstr(Tmp, "gl_Front") ||
+        strstr(Tmp, "gl_Back") || strstr(Tmp, "gl_MaxLights")) {
+        if (strstr(Tmp, "gl_LightSourceParameters") || strstr(Tmp, "gl_LightSource")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_LightSourceParametersSource, Tmp, &tmpsize);
+            headline += CountLine(gl4es_LightSourceParametersSource);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_LightSourceParameters", "_gl4es_LightSourceParameters");
+        }
+        if (strstr(Tmp, "gl_LightModelParameters") || strstr(Tmp, "gl_LightModel")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_LightModelParametersSource, Tmp, &tmpsize);
+            headline += CountLine(gl4es_LightModelParametersSource);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_LightModelParameters", "_gl4es_LightModelParameters");
+        }
+        if (strstr(Tmp, "gl_LightModelProducts") || strstr(Tmp, "gl_FrontLightModelProduct") ||
+            strstr(Tmp, "gl_BackLightModelProduct")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_LightModelProductsSource, Tmp, &tmpsize);
+            headline += CountLine(gl4es_LightModelProductsSource);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_LightModelProducts", "_gl4es_LightModelProducts");
+        }
+        if (strstr(Tmp, "gl_LightProducts") || strstr(Tmp, "gl_FrontLightProduct") || strstr(Tmp, "gl_BackLightProduct")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_LightProductsSource, Tmp, &tmpsize);
+            headline += CountLine(gl4es_LightProductsSource);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_LightProducts", "_gl4es_LightProducts");
+        }
+        if (strstr(Tmp, "gl_MaterialParameters ") || (strstr(Tmp, "gl_FrontMaterial")) || strstr(Tmp, "gl_BackMaterial")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_MaterialParametersSource, Tmp, &tmpsize);
+            headline += CountLine(gl4es_MaterialParametersSource);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_MaterialParameters", "_gl4es_MaterialParameters");
+        }
+        if (strstr(Tmp, "gl_LightSource")) {
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_LightSource", "_gl4es_LightSource");
+        }
+        if (strstr(Tmp, "gl_LightModel")) Tmp = InplaceReplace(Tmp, &tmpsize, "gl_LightModel", "_gl4es_LightModel");
+        if (strstr(Tmp, "gl_FrontLightModelProduct"))
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_FrontLightModelProduct", "_gl4es_FrontLightModelProduct");
+        if (strstr(Tmp, "gl_BackLightModelProduct"))
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_BackLightModelProduct", "_gl4es_BackLightModelProduct");
+        if (strstr(Tmp, "gl_FrontLightProduct"))
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_FrontLightProduct", "_gl4es_FrontLightProduct");
+        if (strstr(Tmp, "gl_BackLightProduct"))
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_BackLightProduct", "_gl4es_BackLightProduct");
+        if (strstr(Tmp, "gl_FrontMaterial"))
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_FrontMaterial", "_gl4es_FrontMaterial");
+        if (strstr(Tmp, "gl_BackMaterial")) Tmp = InplaceReplace(Tmp, &tmpsize, "gl_BackMaterial", "_gl4es_BackMaterial");
+        if (strstr(Tmp, "gl_MaxLights")) {
+            Tmp = InplaceInsert(GetLine(Tmp, 2), gl4es_MaxLightsSource, Tmp, &tmpsize);
+            headline += CountLine(gl4es_MaxLightsSource);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_MaxLights", "_gl4es_MaxLights");
+        }
     }
     if (strstr(Tmp, "gl_NormalScale")) {
         Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_normalscaleSource, Tmp, &tmpsize);
         headline += CountLine(gl4es_normalscaleSource);
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_NormalScale", "_gl4es_NormalScale");
     }
-    if (strstr(Tmp, "gl_InstanceID") || strstr(Tmp, "gl_InstanceIDARB")) {
+    if (strstr(Tmp, "gl_InstanceID")) {
         Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_instanceID, Tmp, &tmpsize);
         headline += CountLine(gl4es_instanceID);
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_InstanceIDARB", "_gl4es_InstanceID");
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_InstanceID", "_gl4es_InstanceID");
     }
-    if (strstr(Tmp, "gl_ClipPlane")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_clipplanesSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_clipplanesSource);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_ClipPlane", "_gl4es_ClipPlane");
-    }
-    if (strstr(Tmp, "gl_MaxClipPlanes")) {
-        Tmp = InplaceInsert(GetLine(Tmp, 2), gl4es_MaxClipPlanesSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_MaxClipPlanesSource);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_MaxClipPlanes", "_gl4es_MaxClipPlanes");
+    if (strstr(Tmp, "gl_ClipPlane") || strstr(Tmp, "gl_MaxClipPlanes")) {
+        if (strstr(Tmp, "gl_ClipPlane")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_clipplanesSource, Tmp, &tmpsize);
+            headline += CountLine(gl4es_clipplanesSource);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_ClipPlane", "_gl4es_ClipPlane");
+        }
+        if (strstr(Tmp, "gl_MaxClipPlanes")) {
+            Tmp = InplaceInsert(GetLine(Tmp, 2), gl4es_MaxClipPlanesSource, Tmp, &tmpsize);
+            headline += CountLine(gl4es_MaxClipPlanesSource);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_MaxClipPlanes", "_gl4es_MaxClipPlanes");
+        }
     }
 
-    if (strstr(Tmp, "gl_PointParameters") || strstr(Tmp, "gl_Point")) {
+    if (strstr(Tmp, "gl_Point")) {
         Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_PointSpriteSource, Tmp, &tmpsize);
         headline += CountLine(gl4es_PointSpriteSource);
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_PointParameters", "_gl4es_PointParameters");
+        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_Point", "_gl4es_Point");
     }
-    if (strstr(Tmp, "gl_Point")) Tmp = InplaceReplace(Tmp, &tmpsize, "gl_Point", "_gl4es_Point");
-    if (strstr(Tmp, "gl_FogParameters") || strstr(Tmp, "gl_Fog")) {
+    if (strstr(Tmp, "gl_Fog")) {
         Tmp = InplaceInsert(GetLine(Tmp, headline),
                             hardext.highp ? gl4es_FogParametersSourceHighp : gl4es_FogParametersSource, Tmp, &tmpsize);
         headline += CountLine(gl4es_FogParametersSource);
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_FogParameters", "_gl4es_FogParameters");
+        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_Fog", "_gl4es_Fog");
     }
-    if (strstr(Tmp, "gl_Fog")) Tmp = InplaceReplace(Tmp, &tmpsize, "gl_Fog", "_gl4es_Fog");
     if (strstr(Tmp, "gl_TextureEnvColor")) {
         Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texenvcolorSource, Tmp, &tmpsize);
         headline += CountLine(gl4es_texenvcolorSource);
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_TextureEnvColor", "_gl4es_TextureEnvColor");
     }
-    if (strstr(Tmp, "gl_EyePlaneS")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgeneyeSource[0], Tmp, &tmpsize);
-        headline += CountLine(gl4es_texgeneyeSource[0]);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_EyePlaneS", "_gl4es_EyePlaneS");
-    }
-    if (strstr(Tmp, "gl_EyePlaneT")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgeneyeSource[1], Tmp, &tmpsize);
-        headline += CountLine(gl4es_texgeneyeSource[1]);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_EyePlaneT", "_gl4es_EyePlaneT");
-    }
-    if (strstr(Tmp, "gl_EyePlaneR")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgeneyeSource[2], Tmp, &tmpsize);
-        headline += CountLine(gl4es_texgeneyeSource[2]);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_EyePlaneR", "_gl4es_EyePlaneR");
-    }
-    if (strstr(Tmp, "gl_EyePlaneQ")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgeneyeSource[3], Tmp, &tmpsize);
-        headline += CountLine(gl4es_texgeneyeSource[3]);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_EyePlaneQ", "_gl4es_EyePlaneQ");
-    }
-    if (strstr(Tmp, "gl_ObjectPlaneS")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgenobjSource[0], Tmp, &tmpsize);
-        headline += CountLine(gl4es_texgenobjSource[0]);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_ObjectPlaneS", "_gl4es_ObjectPlaneS");
-    }
-    if (strstr(Tmp, "gl_ObjectPlaneT")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgenobjSource[1], Tmp, &tmpsize);
-        headline += CountLine(gl4es_texgenobjSource[1]);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_ObjectPlaneT", "_gl4es_ObjectPlaneT");
-    }
-    if (strstr(Tmp, "gl_ObjectPlaneR")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgenobjSource[2], Tmp, &tmpsize);
-        headline += CountLine(gl4es_texgenobjSource[2]);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_ObjectPlaneR", "_gl4es_ObjectPlaneR");
-    }
-    if (strstr(Tmp, "gl_ObjectPlaneQ")) {
-        Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgenobjSource[3], Tmp, &tmpsize);
-        headline += CountLine(gl4es_texgenobjSource[3]);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_ObjectPlaneQ", "_gl4es_ObjectPlaneQ");
+    if (strstr(Tmp, "gl_EyePlane") || strstr(Tmp, "gl_ObjectPlane")) {
+        if (strstr(Tmp, "gl_EyePlaneS")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgeneyeSource[0], Tmp, &tmpsize);
+            headline += CountLine(gl4es_texgeneyeSource[0]);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_EyePlaneS", "_gl4es_EyePlaneS");
+        }
+        if (strstr(Tmp, "gl_EyePlaneT")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgeneyeSource[1], Tmp, &tmpsize);
+            headline += CountLine(gl4es_texgeneyeSource[1]);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_EyePlaneT", "_gl4es_EyePlaneT");
+        }
+        if (strstr(Tmp, "gl_EyePlaneR")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgeneyeSource[2], Tmp, &tmpsize);
+            headline += CountLine(gl4es_texgeneyeSource[2]);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_EyePlaneR", "_gl4es_EyePlaneR");
+        }
+        if (strstr(Tmp, "gl_EyePlaneQ")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgeneyeSource[3], Tmp, &tmpsize);
+            headline += CountLine(gl4es_texgeneyeSource[3]);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_EyePlaneQ", "_gl4es_EyePlaneQ");
+        }
+        if (strstr(Tmp, "gl_ObjectPlaneS")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgenobjSource[0], Tmp, &tmpsize);
+            headline += CountLine(gl4es_texgenobjSource[0]);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_ObjectPlaneS", "_gl4es_ObjectPlaneS");
+        }
+        if (strstr(Tmp, "gl_ObjectPlaneT")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgenobjSource[1], Tmp, &tmpsize);
+            headline += CountLine(gl4es_texgenobjSource[1]);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_ObjectPlaneT", "_gl4es_ObjectPlaneT");
+        }
+        if (strstr(Tmp, "gl_ObjectPlaneR")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgenobjSource[2], Tmp, &tmpsize);
+            headline += CountLine(gl4es_texgenobjSource[2]);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_ObjectPlaneR", "_gl4es_ObjectPlaneR");
+        }
+        if (strstr(Tmp, "gl_ObjectPlaneQ")) {
+            Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_texgenobjSource[3], Tmp, &tmpsize);
+            headline += CountLine(gl4es_texgenobjSource[3]);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_ObjectPlaneQ", "_gl4es_ObjectPlaneQ");
+        }
     }
 
-    if (strstr(Tmp, "gl_MaxTextureUnits")) {
-        Tmp = InplaceInsert(GetLine(Tmp, 2), gl4es_MaxTextureUnitsSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_MaxTextureUnitsSource);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_MaxTextureUnits", "_gl4es_MaxTextureUnits");
-    }
-    if (strstr(Tmp, "gl_MaxTextureCoords")) {
-        Tmp = InplaceInsert(GetLine(Tmp, 2), gl4es_MaxTextureCoordsSource, Tmp, &tmpsize);
-        headline += CountLine(gl4es_MaxTextureCoordsSource);
-        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_MaxTextureCoords", "_gl4es_MaxTextureCoords");
+    if (strstr(Tmp, "gl_MaxTexture")) {
+        if (strstr(Tmp, "gl_MaxTextureUnits")) {
+            Tmp = InplaceInsert(GetLine(Tmp, 2), gl4es_MaxTextureUnitsSource, Tmp, &tmpsize);
+            headline += CountLine(gl4es_MaxTextureUnitsSource);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_MaxTextureUnits", "_gl4es_MaxTextureUnits");
+        }
+        if (strstr(Tmp, "gl_MaxTextureCoords")) {
+            Tmp = InplaceInsert(GetLine(Tmp, 2), gl4es_MaxTextureCoordsSource, Tmp, &tmpsize);
+            headline += CountLine(gl4es_MaxTextureCoordsSource);
+            Tmp = InplaceReplace(Tmp, &tmpsize, "gl_MaxTextureCoords", "_gl4es_MaxTextureCoords");
+        }
     }
     if (strstr(Tmp, "gl_ClipVertex")) {
         // gl_ClipVertex is not handled for now
@@ -931,92 +949,94 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
         Tmp = InplaceReplace(Tmp, &tmpsize, "gl_ClipVertex", CV);
     }
     // oldprogram uniforms...
-    if (FindString(Tmp, gl_ProgramEnv)) {
-        // check if array can be removed
-        int maxind = -1;
-        int noarray_ok = 1;
-        char* p = Tmp;
-        while (noarray_ok && (p = FindStringNC(p, gl_ProgramEnv))) {
-            p += strlen(gl_ProgramEnv);
-            if (*p == '[') {
-                ++p;
-                if (*p >= '0' && *p <= '9') {
-                    int n = (*p) - '0';
-                    if (p[1] >= '0' && p[1] <= '9') n = n * 10 + (p[1] - '0');
-                    if (maxind < n) maxind = n;
+    if (strstr(Tmp, "gl_Program")) {
+        if (FindString(Tmp, gl_ProgramEnv)) {
+            // check if array can be removed
+            int maxind = -1;
+            int noarray_ok = 1;
+            char* p = Tmp;
+            while (noarray_ok && (p = FindStringNC(p, gl_ProgramEnv))) {
+                p += strlen(gl_ProgramEnv);
+                if (*p == '[') {
+                    ++p;
+                    if (*p >= '0' && *p <= '9') {
+                        int n = (*p) - '0';
+                        if (p[1] >= '0' && p[1] <= '9') n = n * 10 + (p[1] - '0');
+                        if (maxind < n) maxind = n;
+                    } else
+                        noarray_ok = 0;
                 } else
                     noarray_ok = 0;
-            } else
-                noarray_ok = 0;
-        }
-        if (noarray_ok) {
-            // ok, so change array to single...
-            char F[60], T[60], U[300];
-            for (int i = 0; i <= maxind; ++i) {
-                sprintf(F, "%s[%d]", gl_ProgramEnv, i);
-                sprintf(T, "_gl4es_%s_ProgramEnv_%d", isVertex ? "Vertex" : "Fragment", i);
-                Tmp = InplaceReplace(Tmp, &tmpsize, F, T);
-                if (doInsertDefinitions && FindString(Tmp, T)) {
-                    // add the uniform declaration if needed
-                    sprintf(U, "uniform vec4 %s;\n", T);
+            }
+            if (noarray_ok) {
+                // ok, so change array to single...
+                char F[60], T[60], U[300];
+                for (int i = 0; i <= maxind; ++i) {
+                    sprintf(F, "%s[%d]", gl_ProgramEnv, i);
+                    sprintf(T, "_gl4es_%s_ProgramEnv_%d", isVertex ? "Vertex" : "Fragment", i);
+                    Tmp = InplaceReplace(Tmp, &tmpsize, F, T);
+                    if (doInsertDefinitions && FindString(Tmp, T)) {
+                        // add the uniform declaration if needed
+                        sprintf(U, "uniform vec4 %s;\n", T);
+                        Tmp = InplaceInsert(GetLine(Tmp, headline), U, Tmp, &tmpsize);
+                        headline += 1;
+                    }
+                }
+            } else {
+                // need the full array...
+                char T[60], U[300];
+                sprintf(T, "_gl4es_%s_ProgramEnv", isVertex ? "Vertex" : "Fragment");
+                if (doInsertDefinitions) {
+                    sprintf(U, "uniform vec4 %s[%d];\n", T, isVertex ? MAX_VTX_PROG_ENV_PARAMS : MAX_FRG_PROG_ENV_PARAMS);
                     Tmp = InplaceInsert(GetLine(Tmp, headline), U, Tmp, &tmpsize);
                     headline += 1;
                 }
+                Tmp = InplaceReplace(Tmp, &tmpsize, gl_ProgramEnv, T);
             }
-        } else {
-            // need the full array...
-            char T[60], U[300];
-            sprintf(T, "_gl4es_%s_ProgramEnv", isVertex ? "Vertex" : "Fragment");
-            if (doInsertDefinitions) {
-                sprintf(U, "uniform vec4 %s[%d];\n", T, isVertex ? MAX_VTX_PROG_ENV_PARAMS : MAX_FRG_PROG_ENV_PARAMS);
-                Tmp = InplaceInsert(GetLine(Tmp, headline), U, Tmp, &tmpsize);
-                headline += 1;
-            }
-            Tmp = InplaceReplace(Tmp, &tmpsize, gl_ProgramEnv, T);
         }
-    }
-    if (FindString(Tmp, gl_ProgramLocal)) {
-        // check if array can be removed
-        int maxind = -1;
-        int noarray_ok = 1;
-        char* p = Tmp;
-        while (noarray_ok && (p = FindStringNC(p, gl_ProgramLocal))) {
-            p += strlen(gl_ProgramLocal);
-            if (*p == '[') {
-                ++p;
-                if (*p >= '0' && *p <= '9') {
-                    int n = (*p) - '0';
-                    if (p[1] >= '0' && p[1] <= '9') n = n * 10 + (p[1] - '0');
-                    if (maxind < n) maxind = n;
+        if (FindString(Tmp, gl_ProgramLocal)) {
+            // check if array can be removed
+            int maxind = -1;
+            int noarray_ok = 1;
+            char* p = Tmp;
+            while (noarray_ok && (p = FindStringNC(p, gl_ProgramLocal))) {
+                p += strlen(gl_ProgramLocal);
+                if (*p == '[') {
+                    ++p;
+                    if (*p >= '0' && *p <= '9') {
+                        int n = (*p) - '0';
+                        if (p[1] >= '0' && p[1] <= '9') n = n * 10 + (p[1] - '0');
+                        if (maxind < n) maxind = n;
+                    } else
+                        noarray_ok = 0;
                 } else
                     noarray_ok = 0;
-            } else
-                noarray_ok = 0;
-        }
-        if (noarray_ok) {
-            // ok, so change array to single...
-            char F[60], T[60], U[300];
-            for (int i = 0; i <= maxind; ++i) {
-                sprintf(F, "%s[%d]", gl_ProgramLocal, i);
-                sprintf(T, "_gl4es_%s_ProgramLocal_%d", isVertex ? "Vertex" : "Fragment", i);
-                Tmp = InplaceReplace(Tmp, &tmpsize, F, T);
-                if (doInsertDefinitions && FindString(Tmp, T)) {
-                    // add the uniform declaration if needed
-                    sprintf(U, "uniform vec4 %s;\n", T);
+            }
+            if (noarray_ok) {
+                // ok, so change array to single...
+                char F[60], T[60], U[300];
+                for (int i = 0; i <= maxind; ++i) {
+                    sprintf(F, "%s[%d]", gl_ProgramLocal, i);
+                    sprintf(T, "_gl4es_%s_ProgramLocal_%d", isVertex ? "Vertex" : "Fragment", i);
+                    Tmp = InplaceReplace(Tmp, &tmpsize, F, T);
+                    if (doInsertDefinitions && FindString(Tmp, T)) {
+                        // add the uniform declaration if needed
+                        sprintf(U, "uniform vec4 %s;\n", T);
+                        Tmp = InplaceInsert(GetLine(Tmp, headline), U, Tmp, &tmpsize);
+                        headline += 1;
+                    }
+                }
+            } else {
+                // need the full array...
+                char T[60], U[300];
+                sprintf(T, "_gl4es_%s_ProgramLocal", isVertex ? "Vertex" : "Fragment");
+                if (doInsertDefinitions) {
+                    sprintf(U, "uniform vec4 %s[%d];\n", T, isVertex ? MAX_VTX_PROG_LOC_PARAMS : MAX_FRG_PROG_LOC_PARAMS);
                     Tmp = InplaceInsert(GetLine(Tmp, headline), U, Tmp, &tmpsize);
                     headline += 1;
                 }
+                Tmp = InplaceReplace(Tmp, &tmpsize, gl_ProgramLocal, T);
             }
-        } else {
-            // need the full array...
-            char T[60], U[300];
-            sprintf(T, "_gl4es_%s_ProgramLocal", isVertex ? "Vertex" : "Fragment");
-            if (doInsertDefinitions) {
-                sprintf(U, "uniform vec4 %s[%d];\n", T, isVertex ? MAX_VTX_PROG_LOC_PARAMS : MAX_FRG_PROG_LOC_PARAMS);
-                Tmp = InplaceInsert(GetLine(Tmp, headline), U, Tmp, &tmpsize);
-                headline += 1;
-            }
-            Tmp = InplaceReplace(Tmp, &tmpsize, gl_ProgramLocal, T);
         }
     }
 #define GO(A)                                                                                                          \
@@ -1035,10 +1055,12 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
             }                                                                                                          \
         }                                                                                                              \
     }
-    GO(1D)
-    GO(2D)
-    GO(3D)
-    GO(Cube)
+    if (strstr(Tmp, "gl_Sampler")) {
+        GO(1D)
+        GO(2D)
+        GO(3D)
+        GO(Cube)
+    }
 #undef GO
 
     // non-square matrix handling
@@ -1052,7 +1074,7 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
         Tmp = InplaceReplace(Tmp, &tmpsize, "mat3x3", "mat3");
     }
 
-    int versionHeader;
+    int versionHeader = 0;
     if (hardext.glsl320es)
         versionHeader = 4;
     else if (hardext.glsl310es)

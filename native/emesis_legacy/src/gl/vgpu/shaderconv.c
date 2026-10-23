@@ -1435,21 +1435,48 @@ static int find_out_var_name_for_location(const char* source, int location, char
  * @return The shader as a string, maybe at a different memory location
  */
 char* ReplaceGLFragData(char* source, int* sourceLength) {
+    if (!source) return source;
+    const char* first_fd = strstr(source, "gl_FragData[");
+    if (!first_fd) return source;
+
+    unsigned int plain_mask = 0;
+    unsigned int intcast_mask = 0;
+    for (const char* scan = first_fd; scan != NULL; scan = strstr(scan + 12, "gl_FragData[")) {
+        const char* p = scan + 12;
+        if (*p >= '0' && *p <= '9') {
+            int idx = *p - '0';
+            ++p;
+            if (*p >= '0' && *p <= '9') {
+                idx = idx * 10 + (*p - '0');
+                ++p;
+            }
+            if (*p == ']' && idx >= 0 && idx < 16) plain_mask |= (1u << idx);
+        } else if (strncmp(p, "int(", 4) == 0) {
+            p += 4;
+            int idx = (int)strtol(p, NULL, 10);
+            if (idx >= 0 && idx < 16) intcast_mask |= (1u << idx);
+        }
+    }
+    if ((plain_mask | intcast_mask) == 0) return source;
+
     int esShader = doesShaderVersionContainsES(source);
     int glslVer = GetShaderVersion(source);
     int needExplicitLocExt = (!esShader && glslVer < 330);
     int addedExplicitLocExt = 0;
 
     for (int i = 0; i < 16; ++i) {
+        if (!((plain_mask | intcast_mask) & (1u << i))) continue;
         char needle[40];
-        sprintf(needle, "gl_FragData[%i]", i);
-
-        char* useFragData = strstr(source, needle);
-        if (useFragData == NULL) {
+        char* useFragData = NULL;
+        if (plain_mask & (1u << i)) {
+            sprintf(needle, "gl_FragData[%i]", i);
+            useFragData = strstr(source, needle);
+        }
+        if (useFragData == NULL && (intcast_mask & (1u << i))) {
             sprintf(needle, "gl_FragData[int(%i.0)]", i);
             useFragData = strstr(source, needle);
-            if (useFragData == NULL) continue;
         }
+        if (useFragData == NULL) continue;
 
         if (needExplicitLocExt && !addedExplicitLocExt &&
             !strstr(source, "GL_ARB_explicit_attrib_location")) {
@@ -1967,23 +1994,25 @@ int GetClosingTokenPositionTokenOverride(const char* source, int initialTokenPos
     // Step 1: Determine the closing token
     char openingToken = initialToken;
     char* closingTokens = GetClosingTokens(openingToken);
+    size_t ctLen = strlen(closingTokens);
     DBGLOGD("Closing tokens: %s", closingTokens);
-    if (strlen(closingTokens) == 0) {
+    if (ctLen == 0) {
         DBGLOGD("No closing tokens, somehow \n");
         return initialTokenPosition;
     }
 
     // Step 2: Go through the string to find what we want
-    for (int i = initialTokenPosition + 1; i < strlen(source); ++i) {
+    size_t srcLen = strlen(source);
+    for (size_t i = (size_t)initialTokenPosition + 1; i < srcLen; ++i) {
         // Loop though all the available closing tokens first, since opening/closing tokens can be identical
-        for (int j = 0; j < strlen(closingTokens); ++j) {
+        for (size_t j = 0; j < ctLen; ++j) {
             if (source[i] == closingTokens[j]) {
-                return i;
+                return (int)i;
             }
         }
 
         if (isOpeningToken(source[i])) {
-            i = GetClosingTokenPosition(source, i);
+            i = (size_t)GetClosingTokenPosition(source, (int)i);
             continue;
         }
     }
@@ -2000,17 +2029,20 @@ int GetClosingTokenPositionTokenOverride(const char* source, int initialTokenPos
  * @return
  */
 int GetNextTokenPosition(const char* source, int initialPosition, const char token, const char* acceptedChars) {
-    for (int i = initialPosition + 1; i < strlen(source); ++i) {
+    size_t srcLen = strlen(source);
+    size_t acLen = acceptedChars ? strlen(acceptedChars) : 0;
+    for (size_t i = (size_t)initialPosition + 1; i < srcLen; ++i) {
         // Tripping check
-        if (strlen(acceptedChars) > 0) {
-            for (int j = 0; j < strlen(acceptedChars); ++j) {
+        if (acLen > 0) {
+            size_t j = 0;
+            for (; j < acLen; ++j) {
                 if (source[i] == acceptedChars[j]) break; // No tripping, continue
             }
-            return initialPosition; // Tripped, meaning the token is not found
+            if (j == acLen) return initialPosition; // Tripped, meaning the token is not found
         }
 
         if (source[i] == token) {
-            return i;
+            return (int)i;
         }
     }
     return initialPosition;
@@ -2072,42 +2104,33 @@ char* insertIntAtFunctionCall(char* source, int* sourceSize, const char* functio
  * @return The shader version: eg. 310 for #version 310 es
  */
 int GetShaderVersion(const char* source) {
-    // Oh yeah, I won't care much about this function
-    if (FindString(source, "#version 320 es")) {
-        return 320;
+    if (!source) return 100;
+    const char* p = source;
+    while (*p) {
+        if (p[0] == '/' && p[1] == '/') {
+            while (*p && *p != '\n') p++;
+            if (*p == '\n') p++;
+            continue;
+        }
+        if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) p++;
+            if (*p) p += 2;
+            continue;
+        }
+        while (*p == ' ' || *p == '\t' || *p == '\r') p++;
+        if (*p == '#') {
+            const char* h = p + 1;
+            while (*h == ' ' || *h == '\t') h++;
+            if (strncmp(h, "version", 7) == 0 && isspace((unsigned char)h[7])) {
+                h += 7;
+                while (*h == ' ' || *h == '\t') h++;
+                long v = strtol(h, NULL, 10);
+                return (v >= 100 && v <= 999) ? (int)v : 100;
+            }
+        }
+        while (*p && *p != '\n') p++;
+        if (*p == '\n') p++;
     }
-    if (FindString(source, "#version 310 es")) {
-        return 310;
-    }
-    if (FindString(source, "#version 300 es")) {
-        return 300;
-    }
-
-    // Check for core profile versions
-    if (FindString(source, "#version 460 core")) return 460;
-    if (FindString(source, "#version 450 core")) return 450;
-    if (FindString(source, "#version 440 core")) return 440;
-    if (FindString(source, "#version 430 core")) return 430;
-    if (FindString(source, "#version 420 core")) return 420;
-    if (FindString(source, "#version 410 core")) return 410;
-    if (FindString(source, "#version 400 core")) return 400;
-    if (FindString(source, "#version 330 core")) return 330;
-    if (FindString(source, "#version 150 core")) return 150;
-
-    // Check for compatibility profile versions
-    if (FindString(source, "#version 460")) return 460;
-    if (FindString(source, "#version 450")) return 450;
-    if (FindString(source, "#version 440")) return 440;
-    if (FindString(source, "#version 430")) return 430;
-    if (FindString(source, "#version 420")) return 420;
-    if (FindString(source, "#version 410")) return 410;
-    if (FindString(source, "#version 400")) return 400;
-    if (FindString(source, "#version 330")) return 330;
-    if (FindString(source, "#version 150")) return 150;
-    if (FindString(source, "#version 140")) return 140;
-    if (FindString(source, "#version 130")) return 130;
-    if (FindString(source, "#version 120")) return 120;
-    if (FindString(source, "#version 110")) return 110;
-    if (FindString(source, "#version 100")) return 100;
     return 100;
 }

@@ -531,14 +531,17 @@ static int ensure_gpu_quad_ibo_u16(size_t needed_quads) {
     return 1;
 }
 
+/* Strictly cap persistent 32-bit quad IBO at 65,536 quads (262,144 vertices = 1.5 MB max).
+   Larger arena offsets fall back to tiny per-draw index generation so GPU/CPU RAM never grows unboundedly. */
+#define EMESIS_MAX_QUAD_IBO_U32_QUADS 65536
+
 static int ensure_gpu_quad_ibo_u32(size_t needed_quads) {
-    if (!hardext.elementuint) return 0;
+    if (!hardext.elementuint || needed_quads > EMESIS_MAX_QUAD_IBO_U32_QUADS) return 0;
     if (glstate->quad_ibo_u32_quads >= needed_quads &&
         glstate->quad_ibo_u32.real_buffer && glstate->quad_ibo_u32.data) {
         return 1;
     }
-    size_t cap_quads = 32768;
-    while (cap_quads < needed_quads) cap_quads *= 2;
+    size_t cap_quads = (needed_quads <= 32768) ? 32768 : EMESIS_MAX_QUAD_IBO_U32_QUADS;
     size_t byte_size = cap_quads * 6 * sizeof(GLuint);
     GLuint* data = (GLuint*)malloc(byte_size);
     if (!data) return 0;
@@ -953,10 +956,27 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArrays(GLenum mode, const GLint* firsts, co
     bool compiling = (glstate->list.active);
     bool intercept = should_intercept_render(mode);
 
-    /* Fast GPU path for VBO-backed GL_QUADS (OptiFine RenderRegions < 1.17) and ES native modes */
+    /* Fast GPU path for VBO-backed GL_QUADS (OptiFine RenderRegions / Sodium < 1.17) and ES native modes */
     if (!compiling && !intercept && glstate->polygon_mode != GL_LINE) {
         if (glstate->list.pending) gl4es_flush();
         GLenum draw_mode = (glstate->polygon_mode == GL_POINT && mode >= GL_TRIANGLES) ? GL_POINTS : mode;
+        int all_vbo_attribs = 0;
+        if (glstate->vao && hardext.esversion > 1) {
+            int any_en = 0;
+            all_vbo_attribs = 1;
+            for (int a = 0; a < hardext.maxvattrib; ++a) {
+                if (glstate->vao->vertexattrib[a].enabled) {
+                    any_en = 1;
+                    if (!glstate->vao->vertexattrib[a].real_buffer ||
+                        glstate->vao->vertexattrib[a].size == GL_BGRA ||
+                        glstate->vao->vertexattrib[a].type == GL_DOUBLE) {
+                        all_vbo_attribs = 0;
+                        break;
+                    }
+                }
+            }
+            if (!any_en) all_vbo_attribs = 0;
+        }
 
         if (draw_mode == GL_QUADS && hardext.esversion > 1) {
             size_t total_quads = 0;
@@ -990,7 +1010,7 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArrays(GLenum mode, const GLint* firsts, co
                 return;
             }
             /* Zero-upload GPU quad_ibo + glMultiDrawElementsEXT batch */
-            if (all_aligned && hardext.multidraw &&
+            if (all_vbo_attribs && all_aligned && hardext.multidraw &&
                 ((max_vert <= 65536 && ensure_gpu_quad_ibo_u16(max_vert >> 2)) ||
                  (max_vert > 65536 && ensure_gpu_quad_ibo_u32(max_vert >> 2)))) {
                 LOAD_GLES_EXT(glMultiDrawElements);
@@ -1082,7 +1102,7 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArrays(GLenum mode, const GLint* firsts, co
         }
 
         if (draw_mode != GL_QUADS && draw_mode != GL_QUAD_STRIP && draw_mode != GL_POLYGON && hardext.multidraw &&
-            glstate->vao->vertex && glstate->vao->vertex->real_buffer) {
+            all_vbo_attribs) {
             LOAD_GLES_EXT(glMultiDrawArrays);
             if (gles_glMultiDrawArrays) {
                 GLsizei max_end = 0;
@@ -1200,19 +1220,38 @@ void APIENTRY_GL4ES gl4es_glMultiDrawElements(GLenum mode, GLsizei* counts, GLen
         else noerrorShim();
         return;
     }
+    if (glstate->list.active || should_intercept_render(mode) || mode == GL_QUADS || mode == GL_QUAD_STRIP ||
+        mode == GL_POLYGON || glstate->polygon_mode == GL_LINE || type == GL_UNSIGNED_BYTE) {
+        for (int i = 0; i < primcount; i++) {
+            if (counts[i] > 0) gl4es_glDrawElements(mode, counts[i], type, indices[i]);
+        }
+        return;
+    }
     if (glstate->list.pending) gl4es_flush();
 
+    GLenum draw_mode = (glstate->polygon_mode == GL_POINT && mode >= GL_TRIANGLES) ? GL_POINTS : mode;
+    GLuint elem_buf = (glstate->vao && glstate->vao->elements) ? glstate->vao->elements->real_buffer : 0;
+    const void* first_cpu_idx = NULL;
+    if (indices) {
+        if (elem_buf && glstate->vao->elements->data) {
+            first_cpu_idx = (const void*)((const char*)glstate->vao->elements->data + (uintptr_t)indices[0]);
+        } else if (!elem_buf) {
+            first_cpu_idx = indices[0];
+        }
+    }
+
     scratch_t scratch = {0};
-    realize_glenv(mode == GL_POINTS, 0, 0, type, indices ? indices[0] : NULL, &scratch);
+    realize_glenv(draw_mode == GL_POINTS, 0, counts ? counts[0] : 0, first_cpu_idx ? type : 0, first_cpu_idx, &scratch);
 
     realize_textures(1);
-    GLuint elem_buf = (glstate->vao && glstate->vao->elements) ? glstate->vao->elements->real_buffer : 0;
+    GLuint prev_want = glstate->bind_buffer.want_index;
     bindBuffer(GL_ELEMENT_ARRAY_BUFFER, elem_buf);
 
     if (hardext.multidraw && elem_buf) {
         LOAD_GLES_EXT(glMultiDrawElements);
         if (gles_glMultiDrawElements) {
-            gles_glMultiDrawElements(mode, counts, type, indices, primcount);
+            gles_glMultiDrawElements(draw_mode, counts, type, indices, primcount);
+            glstate->bind_buffer.want_index = prev_want;
             free_scratch(&scratch);
             errorGL();
             return;
@@ -1222,8 +1261,9 @@ void APIENTRY_GL4ES gl4es_glMultiDrawElements(GLenum mode, GLsizei* counts, GLen
     LOAD_GLES2(glDrawElements);
     DBG(SHUT_LOGD("gles_glDrawElements loop x%d\n", primcount);)
     for (int i = 0; i < primcount; i++) {
-        if (counts[i] > 0) gles_glDrawElements(mode, counts[i], type, indices[i]);
+        if (counts[i] > 0) gles_glDrawElements(draw_mode, counts[i], type, indices[i]);
     }
+    glstate->bind_buffer.want_index = prev_want;
     free_scratch(&scratch);
     errorGL();
 }
@@ -1560,21 +1600,51 @@ void gl4es_glMultiDrawElementsBaseVertex(GLenum mode, const GLsizei* counts, GLe
     DBG(SHUT_LOGD("glMultiDrawElementsBaseVertex(%s, %p, %s, @%p, %d, @%p), inlist=%i, pending=%d\n", PrintEnum(mode),
                   counts, PrintEnum(type), indices, primcount, basevertex, (glstate->list.active) ? 1 : 0,
                   glstate->list.pending);)
+    if (primcount <= 0) {
+        if (primcount < 0) errorShim(GL_INVALID_VALUE);
+        else noerrorShim();
+        return;
+    }
+    if (glstate->list.active || should_intercept_render(mode) || mode == GL_QUADS || mode == GL_QUAD_STRIP ||
+        mode == GL_POLYGON || glstate->polygon_mode == GL_LINE || type == GL_UNSIGNED_BYTE) {
+        for (int i = 0; i < primcount; i++) {
+            if (counts[i] > 0) gl4es_glDrawElementsBaseVertex(mode, counts[i], type, indices[i], basevertex[i]);
+        }
+        return;
+    }
+    if (glstate->list.pending) gl4es_flush();
+
+    GLenum draw_mode = (glstate->polygon_mode == GL_POINT && mode >= GL_TRIANGLES) ? GL_POINTS : mode;
+    GLuint elem_buf = (glstate->vao && glstate->vao->elements) ? glstate->vao->elements->real_buffer : 0;
+    const void* first_cpu_idx = NULL;
+    if (indices) {
+        if (elem_buf && glstate->vao->elements->data) {
+            first_cpu_idx = (const void*)((const char*)glstate->vao->elements->data + (uintptr_t)indices[0]);
+        } else if (!elem_buf) {
+            first_cpu_idx = indices[0];
+        }
+    }
 
     scratch_t scratch = {0};
-
-    realize_glenv(mode == GL_POINTS, 0, 0, type, indices, &scratch);
-    free_scratch(&scratch);
+    realize_glenv(draw_mode == GL_POINTS, 0, counts ? counts[0] : 0, first_cpu_idx ? type : 0, first_cpu_idx, &scratch);
 
     realize_textures(1);
-    bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->vao->elements->real_buffer);
+    GLuint prev_want = glstate->bind_buffer.want_index;
+    bindBuffer(GL_ELEMENT_ARRAY_BUFFER, elem_buf);
 
-    if (hardext.multidraw && hardext.basevertex) {
+    if (hardext.multidraw && hardext.basevertex && elem_buf) {
         LOAD_GLES_EXT(glMultiDrawElementsBaseVertex);
-        gles_glMultiDrawElementsBaseVertex(mode, counts, type, indices, primcount, basevertex);
-    } else {
-        internal_glMultiDrawElementsBaseVertex(mode, counts, type, indices, primcount, basevertex);
+        if (gles_glMultiDrawElementsBaseVertex) {
+            gles_glMultiDrawElementsBaseVertex(draw_mode, counts, type, indices, primcount, basevertex);
+            glstate->bind_buffer.want_index = prev_want;
+            free_scratch(&scratch);
+            errorGL();
+            return;
+        }
     }
+    internal_glMultiDrawElementsBaseVertex(draw_mode, counts, type, indices, primcount, basevertex);
+    glstate->bind_buffer.want_index = prev_want;
+    free_scratch(&scratch);
 }
 AliasExport(void, glMultiDrawElementsBaseVertex, ,
             (GLenum mode, GLsizei* counts, GLenum type, const void* const* indices, GLsizei primcount,

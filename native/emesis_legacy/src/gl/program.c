@@ -326,6 +326,22 @@ void deleteProgram(program_t* glprogram, khint_t k_program) {
     }
     // clean fpe cache if it exist
     if (glprogram->fpe_cache) fpe_disposeCache((fpe_cache_t*)glprogram->fpe_cache, 1);
+    // clear any active state pointers referencing this program before freeing
+    if (glstate->glsl) {
+        if (glstate->glsl->glprogram == glprogram || glstate->glsl->program == glprogram->id) {
+            glstate->glsl->glprogram = NULL;
+            glstate->glsl->program = 0;
+        }
+    }
+    if (glstate->gleshard) {
+        if (glstate->gleshard->glprogram == glprogram || glstate->gleshard->program == glprogram->id) {
+            glstate->gleshard->glprogram = NULL;
+            glstate->gleshard->program = 0;
+        }
+    }
+    if (glstate->fpe && glstate->fpe->glprogram == glprogram) {
+        glstate->fpe = NULL;
+    }
     // delete program
     kh_del(programlist, glstate->glsl->programs, k_program);
     free(glprogram);

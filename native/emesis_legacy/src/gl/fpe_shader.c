@@ -1480,25 +1480,47 @@ static int is_essl_3xx_source(const char* src) {
             strncmp(src, "#version 320 es", 15) == 0);
 }
 
-static void find_frag_color0_expr(const char* src, char* out_expr, size_t out_sz) {
-    out_expr[0] = '\0';
-    if (!src || out_sz < 4) return;
+typedef enum {
+    FRAG_COLOR0_NONE = 0,
+    FRAG_COLOR0_LEGACY = 1,
+    FRAG_COLOR0_ESSL3_OUT = 2
+} frag_color0_kind_t;
+
+typedef struct {
+    frag_color0_kind_t kind;
+    char expr[128];
+    char ident[128];
+    size_t id_offset;
+    size_t id_len;
+    size_t semi_offset;
+    int arr_count;
+} frag_color0_decl_t;
+
+static void find_frag_color0_decl(const char* src, frag_color0_decl_t* out) {
+    memset(out, 0, sizeof(*out));
+    if (!src) return;
     if (gl4es_find_string(src, "gl_FragColor")) {
-        snprintf(out_expr, out_sz, "gl_FragColor");
+        out->kind = FRAG_COLOR0_LEGACY;
+        snprintf(out->expr, sizeof(out->expr), "gl_FragColor");
         return;
     }
     if (gl4es_find_string(src, "gl4es_FragColor")) {
-        snprintf(out_expr, out_sz, "gl4es_FragColor");
+        out->kind = FRAG_COLOR0_LEGACY;
+        snprintf(out->expr, sizeof(out->expr), "gl4es_FragColor");
         return;
     }
     if (strstr(src, "gl_FragData")) {
-        snprintf(out_expr, out_sz, "gl_FragData[0]");
+        out->kind = FRAG_COLOR0_LEGACY;
+        snprintf(out->expr, sizeof(out->expr), "gl_FragData[0]");
         return;
     }
 
-    /* Scan global declarations for `layout(... location = 0 ...) out ... vec4 <name>` or implicit `out ... vec4 <name>` */
-    char fallback[128] = {0};
+    /* Scan top-level global declarations (brace_depth == 0 && paren_depth == 0) for
+       `layout(... location = 0 ...) out ... vec4 <name>` or implicit `out ... vec4 <name>` */
+    frag_color0_decl_t fallback;
+    memset(&fallback, 0, sizeof(fallback));
     int brace_depth = 0;
+    int paren_depth = 0;
     const char* p = src;
     while (*p) {
         if (p[0] == '/' && p[1] == '/') {
@@ -1518,7 +1540,9 @@ static void find_frag_color0_expr(const char* src, char* out_expr, size_t out_sz
         }
         if (*p == '{') { ++brace_depth; ++p; continue; }
         if (*p == '}') { if (brace_depth > 0) --brace_depth; ++p; continue; }
-        if (brace_depth > 0) { ++p; continue; }
+        if (*p == '(') { ++paren_depth; ++p; continue; }
+        if (*p == ')') { if (paren_depth > 0) --paren_depth; ++p; continue; }
+        if (brace_depth > 0 || paren_depth > 0) { ++p; continue; }
 
         int has_loc0 = 0;
         int has_other_loc = 0;
@@ -1559,25 +1583,40 @@ static void find_frag_color0_expr(const char* src, char* out_expr, size_t out_sz
                 if (strncmp(q, "mediump", 7) == 0 && isspace((unsigned char)q[7])) { q += 7; continue; }
                 if (strncmp(q, "lowp", 4) == 0 && isspace((unsigned char)q[4])) { q += 4; continue; }
                 if (strncmp(q, "centroid", 8) == 0 && isspace((unsigned char)q[8])) { q += 8; continue; }
+                if (strncmp(q, "smooth", 6) == 0 && isspace((unsigned char)q[6])) { q += 6; continue; }
+                if (strncmp(q, "flat", 4) == 0 && isspace((unsigned char)q[4])) { q += 4; continue; }
                 if (strncmp(q, "vec4", 4) == 0 && isspace((unsigned char)q[4])) {
                     q += 4;
                     while (*q && isspace((unsigned char)*q)) ++q;
                     const char* id0 = q;
                     while (*q && (isalnum((unsigned char)*q) || *q == '_')) ++q;
                     size_t idlen = (size_t)(q - id0);
-                    if (idlen > 0 && idlen + 4 < out_sz) {
+                    const char* semi = strchr(q, ';');
+                    if (idlen > 0 && semi && idlen + 4 < sizeof(out->ident)) {
                         const char* after = q;
-                        while (*after && isspace((unsigned char)*after)) ++after;
-                        int is_arr = (*after == '[');
+                        while (after < semi && isspace((unsigned char)*after)) ++after;
+                        int arr_cnt = 0;
+                        if (after < semi && *after == '[') {
+                            long n = strtol(after + 1, NULL, 10);
+                            arr_cnt = (n > 0) ? (int)n : 1;
+                        }
+                        frag_color0_decl_t cand;
+                        memset(&cand, 0, sizeof(cand));
+                        cand.kind = FRAG_COLOR0_ESSL3_OUT;
+                        memcpy(cand.ident, id0, idlen);
+                        cand.ident[idlen] = '\0';
+                        memcpy(cand.expr, id0, idlen);
+                        if (arr_cnt > 0) memcpy(cand.expr + idlen, "[0]", 4);
+                        else cand.expr[idlen] = '\0';
+                        cand.id_offset = (size_t)(id0 - src);
+                        cand.id_len = idlen;
+                        cand.semi_offset = (size_t)(semi - src);
+                        cand.arr_count = arr_cnt;
                         if (has_loc0) {
-                            memcpy(out_expr, id0, idlen);
-                            if (is_arr) memcpy(out_expr + idlen, "[0]", 4);
-                            else out_expr[idlen] = '\0';
+                            *out = cand;
                             return;
-                        } else if (!has_other_loc && fallback[0] == '\0' && idlen + 4 < sizeof(fallback)) {
-                            memcpy(fallback, id0, idlen);
-                            if (is_arr) memcpy(fallback + idlen, "[0]", 4);
-                            else fallback[idlen] = '\0';
+                        } else if (!has_other_loc && fallback.kind == FRAG_COLOR0_NONE) {
+                            fallback = cand;
                         }
                     }
                 }
@@ -1586,9 +1625,72 @@ static void find_frag_color0_expr(const char* src, char* out_expr, size_t out_sz
         }
         ++p;
     }
-    if (fallback[0] != '\0') {
-        snprintf(out_expr, out_sz, "%s", fallback);
+    if (fallback.kind != FRAG_COLOR0_NONE) {
+        *out = fallback;
     }
+}
+
+/* ESSL 3.00 §4.3.6 forbids reading fragment `out` variables (enforced strictly by ARM Mali).
+   Rewrite `out ... vec4 <ident>;` -> `out ... vec4 _emesis_FinalOut0;\nhighp vec4 <ident>;` so
+   all reads/writes inside `_gl4es_main()` and alpha test operate on an ordinary global `vec4`,
+   and `_emesis_FinalOut0` is written once at the end of `main()`. */
+static int stage_essl3_frag_out0(const frag_color0_decl_t* decl) {
+    if (!decl || decl->kind != FRAG_COLOR0_ESSL3_OUT || !shad) return 0;
+    size_t src_len = strlen(shad);
+    if (decl->semi_offset >= src_len || decl->id_offset + decl->id_len > decl->semi_offset) return 0;
+
+    char repl[384];
+    int has_comma = (memchr(shad + decl->id_offset + decl->id_len, ',',
+                            decl->semi_offset - (decl->id_offset + decl->id_len)) != NULL);
+    if (!has_comma) {
+        if (decl->arr_count > 0) {
+            snprintf(repl, sizeof(repl), "_emesis_FinalOut0[%d];\nhighp vec4 %s[%d];",
+                     decl->arr_count, decl->ident, decl->arr_count);
+        } else {
+            snprintf(repl, sizeof(repl), "_emesis_FinalOut0;\nhighp vec4 %s;", decl->ident);
+        }
+        size_t old_span = (decl->semi_offset + 1) - decl->id_offset;
+        size_t repl_len = strlen(repl);
+        size_t needed = src_len - old_span + repl_len + 1;
+        if ((int)needed > shad_cap) {
+            int new_cap = shad_cap ? shad_cap : 1024;
+            while (new_cap < (int)needed) new_cap *= 2;
+            char* grown = (char*)realloc(shad, (size_t)new_cap);
+            if (!grown) return 0;
+            shad = grown;
+            shad_cap = new_cap;
+        }
+        memmove(shad + decl->id_offset + repl_len,
+                shad + decl->semi_offset + 1,
+                src_len - (decl->semi_offset + 1) + 1);
+        memcpy(shad + decl->id_offset, repl, repl_len);
+        return 1;
+    }
+
+    const char* out_name = "_emesis_FinalOut0";
+    size_t out_len = strlen(out_name);
+    snprintf(repl, sizeof(repl), "\nhighp vec4 %s;", decl->ident);
+    size_t extra_len = strlen(repl);
+    size_t needed = src_len - decl->id_len + out_len + extra_len + 1;
+    if ((int)needed > shad_cap) {
+        int new_cap = shad_cap ? shad_cap : 1024;
+        while (new_cap < (int)needed) new_cap *= 2;
+        char* grown = (char*)realloc(shad, (size_t)new_cap);
+        if (!grown) return 0;
+        shad = grown;
+        shad_cap = new_cap;
+    }
+    size_t tail_after_semi = src_len - (decl->semi_offset + 1) + 1;
+    size_t mid_len = (decl->semi_offset + 1) - (decl->id_offset + decl->id_len);
+    memmove(shad + decl->id_offset + out_len + mid_len + extra_len,
+            shad + decl->semi_offset + 1,
+            tail_after_semi);
+    memmove(shad + decl->id_offset + out_len,
+            shad + decl->id_offset + decl->id_len,
+            mid_len);
+    memcpy(shad + decl->id_offset, out_name, out_len);
+    memcpy(shad + decl->id_offset + out_len + mid_len, repl, extra_len);
+    return 1;
 }
 
 const char* const* fpe_CustomVertexShader(const char* initial, fpe_state_t* state, int default_fragment) {
@@ -1676,12 +1778,17 @@ const char* const* fpe_CustomFragmentShader(const char* initial, fpe_state_t* st
         return (const char* const*)&shad;
     }
 
-    char color0_expr[128] = {0};
+    frag_color0_decl_t color0_decl;
+    memset(&color0_decl, 0, sizeof(color0_decl));
+    int staged_essl3_out = 0;
     if (alpha_test && alpha_func > FPE_NEVER) {
-        find_frag_color0_expr(shad, color0_expr, sizeof(color0_expr));
+        find_frag_color0_decl(shad, &color0_decl);
         /* Depth-only fragment shaders (e.g. shadow.fsh with no color output) have no alpha output to test */
-        if (color0_expr[0] == '\0' && !planes) {
+        if (color0_decl.kind == FRAG_COLOR0_NONE && !planes) {
             return (const char* const*)&shad;
+        }
+        if (color0_decl.kind == FRAG_COLOR0_ESSL3_OUT) {
+            staged_essl3_out = stage_essl3_frag_out0(&color0_decl);
         }
     }
 
@@ -1699,7 +1806,7 @@ const char* const* fpe_CustomFragmentShader(const char* initial, fpe_state_t* st
             }
         }
     }
-    if (alpha_test && alpha_func > FPE_NEVER && color0_expr[0] != '\0') {
+    if (alpha_test && alpha_func > FPE_NEVER && color0_decl.kind != FRAG_COLOR0_NONE) {
         ShadAppend("#ifdef GL_ES\nuniform highp float _gl4es_AlphaRef;\n#else\nuniform float _gl4es_AlphaRef;\n#endif\n");
     }
 
@@ -1707,6 +1814,17 @@ const char* const* fpe_CustomFragmentShader(const char* initial, fpe_state_t* st
 
     if (strstr(shad, "_gl4es_main")) {
         ShadAppend("void main() {\n");
+        if (staged_essl3_out) {
+            if (color0_decl.arr_count > 0) {
+                for (int ai = 0; ai < color0_decl.arr_count && ai < 16; ++ai) {
+                    sprintf(buff, " %s[%d] = vec4(0.0);\n", color0_decl.ident, ai);
+                    ShadAppend(buff);
+                }
+            } else {
+                sprintf(buff, " %s = vec4(0.0);\n", color0_decl.ident);
+                ShadAppend(buff);
+            }
+        }
         ShadAppend(" _gl4es_main();\n");
         if (planes) {
             ShadAppend(" if((");
@@ -1730,10 +1848,22 @@ const char* const* fpe_CustomFragmentShader(const char* initial, fpe_state_t* st
                 // nothing here...
             } else if (alpha_func == FPE_NEVER) {
                 ShadAppend(" discard;\n");
-            } else if (color0_expr[0] != '\0') {
+            } else if (color0_decl.kind != FRAG_COLOR0_NONE) {
                 const char* alpha_test_op[] = {">=", "!=", ">", "<=", "==", "<"};
                 sprintf(buff, " if (floor(%s.a*255.) %s _gl4es_AlphaRef) discard;\n",
-                        color0_expr, alpha_test_op[alpha_func - FPE_LESS]);
+                        color0_decl.expr, alpha_test_op[alpha_func - FPE_LESS]);
+                ShadAppend(buff);
+            }
+        }
+
+        if (staged_essl3_out) {
+            if (color0_decl.arr_count > 0) {
+                for (int ai = 0; ai < color0_decl.arr_count && ai < 16; ++ai) {
+                    sprintf(buff, " _emesis_FinalOut0[%d] = %s[%d];\n", ai, color0_decl.ident, ai);
+                    ShadAppend(buff);
+                }
+            } else {
+                sprintf(buff, " _emesis_FinalOut0 = %s;\n", color0_decl.ident);
                 ShadAppend(buff);
             }
         }
