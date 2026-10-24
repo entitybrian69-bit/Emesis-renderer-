@@ -33,24 +33,25 @@ void InsertAtBeginning(char **str, const char *prefix) {
 
 char * InplaceReplaceByIndex(char* pBuffer, int* size, const int startIndex, const int endIndex, const char* replacement)
 {
-    //printf("BY INDEX: %s", replacement);
-    //printf("BY INDEX: %i", strlen(replacement));
-    int length_difference;
-    if(endIndex < startIndex)
-        length_difference = strlen(replacement) + (endIndex - startIndex);
-    else if(endIndex == startIndex)
-        length_difference = strlen(replacement) - 1; // The initial char gets replaced
-    else
-        length_difference = strlen(replacement) - (endIndex - startIndex); // Can be negative if repl is smaller
+    if (!pBuffer || !replacement || !size) return pBuffer;
+    size_t curLen = strlen(pBuffer);
+    size_t replLen = strlen(replacement);
+    if (startIndex < 0 || (size_t)startIndex > curLen) return pBuffer;
+
+    int tailStart = (endIndex < startIndex) ? startIndex : (endIndex + 1);
+    if (tailStart < 0) tailStart = 0;
+    if ((size_t)tailStart > curLen) tailStart = (int)curLen;
+
+    int replacedLen = tailStart - startIndex;
+    int length_difference = (int)replLen - replacedLen;
     pBuffer = gl4es_resize_if_needed(pBuffer, size, length_difference);
-    //printf("BEFORE MOVING: \n%s", pBuffer);
-    // Move the end of the string
-    memmove(pBuffer + startIndex + strlen(replacement) , pBuffer + endIndex + 1, strlen(pBuffer) - endIndex + 1);
-    //printf("AFTER MOVING 1: \n%s", pBuffer);
-    // Insert the replacement
-    memcpy(pBuffer + startIndex, replacement, strlen(replacement));
-    //strncpy(pBuffer + startIndex, replacement, strlen(replacement));
-    //printf("AFTER MOVING 2: \n%s", pBuffer);
+    if (!pBuffer) return NULL;
+
+    size_t tailBytesWithNul = curLen - (size_t)tailStart + 1;
+    memmove(pBuffer + startIndex + replLen, pBuffer + tailStart, tailBytesWithNul);
+    if (replLen > 0) {
+        memcpy(pBuffer + startIndex, replacement, replLen);
+    }
     return pBuffer;
 }
 /**
@@ -62,9 +63,14 @@ char * InplaceReplaceByIndex(char* pBuffer, int* size, const int startIndex, con
  * @return The shader as a string, maybe in a different memory location
  */
 char * InplaceInsertByIndex(char * source, int *sourceLength, const int insertPoint, const char *insertedString){
-    int insertLength = strlen(insertedString);
-    source = gl4es_resize_if_needed(source, sourceLength, insertLength);
-    memmove(source + insertPoint + insertLength,  source + insertPoint, strlen(source) - insertPoint + 1);
+    if (!source || !insertedString || !sourceLength) return source;
+    size_t curLen = strlen(source);
+    if (insertPoint < 0 || (size_t)insertPoint > curLen) return source;
+    size_t insertLength = strlen(insertedString);
+    if (insertLength == 0) return source;
+    source = gl4es_resize_if_needed(source, sourceLength, (int)insertLength);
+    if (!source) return NULL;
+    memmove(source + insertPoint + insertLength, source + insertPoint, curLen - (size_t)insertPoint + 1);
     memcpy(source + insertPoint, insertedString, insertLength);
     return source;
 }
@@ -153,7 +159,7 @@ char* gl4es_inplace_replace(char* pBuffer, int* size, const char* S, const char*
         memcpy(dst, cur, tail);
         dst += tail;
     }
-    *dst = '\0';
+    memset(dst, 0, (size_t)allocCap - (size_t)(dst - out));
     free(pBuffer);
     *size = allocCap;
     return out;
@@ -255,13 +261,18 @@ char* gl4es_find_string_nc(char* pBuffer, const char* S)
 }
 
 char* gl4es_resize_if_needed(char* pBuffer, int *size, int addsize) {
+    if (!pBuffer || !size) return pBuffer;
     char* p = pBuffer;
-    int newsize = (int)strlen(pBuffer) + addsize + 1;
+    int curlen = (int)strlen(pBuffer);
+    int newsize = curlen + addsize + 1;
     if (newsize > *size) {
         int grown = (*size > 0) ? (*size * 2) : 256;
         if (grown < newsize) grown = newsize + (newsize >> 1) + 64;
         p = (char*)realloc(pBuffer, (size_t)grown);
-        *size = grown;
+        if (p) {
+            memset(p + curlen + 1, 0, (size_t)(grown - (curlen + 1)));
+            *size = grown;
+        }
     }
     return p;
 }
@@ -418,7 +429,7 @@ char* gl4es_inplace_replace_simple(char* pBuffer, int* size, const char* S, cons
         memcpy(dst, cur, tail);
         dst += tail;
     }
-    *dst = '\0';
+    memset(dst, 0, (size_t)allocCap - (size_t)(dst - out));
     free(pBuffer);
     *size = allocCap;
     return out;

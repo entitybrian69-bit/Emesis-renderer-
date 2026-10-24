@@ -174,9 +174,18 @@ void APIENTRY_GL4ES gl4es_glAttachShader(GLuint program, GLuint shader) {
         glprogram->last_comp = glshader;
     // merge uniforms_declarations
     uniform_decls_merge(&glprogram->declarations, &glshader->uniforms_declarations);
-    /* Defer gles_glAttachShader until glLinkProgram misses the .ep1 program binary cache,
-       avoiding attaching uncompiled GLES shader objects before glProgramBinary */
-    noerrorShim();
+    if (!hardext.prgbinary || hardext.prgbin_n <= 0) {
+        LOAD_GLES2(glAttachShader);
+        if (gles_glAttachShader) {
+            gles_glAttachShader(glprogram->id, glshader->id);
+            glprogram->gles_attached = 1;
+            errorGL();
+        } else {
+            noerrorShim();
+        }
+    } else {
+        noerrorShim();
+    }
 }
 
 void APIENTRY_GL4ES gl4es_glBindAttribLocation(GLuint program, GLuint index, const GLchar* name) {
@@ -297,6 +306,7 @@ GLuint APIENTRY_GL4ES gl4es_glCreateProgram(void) {
     glprogram->attribloc = kh_init(attribloclist);
     // initialize uniform hashmaps
     glprogram->uniform = kh_init(uniformlist);
+
     glprogram->uniform_by_name = kh_init(uniformnamelist);
     // all done
     return program;
@@ -431,6 +441,12 @@ void APIENTRY_GL4ES gl4es_glDetachShader(GLuint program, GLuint shader) {
     }
     // marked as detached (frees shader_t + calls gles_glDeleteShader if marked deleted)
     actually_detachshader(shader);
+    if (glprogram->attach_size == 0) {
+        glprogram->gles_attached = 0;
+        if (glprogram->linked) {
+            uniform_decls_clear(&glprogram->declarations);
+        }
+    }
 }
 
 void APIENTRY_GL4ES gl4es_glGetActiveAttrib(GLuint program, GLuint index, GLsizei bufSize, GLsizei* length, GLint* size,
@@ -1353,13 +1369,12 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
         return;
     }
 
-    /* .ep1 cache miss: compile and attach shaders in the GLES driver before linking */
+    /* .ep1 cache miss: ensure all attached shaders are compiled in the GLES driver before linking */
     LOAD_GLES2(glAttachShader);
-    LOAD_GLES2(glDetachShader);
     for (int i = 0; i < glprogram->attach_size; ++i) {
         shader_t* sh = getShader(glprogram->attach[i]);
         ensure_shader_gles_compiled(sh);
-        if (sh && gles_glAttachShader) {
+        if (!glprogram->gles_attached && sh && gles_glAttachShader) {
             gles_glAttachShader(glprogram->id, sh->id);
         }
     }
@@ -1369,7 +1384,7 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
     if (gles_glLinkProgram) {
         LOAD_GLES(glGetError);
         LOAD_GLES2(glGetProgramiv);
-        if (hardext.esversion >= 3 && hardext.prgbin_n > 0 && !glprogram->frag_data_changed) {
+        if (hardext.esversion >= 3 && hardext.prgbinary && hardext.prgbin_n > 0 && !glprogram->frag_data_changed) {
             typedef void(APIENTRY_GLES* glProgramParameteri_fn)(GLuint, GLenum, GLint);
             static glProgramParameteri_fn fn_prog_param = NULL;
             static int checked_prog_param = 0;
@@ -1378,14 +1393,6 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
                 const void* self_anchor = (const void*)resolve_program_binary_fn;
                 void* p = gles ? dlsym(gles, "glProgramParameteri") : NULL;
                 if (!is_external_gles_fn_prog(p, self_anchor)) p = NULL;
-                if (!p && egl) {
-                    typedef void* (*eglGetProc_fn)(const char*);
-                    eglGetProc_fn egl_gp = (eglGetProc_fn)dlsym(egl, "eglGetProcAddress");
-                    if (egl_gp && is_external_gles_fn_prog((const void*)egl_gp, self_anchor)) {
-                        p = egl_gp("glProgramParameteri");
-                        if (!is_external_gles_fn_prog(p, self_anchor)) p = NULL;
-                    }
-                }
                 fn_prog_param = (glProgramParameteri_fn)p;
             }
             if (fn_prog_param) {
@@ -1397,20 +1404,9 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
         GLenum err = gles_glGetError();
         gles_glGetProgramiv(glprogram->id, GL_LINK_STATUS, &glprogram->linked);
 
-        if (glprogram->linked && !glprogram->frag_data_changed) {
+        if (glprogram->linked && hardext.prgbinary && hardext.prgbin_n > 0 && !glprogram->frag_data_changed) {
             emesis_program_cache_store(glprogram->id, vs_essl, fs_essl, cs_essl, caller_attrib_sig);
         }
-
-        /* Detach GLES shader objects right after linking so the GLES driver can immediately
-           release internal compiler AST/IR memory when shaders are deleted */
-        if (gles_glDetachShader) {
-            for (int i = 0; i < glprogram->attach_size; ++i) {
-                shader_t* sh = getShader(glprogram->attach[i]);
-                if (sh) gles_glDetachShader(glprogram->id, sh->id);
-            }
-            while (gles_glGetError() != GL_NO_ERROR) {}
-        }
-        glprogram->gles_attached = 0;
 
         DBG(SHUT_LOGD(" link status = %d\n", glprogram->linked))
         if (glprogram->linked) {

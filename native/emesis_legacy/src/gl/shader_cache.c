@@ -3,10 +3,12 @@
 #endif
 #include "shader_cache.h"
 #include "../glx/hardext.h"
+#include "glsl/glsl_for_es.h"
 #include "init.h"
 #include "loader.h"
 #include "logs.h"
 
+#include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <pthread.h>
@@ -17,8 +19,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define EMESIS_SC_SCHEMA_VERSION 0x454D53430001000AULL /* EMSC v1.10 */
-#define EMESIS_PC_SCHEMA_VERSION 0x454D50420001000AULL /* EMPB v1.10 */
+#define EMESIS_SC_SCHEMA_VERSION 0x454D53430001000BULL /* EMSC v1.11 */
+#define EMESIS_PC_SCHEMA_VERSION 0x454D50420001000BULL /* EMPB v1.11 */
 
 #define EMESIS_SC_MAGIC 0x43534D45U /* 'EMSC' */
 #define EMESIS_PC_MAGIC 0x42504D45U /* 'EMPB' */
@@ -55,6 +57,7 @@ static emesis_hash128_t g_driver_fp = {0, 0};
 static int g_driver_fp_ready = 0;
 static mem_shader_entry_t g_mem_shaders[EMESIS_MEM_SHADER_SLOTS];
 static mem_progbin_entry_t g_mem_progbins[EMESIS_MEM_PROGBIN_SLOTS];
+static volatile int g_compiler_mem_dirty = 0;
 
 static inline uint64_t mix64(uint64_t z) {
     z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -120,6 +123,45 @@ static int mkdir_p(const char* path) {
     return access(tmp, W_OK | X_OK);
 }
 
+static void purge_stale_cache_files(const char* dir_path) {
+    if (!dir_path || !dir_path[0]) return;
+    char marker_path[1152];
+    snprintf(marker_path, sizeof(marker_path), "%s/.emesis_schema", dir_path);
+    uint64_t expected_sc = EMESIS_SC_SCHEMA_VERSION;
+    uint64_t expected_pc = EMESIS_PC_SCHEMA_VERSION;
+    FILE* mfp = fopen(marker_path, "rb");
+    if (mfp) {
+        uint64_t got_sc = 0, got_pc = 0;
+        int match = (fread(&got_sc, 1, sizeof(got_sc), mfp) == sizeof(got_sc) &&
+                     fread(&got_pc, 1, sizeof(got_pc), mfp) == sizeof(got_pc) &&
+                     got_sc == expected_sc && got_pc == expected_pc);
+        fclose(mfp);
+        if (match) return;
+    }
+
+    DIR* dp = opendir(dir_path);
+    if (dp) {
+        struct dirent* de;
+        while ((de = readdir(dp)) != NULL) {
+            const char* nm = de->d_name;
+            if (strncmp(nm, "shdr_", 5) == 0 || strncmp(nm, "pbin_", 5) == 0) {
+                char fpath[1280];
+                if (snprintf(fpath, sizeof(fpath), "%s/%s", dir_path, nm) < (int)sizeof(fpath)) {
+                    unlink(fpath);
+                }
+            }
+        }
+        closedir(dp);
+    }
+
+    mfp = fopen(marker_path, "wb");
+    if (mfp) {
+        (void)fwrite(&expected_sc, 1, sizeof(expected_sc), mfp);
+        (void)fwrite(&expected_pc, 1, sizeof(expected_pc), mfp);
+        fclose(mfp);
+    }
+}
+
 static int try_set_cache_dir(const char* base, const char* suffix) {
     if (!base || !base[0]) return 0;
     char candidate[1024];
@@ -128,6 +170,7 @@ static int try_set_cache_dir(const char* base, const char* suffix) {
     if (mkdir_p(candidate) == 0) {
         memcpy(g_cache_dir, candidate, (size_t)n + 1);
         g_disk_enabled = 1;
+        purge_stale_cache_files(g_cache_dir);
         return 1;
     }
     return 0;
@@ -539,7 +582,8 @@ int emesis_program_cache_try_load(GLuint gl_program_id,
                                   const char* frag_essl,
                                   const char* comp_essl,
                                   const char* attrib_bindings_sig) {
-    if (!gl_program_id || hardext.prgbin_n <= 0 || (!vert_essl && !frag_essl && !comp_essl)) return 0;
+    if (!gl_program_id || !hardext.prgbinary || hardext.prgbin_n <= 0 || (!vert_essl && !frag_essl && !comp_essl))
+        return 0;
 
     glProgramBinary_PTR fn_prog_bin = resolve_glProgramBinary();
     LOAD_GLES2(glGetProgramiv);
@@ -652,7 +696,8 @@ void emesis_program_cache_store(GLuint gl_program_id,
                                 const char* frag_essl,
                                 const char* comp_essl,
                                 const char* attrib_bindings_sig) {
-    if (!gl_program_id || hardext.prgbin_n <= 0 || (!vert_essl && !frag_essl && !comp_essl)) return;
+    if (!gl_program_id || !hardext.prgbinary || hardext.prgbin_n <= 0 || (!vert_essl && !frag_essl && !comp_essl))
+        return;
 
     pthread_mutex_lock(&g_cache_mutex);
     if (!g_cache_inited) init_locked();
@@ -731,5 +776,65 @@ void emesis_program_cache_store(GLuint gl_program_id,
         if (rename(tmp_path, final_path) != 0) unlink(tmp_path);
     } else {
         unlink(tmp_path);
+    }
+}
+
+void emesis_note_shader_compiler_activity(void) {
+    g_compiler_mem_dirty = 1;
+}
+
+void emesis_maybe_reclaim_compiler_memory(void) {
+    if (!g_compiler_mem_dirty) return;
+    g_compiler_mem_dirty = 0;
+
+    /* 1. Release native GLES driver's shader compiler AST/IR pools (e.g. libGLES_mali.so) */
+    if (hardext.esversion > 1) {
+        LOAD_GLES2(glReleaseShaderCompiler);
+        if (gles_glReleaseShaderCompiler) {
+            gles_glReleaseShaderCompiler();
+        }
+    }
+
+    /* 2. Trim duplicate RAM cache entries once backed by disk .ec1 files */
+    pthread_mutex_lock(&g_cache_mutex);
+    if (g_disk_enabled) {
+        for (size_t i = 0; i < EMESIS_MEM_SHADER_SLOTS; ++i) {
+            free_mem_entry(&g_mem_shaders[i]);
+        }
+        for (size_t i = 0; i < EMESIS_MEM_PROGBIN_SLOTS; ++i) {
+            if (g_mem_progbins[i].binary) {
+                free(g_mem_progbins[i].binary);
+                g_mem_progbins[i].binary = NULL;
+            }
+            g_mem_progbins[i].valid = 0;
+            g_mem_progbins[i].length = 0;
+        }
+    }
+    pthread_mutex_unlock(&g_cache_mutex);
+
+    /* 3. Return freed allocator pages to the OS kernel immediately (Bionic M_PURGE / glibc malloc_trim) */
+    {
+#ifdef __ANDROID__
+        typedef int (*mallopt_fn)(int, int);
+        static mallopt_fn fn_mallopt = NULL;
+        static int checked_mallopt = 0;
+        if (!checked_mallopt) {
+            checked_mallopt = 1;
+            fn_mallopt = (mallopt_fn)dlsym(RTLD_DEFAULT, "mallopt");
+        }
+        if (fn_mallopt) {
+            (void)fn_mallopt(-101 /* M_PURGE */, 0);
+        }
+#endif
+        typedef int (*malloc_trim_fn)(size_t);
+        static malloc_trim_fn fn_mtrim = NULL;
+        static int checked_mtrim = 0;
+        if (!checked_mtrim) {
+            checked_mtrim = 1;
+            fn_mtrim = (malloc_trim_fn)dlsym(RTLD_DEFAULT, "malloc_trim");
+        }
+        if (fn_mtrim) {
+            (void)fn_mtrim(0);
+        }
     }
 }

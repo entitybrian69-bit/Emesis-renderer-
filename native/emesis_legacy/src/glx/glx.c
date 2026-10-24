@@ -29,6 +29,7 @@
 #include "../gl/framebuffers.h"
 #include "../gl/init.h"
 #include "../gl/loader.h"
+#include "../gl/shader_cache.h"
 #ifdef PANDORA
 #include "../gl/pixel.h"
 #endif
@@ -1641,6 +1642,7 @@ void gl4es_glXSwapBuffers(Display* display, GLXDrawable drawable) {
     if (globals4es.usefbo && PBuffer == 0) {
         bindMainFBO();
     }
+    emesis_maybe_reclaim_compiler_memory();
 }
 
 void gl4es_SwapBuffers_currentContext() {

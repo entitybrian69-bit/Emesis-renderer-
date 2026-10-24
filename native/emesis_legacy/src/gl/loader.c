@@ -224,14 +224,6 @@ void* APIENTRY_GL4ES proc_address(void* lib, const char* name) {
         void* sym = gles_getProcAddress(name);
         if (is_external_driver_symbol(sym)) return sym;
     }
-    if (egl && lib != egl) {
-        typedef void* (*eglGetProc_fn)(const char*);
-        eglGetProc_fn egl_gp = (eglGetProc_fn)dlsym(egl, "eglGetProcAddress");
-        if (is_external_driver_symbol((const void*)egl_gp)) {
-            void* sym = egl_gp(name);
-            if (is_external_driver_symbol(sym)) return sym;
-        }
-    }
     return NULL;
 #else
     if (gles_getProcAddress) return gles_getProcAddress(name);

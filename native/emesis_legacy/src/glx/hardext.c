@@ -503,8 +503,20 @@ void GetHardwareExtensions(int notest) {
         if (!hardext.prgbinary) {
             S("GL_OES_get_program_binary ", prgbinary, 1);
         }
-        if (hardext.esversion >= 3) {
-            hardext.prgbinary = 1;
+        {
+            const char* force_pbin = getenv("EMESIS_ENABLE_PROGRAM_BINARY");
+            int allow_pbin = (force_pbin && force_pbin[0] == '1') ? 1 : 0;
+#if defined(__ANDROID__) || defined(ANDROID)
+            /* Android's EGL_ANDROID_blob_cache already caches linked programs transparently
+               without GL_PROGRAM_BINARY_RETRIEVABLE_HINT doubling Mali driver program RAM
+               or triggering Mali r32p1 glProgramBinary crashes. */
+            if (!allow_pbin) {
+                hardext.prgbinary = 0;
+                hardext.prgbin_n = 0;
+            }
+#else
+            (void)allow_pbin;
+#endif
         }
         if (hardext.prgbinary) {
             gles_glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS_OES, &hardext.prgbin_n);
@@ -567,10 +579,15 @@ void GetHardwareExtensions(int notest) {
     }
     // get GLES driver signatures...
     const char* vendor = (const char*)gles_glGetString(GL_VENDOR);
-    SHUT_LOGD("Hardware vendor is %s", vendor);
-    if (strstr(vendor, "ARM"))
+    SHUT_LOGD("Hardware vendor is %s", vendor ? vendor : "(null)");
+    if (vendor && strstr(vendor, "ARM")) {
         hardext.vendor = VEND_ARM;
-    else if (strstr(vendor, "Imagination Technologies"))
+        const char* force_pbin = getenv("EMESIS_ENABLE_PROGRAM_BINARY");
+        if (!force_pbin || force_pbin[0] != '1') {
+            hardext.prgbinary = 0;
+            hardext.prgbin_n = 0;
+        }
+    } else if (vendor && strstr(vendor, "Imagination Technologies"))
         hardext.vendor = VEND_IMGTEC;
     if (hardext.esversion > 1) {
         if (testGLSL("#version 120", 1)) hardext.glsl120 = 1;

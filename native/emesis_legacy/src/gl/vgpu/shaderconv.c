@@ -609,8 +609,8 @@ char* ConvertShaderVgpu(struct shader_s* shader_source) {
     return source;
 }
 
-static const char* switch_template = " switch (%n%[^)] { ";
-static const char* case_template = " case %n%[^:] ";
+static const char* switch_template = " switch (%n%255[^)\r\n;{]) ";
+static const char* case_template = " case %n%255[^:\r\n;{]:";
 static const char* declaration_template = " const float %s = %s ;";
 
 #define VARIABLE_SIZE 1024
@@ -625,64 +625,94 @@ static const char* declaration_template = " const float %s = %s ;";
  * @return The shader as a string, converted appropriately, maybe in a different memory location
  */
 char* FindAndCorrect(char* source, int* length, int mode) {
-    const char* template = mode == MODE_SWITCH ? switch_template : mode == MODE_CASE ? case_template : NULL;
+    if (!source) return source;
+    const char* kw = (mode == MODE_SWITCH) ? "switch" : (mode == MODE_CASE) ? "case" : NULL;
+    const char* template = (mode == MODE_SWITCH) ? switch_template : (mode == MODE_CASE) ? case_template : NULL;
+    if (!kw || !template) return source;
+    size_t kwLen = strlen(kw);
+
     char* scan_source = source;
     char template_string[VARIABLE_SIZE];
-    size_t string_offset;
-    size_t offset = 0;
-    unsigned char rewind = 0;
-    while (1) {
-        int scan_result = sscanf(scan_source, template, &string_offset, &template_string);
-        if (scan_result == 0) {
+    while (*scan_source != '\0') {
+        // Skip single-line comments
+        if (scan_source[0] == '/' && scan_source[1] == '/') {
+            scan_source += 2;
+            while (*scan_source != '\0' && *scan_source != '\n') scan_source++;
+            continue;
+        }
+        // Skip block comments
+        if (scan_source[0] == '/' && scan_source[1] == '*') {
+            scan_source += 2;
+            while (*scan_source != '\0' && !(scan_source[0] == '*' && scan_source[1] == '/')) scan_source++;
+            if (*scan_source != '\0') scan_source += 2;
+            continue;
+        }
+        if (strncmp(scan_source, kw, kwLen) != 0 ||
+            (scan_source != source && isValidFunctionName(scan_source[-1])) ||
+            isValidFunctionName(scan_source[kwLen])) {
             scan_source++;
             continue;
-        } else if (scan_result == EOF) {
-            break;
         }
-        offset = string_offset + (strstr(scan_source, mode == MODE_SWITCH ? "{"
-                                                      : mode == MODE_CASE ? ":"
-                                                                          : 0) -
-                                  scan_source);  // find it by hand cause sscanf has trouble with two %n operators
-        string_offset += (scan_source - source); // convert it from relative to scan to relative to base
-        if (mode == MODE_SWITCH && !strstr(template_string, "int(")) { // already cast to int, skip
+
+        int scan_offset_i = 0;
+        template_string[0] = '\0';
+        int scan_result = sscanf(scan_source, template, &scan_offset_i, template_string);
+        if (scan_result <= 0 || template_string[0] == '\0') {
+            scan_source += kwLen;
+            continue;
+        }
+        const char* delim_str = (mode == MODE_SWITCH) ? "{" : ":";
+        const char* delim = strstr(scan_source + scan_offset_i, delim_str);
+        if (!delim) {
+            scan_source += kwLen;
+            continue;
+        }
+        size_t offset = (size_t)(delim - scan_source) + 1;
+        size_t string_offset = (size_t)(scan_source - source) + (size_t)scan_offset_i;
+        unsigned char rewind = 0;
+
+        if (mode == MODE_SWITCH && !strstr(template_string, "int(")) {
             size_t insert_end_offset = string_offset + strlen(template_string);
-            source = InplaceInsertByIndex(source, length, insert_end_offset, ")");
-            source = InplaceInsertByIndex(source, length, string_offset, "int(");
+            source = InplaceInsertByIndex(source, length, (int)insert_end_offset, ")");
+            source = InplaceInsertByIndex(source, length, (int)string_offset, "int(");
+            if (!source) return NULL;
             rewind = 1;
-        }
-        if (mode == MODE_CASE) {
-            if (!isdigit(template_string[0])) { // cant have a number without the first digit, and the standard doesnt
-                                                // permit variable names starting with numbers
+        } else if (mode == MODE_CASE) {
+            const char* ts = template_string;
+            while (*ts == ' ' || *ts == '\t') ts++;
+            if (*ts == '-' || *ts == '+') ts++;
+            if (!isdigit((unsigned char)ts[0]) &&
+                (isalpha((unsigned char)template_string[0]) || template_string[0] == '_')) {
                 char decltemplate_formatted[VARIABLE_SIZE];
-                float declared_value = 99;
+                float declared_value = 0.0f;
+                int found_decl = 0;
                 snprintf(decltemplate_formatted, VARIABLE_SIZE, declaration_template, template_string, "%f");
-                DBGLOGD("Scanning with template %s\n", decltemplate_formatted);
                 char* scanbase = source;
-                while (1) {
-                    int result = sscanf(scanbase, decltemplate_formatted, &declared_value);
-                    if (result == 0) {
-                        scanbase++;
-                        continue;
-                    } else if (result == EOF) {
-                        DBGLOGD("Scanned the whole shader and didn't find declaration for %s with template \"%s\"\n",
-                                template_string, decltemplate_formatted);
-                        abort();
+                while ((scanbase = strstr(scanbase, template_string)) != NULL) {
+                    const char* line_start = scanbase;
+                    while (line_start > source && line_start[-1] != '\n' && line_start[-1] != ';') line_start--;
+                    if (sscanf(line_start, decltemplate_formatted, &declared_value) == 1) {
+                        found_decl = 1;
+                        break;
                     }
-                    break;
+                    scanbase += strlen(template_string);
                 }
-                char integer[VARIABLE_SIZE];
-                snprintf(integer, VARIABLE_SIZE, "%i", (int)declared_value);
-                size_t replace_end_offset = string_offset + strlen(template_string) - 1;
-                source = InplaceReplaceByIndex(source, length, string_offset, replace_end_offset, integer);
-                rewind = 1;
+                if (found_decl) {
+                    char integer[64];
+                    snprintf(integer, sizeof(integer), "%i", (int)declared_value);
+                    size_t replace_end_offset = string_offset + strlen(template_string) - 1;
+                    source = InplaceReplaceByIndex(source, length, (int)string_offset, (int)replace_end_offset, integer);
+                    if (!source) return NULL;
+                    rewind = 1;
+                }
             }
         }
         if (rewind) {
-            scan_source = source; // since inplace replacement operations are destructive, the scan will be rewound
-                                  // after doing them
-            rewind = 0;
-        } else
-            scan_source += offset;
+            scan_source = source;
+        } else {
+            size_t rem = strlen(scan_source);
+            scan_source += (offset <= rem) ? offset : rem;
+        }
     }
     return source;
 }
@@ -695,6 +725,7 @@ char* FindAndCorrect(char* source, int* length, int mode) {
  */
 
 char* ProcessSwitchCases(char* source, int* length) {
+    if (!source || !strstr(source, "switch")) return source;
     source = FindAndCorrect(source, length, MODE_SWITCH);
     source = FindAndCorrect(source, length, MODE_CASE);
     return source;
@@ -997,11 +1028,12 @@ char* WrapFunction(char* source, int* sourceLength, char* functionName, char* wr
  * @return The shader as a string, maybe in a different memory location
  */
 char* ReplaceModOperator(char* source, int* sourceLength) {
+    if (!source) return source;
     char* modelString = " mod(x, y) ";
-    int startIndex, endIndex = 0;
+    int startIndex = 0, endIndex = 0;
     int *startPtr = &startIndex, *endPtr = &endIndex;
 
-    for (int i = 0; i < *sourceLength; ++i) {
+    for (int i = 0; source[i] != '\0'; ++i) {
         if (source[i] != '%') continue;
         // A mod operator is found !
         char* leftOperand = GetOperandFromOperator(source, i, 0, startPtr);
@@ -1010,7 +1042,7 @@ char* ReplaceModOperator(char* source, int* sourceLength) {
         // Generate a model string to be inserted
         char* replacementString = malloc(strlen(modelString) + 1);
         strcpy(replacementString, modelString);
-        int replacementSize = strlen(replacementString);
+        int replacementSize = (int)strlen(replacementString) + 1;
         replacementString = InplaceReplace(replacementString, &replacementSize, "x", leftOperand);
         replacementString = InplaceReplace(replacementString, &replacementSize, "y", rightOperand);
 
@@ -1021,6 +1053,7 @@ char* ReplaceModOperator(char* source, int* sourceLength) {
         free(leftOperand);
         free(rightOperand);
         free(replacementString);
+        if (!source) break;
     }
 
     return source;
@@ -1055,7 +1088,7 @@ char* CoerceIntToFloat(char* source, int* sourceLength) {
 
     // Step 3 is slower.
     // We need to parse hardcoded values like 1 and turn it into 1.(0)
-    for (int i = 0; i < *sourceLength; ++i) {
+    for (int i = 0; source && source[i] != '\0'; ++i) {
 
         // Avoid version/line directives
         if (source[i] == '#' && (source[i + 1] == 'v' || source[i + 1] == 'l')) {
@@ -1063,31 +1096,32 @@ char* CoerceIntToFloat(char* source, int* sourceLength) {
             while (source[i] != '\n' && source[i] != '\0') {
                 i++;
             }
+            if (source[i] == '\0') break;
         }
 
         if (!isDigit(source[i])) {
             continue;
         }
-        // So there is a few situations that we have to distinguish:
-        // functionName1 (      ----- meaning there is SOMETHING on its left side that is related to the number
-        // function(1,          ----- there is something, and it ISN'T related to the number
-        // float test=3;        ----- something on both sides, not related to the number.
-        // float test=X.2       ----- There is a dot, so it is part of a float already
-        // float test = 0.00000 ----- I have to backtrack to find the dot
-
-        if (source[i - 1] == '.' || source[i + 1] == '.') continue; // Number part of a float
-        if (isValidFunctionName(source[i - 1])) continue;           // Char attached to something related
-        if (isDigit(source[i + 1])) continue;                       // End of number not reached
-        if (isDigit(source[i - 1])) {
+        char prev = (i > 0) ? source[i - 1] : ' ';
+        char next = source[i + 1];
+        if (prev == '.' || next == '.') continue; // Number part of a float
+        if (isValidFunctionName(prev)) continue;  // Char attached to something related
+        if (isDigit(next)) continue;              // End of number not reached
+        if (isDigit(prev)) {
             // Backtrack to check if the number is floating point
-            int shouldBeCoerced = 0;
-            for (int j = 1; 1; ++j) {
-                if (isDigit(source[i - j])) continue;
-                if (isValidFunctionName(source[i - j])) break; // Function or variable name, don't coerce
-                if (source[i - j] == '.' || ((source[i - j] == '+' || source[i - j] == '-') &&
-                                             (source[i - j - 1] == 'e' || source[i - j - 1] == 'E')))
-                    break; // No coercion, float or scientific notation already
-                // Nothing found, should be coerced then
+            int shouldBeCoerced = 1;
+            for (int j = 1; j <= i; ++j) {
+                char back = source[i - j];
+                if (isDigit(back)) continue;
+                if (isValidFunctionName(back)) {
+                    shouldBeCoerced = 0; // Function or variable name, don't coerce
+                    break;
+                }
+                if (back == '.' || ((back == '+' || back == '-') && (i - j >= 1) &&
+                                    (source[i - j - 1] == 'e' || source[i - j - 1] == 'E'))) {
+                    shouldBeCoerced = 0; // Float or scientific notation already
+                    break;
+                }
                 shouldBeCoerced = 1;
                 break;
             }
@@ -1097,6 +1131,8 @@ char* CoerceIntToFloat(char* source, int* sourceLength) {
 
         // Now we know there is nothing related to the digit, turn it into a float
         source = InplaceInsertByIndex(source, sourceLength, i + 1, ".0");
+        if (!source) break;
+        i += 2;
     }
 
     // TODO Hacks for special built in values and typecasts ?
@@ -1114,14 +1150,14 @@ char* ForceIntegerArrayAccess(char* source, int* sourceLength) {
     char* markerEnd = "`";
 
     // Step 1, we need to mark all [] that are empty and must not be changed
-    int leftCharIndex = 0;
-    for (int i = 0; i < *sourceLength; ++i) {
+    int leftCharIndex = -1;
+    for (int i = 0; source && source[i] != '\0'; ++i) {
         if (source[i] == '[') {
             leftCharIndex = i;
             continue;
         }
         // If a start has been found
-        if (leftCharIndex) {
+        if (leftCharIndex >= 0) {
             if (source[i] == ' ' || source[i] == '\n') {
                 continue;
             }
@@ -1132,7 +1168,7 @@ char* ForceIntegerArrayAccess(char* source, int* sourceLength) {
             }
         }
         // Something else is there, abort the marking phase for this one
-        leftCharIndex = 0;
+        leftCharIndex = -1;
     }
 
     // Step 2, replace the array accesses with a forced typecast version
@@ -1653,7 +1689,7 @@ char* ReplaceVariableName(char* source, int* sourceLength, char* initialName, ch
         memcpy(dst, cur, tail);
         dst += tail;
     }
-    *dst = '\0';
+    memset(dst, 0, (size_t)allocCap - (size_t)(dst - out));
     free(source);
     *sourceLength = allocCap;
     return out;
@@ -1733,7 +1769,7 @@ char* ReplaceFunctionName(char* source, int* sourceLength, char* initialName, ch
         memcpy(dst, cur, tail);
         dst += tail;
     }
-    *dst = '\0';
+    memset(dst, 0, (size_t)allocCap - (size_t)(dst - out));
     free(source);
     *sourceLength = allocCap;
     return out;
@@ -1746,7 +1782,7 @@ char* RemoveConstInsideBlocks(char* source, int* sourceLength) {
     char* keyword = "const \0";
     int keywordLength = strlen(keyword);
 
-    for (int i = 0; i < *sourceLength + 1; ++i) {
+    for (int i = 0; source && source[i] != '\0'; ++i) {
         // Step 1, look for a block
         if (source[i] == '{') {
             insideBlock += 1;

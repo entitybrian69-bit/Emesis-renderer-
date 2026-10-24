@@ -26,6 +26,7 @@
 #include "buffers.h"
 #include "logs.h"
 #include "config.h"
+#include "shader_cache.h"
 
 #ifdef _WIN32
 #ifdef _WINBASE_
@@ -1208,6 +1209,8 @@ AliasExport(void, glColorMask, , (GLboolean red, GLboolean green, GLboolean blue
 
 void APIENTRY_GL4ES gl4es_glClear(GLbitfield mask) {
     PUSH_IF_COMPILING(glClear);
+
+    emesis_maybe_reclaim_compiler_memory();
 
     mask &= GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
     LOAD_GLES(glClear);

@@ -150,6 +150,7 @@ void ensure_shader_gles_compiled(shader_t* glshader) {
         }
         gles_glCompileShader(glshader->id);
         glshader->gles_compiled = 1;
+        emesis_note_shader_compiler_activity();
         errorGL();
         {
             LOAD_GLES2(glGetShaderiv);
@@ -831,6 +832,7 @@ static void translate_shader_with_cache(shader_t* glshader) {
     }
 
     int returnCode = -1;
+    emesis_note_shader_compiler_activity();
     char* result = GLSLtoGLSLES_c(work, glshader->type, (unsigned int)target_es,
                                   (unsigned int)(glsl_version > 0 ? glsl_version : 120), &returnCode);
     free(work);
@@ -1162,6 +1164,8 @@ void APIENTRY_GL4ES gl4es_glShaderBinary(GLsizei count, const GLuint* shaders, G
 }
 
 void APIENTRY_GL4ES gl4es_glReleaseShaderCompiler(void) {
+    emesis_note_shader_compiler_activity();
+    emesis_maybe_reclaim_compiler_memory();
     LOAD_GLES2(glReleaseShaderCompiler);
     if (gles_glReleaseShaderCompiler) {
         gles_glReleaseShaderCompiler();

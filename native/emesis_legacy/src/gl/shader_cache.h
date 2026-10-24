@@ -48,6 +48,9 @@ void emesis_program_cache_store(GLuint gl_program_id,
                                 const char* comp_essl,
                                 const char* attrib_bindings_sig);
 
+void emesis_note_shader_compiler_activity(void);
+void emesis_maybe_reclaim_compiler_memory(void);
+
 #ifdef __cplusplus
 }
 #endif
