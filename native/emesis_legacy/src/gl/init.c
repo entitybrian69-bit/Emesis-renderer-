@@ -786,8 +786,9 @@ void initialize_gl4es() {
 #endif
             if (strlen(cwd)) {
                 strcat(cwd, ".emesis_fpe.psa");
-                fpe_InitPSA(cwd);
-                fpe_readPSA();
+                /* Legacy PSA is superseded by Emesis .es1/.ep1 driver-fingerprinted shader & program binary caches,
+                   which serialize program binaries safely before post-link glDetachShader. Purge any stale PSA file. */
+                (void)unlink(cwd);
             }
         }
     } else

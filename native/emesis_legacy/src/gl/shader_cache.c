@@ -17,8 +17,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define EMESIS_SC_SCHEMA_VERSION 0x454D534300010009ULL /* EMSC v1.9 */
-#define EMESIS_PC_SCHEMA_VERSION 0x454D504200010009ULL /* EMPB v1.9 */
+#define EMESIS_SC_SCHEMA_VERSION 0x454D53430001000AULL /* EMSC v1.10 */
+#define EMESIS_PC_SCHEMA_VERSION 0x454D50420001000AULL /* EMPB v1.10 */
 
 #define EMESIS_SC_MAGIC 0x43534D45U /* 'EMSC' */
 #define EMESIS_PC_MAGIC 0x42504D45U /* 'EMPB' */
@@ -580,11 +580,12 @@ int emesis_program_cache_try_load(GLuint gl_program_id,
         if (mem_bin) {
             while (gles_glGetError() != GL_NO_ERROR) {}
             fn_prog_bin(gl_program_id, mem_fmt, mem_bin, (GLsizei)mem_len);
+            GLenum bin_err = gles_glGetError();
             free(mem_bin);
             GLint linked = 0;
             gles_glGetProgramiv(gl_program_id, GL_LINK_STATUS, &linked);
             while (gles_glGetError() != GL_NO_ERROR) {}
-            if (linked) return 1;
+            if (bin_err == GL_NO_ERROR && linked == GL_TRUE) return 1;
             pthread_mutex_lock(&g_cache_mutex);
             if (pe->valid && pe->key.h1 == key.h1 && pe->key.h2 == key.h2) {
                 free(pe->binary);
@@ -627,11 +628,12 @@ int emesis_program_cache_try_load(GLuint gl_program_id,
 
     while (gles_glGetError() != GL_NO_ERROR) {}
     fn_prog_bin(gl_program_id, (GLenum)fmt, binary, (GLsizei)bin_len);
+    GLenum bin_err = gles_glGetError();
 
     GLint linked = 0;
     gles_glGetProgramiv(gl_program_id, GL_LINK_STATUS, &linked);
     while (gles_glGetError() != GL_NO_ERROR) {}
-    if (!linked) {
+    if (bin_err != GL_NO_ERROR || linked != GL_TRUE) {
         free(binary);
         /* Driver updated or rejected binary; purge stale cache file so fresh link replaces it */
         unlink(path);

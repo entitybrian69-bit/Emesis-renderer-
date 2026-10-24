@@ -1,4 +1,11 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "loader.h"
+#ifndef _WIN32
+#include <dlfcn.h>
+#include <string.h>
+#endif
 
 void(APIENTRY_GL4ES* gl4es_getMainFBSize)(GLint* width, GLint* height);
 
@@ -183,20 +190,51 @@ void load_libs() {
 // user-defined getProcAddress
 void*(APIENTRY_GL4ES* gles_getProcAddress)(const char* name);
 
+static int is_external_driver_symbol(const void* cand) {
+    if (!cand) return 0;
+#ifndef _WIN32
+    Dl_info self_info, cand_info;
+    if (dladdr((const void*)is_external_driver_symbol, &self_info) && dladdr(cand, &cand_info)) {
+        if (cand_info.dli_fbase && cand_info.dli_fbase == self_info.dli_fbase) return 0;
+        if (cand_info.dli_fname && strstr(cand_info.dli_fname, "emesis") != NULL) return 0;
+    }
+#endif
+    return 1;
+}
+
 void* APIENTRY_GL4ES proc_address(void* lib, const char* name) {
-    if (gles_getProcAddress) return gles_getProcAddress(name);
+    if (!name) return NULL;
 #ifdef AMIGAOS4
     return os4GetProcAddress(name);
 #elif defined __EMSCRIPTEN__
     void* emscripten_GetProcAddress(const char* name);
     return emscripten_GetProcAddress(name);
 #elif defined __APPLE__
-    // apple code seems to use RTLD_NEXT which is usually ((void*)-1)
-    // remove if it not needed
     return dlsym((void*)(~(uintptr_t)0), name);
 #elif !defined NO_LOADER
-    return dlsym(lib, name);
+    /* Prefer direct symbol lookup from the target driver library (libGLESv2 / libEGL) first
+       so launcher-supplied gles_getProcAddress callbacks cannot hijack backend symbols back into Emesis */
+    if (lib) {
+        void* sym = dlsym(lib, name);
+        if (is_external_driver_symbol(sym)) return sym;
+    }
+    if (gles_getProcAddress && !is_external_driver_symbol((const void*)gles_getProcAddress)) {
+        /* Never call a self-pointing getProcAddress callback */
+    } else if (gles_getProcAddress) {
+        void* sym = gles_getProcAddress(name);
+        if (is_external_driver_symbol(sym)) return sym;
+    }
+    if (egl && lib != egl) {
+        typedef void* (*eglGetProc_fn)(const char*);
+        eglGetProc_fn egl_gp = (eglGetProc_fn)dlsym(egl, "eglGetProcAddress");
+        if (is_external_driver_symbol((const void*)egl_gp)) {
+            void* sym = egl_gp(name);
+            if (is_external_driver_symbol(sym)) return sym;
+        }
+    }
+    return NULL;
 #else
+    if (gles_getProcAddress) return gles_getProcAddress(name);
     return NULL;
 #endif
 }

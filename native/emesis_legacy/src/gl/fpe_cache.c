@@ -274,6 +274,7 @@ void fpe_AddProgramPSA(GLuint program, fpe_state_t* state) {
         free(p2->prog);
         p2->prog = NULL;
         free(p2);
+        kh_key(psa->cache, k) = &p->state;
     }
     kh_value(psa->cache, k) = p;
     // all done

@@ -1,3 +1,6 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "shader.h"
 
 #include "../glx/hardext.h"
@@ -174,9 +177,9 @@ void APIENTRY_GL4ES gl4es_glCompileShader(GLuint shader) {
     CHECK_SHADER(void, shader)
 
     glshader->compiled = 1;
-    /* Defer GLES driver AST/IR compilation for validated translated shaders until glLinkProgram
-       misses the .ep1 program binary cache; compile raw/direct shaders immediately for status checks */
-    if (!glshader->converted || (glshader->source && is_direct_shader(glshader->source))) {
+    /* Defer GLES driver AST/IR compilation for all valid shaders until glLinkProgram
+       misses the .ep1 program binary cache; compile failed-translation shaders immediately for error logs */
+    if (!glshader->converted) {
         ensure_shader_gles_compiled(glshader);
     } else {
         noerrorShim();
@@ -936,10 +939,10 @@ void APIENTRY_GL4ES gl4es_glShaderSource(GLuint shader, GLsizei count, const GLc
             translate_shader_with_cache(glshader);
         }
 
-        if (direct || !glshader->converted) {
-            GLchar* finalSource = (glshader->converted) ? glshader->converted : glshader->source;
+        if (!glshader->converted) {
+            GLchar* finalSource = glshader->source;
             const GLchar* sources[] = {finalSource};
-            gles_glShaderSource(shader, 1, sources, NULL);
+            gles_glShaderSource(glshader->id, 1, sources, NULL);
             errorGL();
         } else {
             noerrorShim();
