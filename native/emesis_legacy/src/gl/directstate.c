@@ -500,6 +500,10 @@ void APIENTRY_GL4ES gl4es_glGetPointerIndexedv(GLenum pname, GLuint index, GLvoi
 
 void APIENTRY_GL4ES gl4es_glEnableIndexed(GLenum cap, GLuint index) {
     DBG(SHUT_LOGD("glEnableIndexed(%s, %d)\n", PrintEnum(cap), index);)
+    if (cap == GL_BLEND || cap == GL_SCISSOR_TEST) {
+        gl4es_glEnablei(cap, index);
+        return;
+    }
     int old = glstate->texture.active;
     if(old!=index) gl4es_glActiveTexture(index+GL_TEXTURE0);
     gl4es_glEnable(cap);
@@ -508,6 +512,10 @@ void APIENTRY_GL4ES gl4es_glEnableIndexed(GLenum cap, GLuint index) {
 
 void APIENTRY_GL4ES gl4es_glDisableIndexed(GLenum cap, GLuint index) {
     DBG(SHUT_LOGD("glDisableIndexed(%s, %d)\n", PrintEnum(cap), index);)
+    if (cap == GL_BLEND || cap == GL_SCISSOR_TEST) {
+        gl4es_glDisablei(cap, index);
+        return;
+    }
     int old = glstate->texture.active;
     if(old!=index) gl4es_glActiveTexture(index+GL_TEXTURE0);
     gl4es_glDisable(cap);
@@ -516,6 +524,9 @@ void APIENTRY_GL4ES gl4es_glDisableIndexed(GLenum cap, GLuint index) {
 
 GLboolean APIENTRY_GL4ES gl4es_glIsEnabledIndexed(GLenum cap, GLuint index) {
     DBG(SHUT_LOGD("glIsEnabledIndexed(%s, %d)\n", PrintEnum(cap), index);)
+    if (cap == GL_BLEND || cap == GL_SCISSOR_TEST) {
+        return gl4es_glIsEnabledi(cap, index);
+    }
     int old;
     GLboolean rv;
     switch(cap) {

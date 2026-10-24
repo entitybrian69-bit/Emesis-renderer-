@@ -481,6 +481,12 @@ static char* inject_main_body_init(char* src, int* tmpsize, const char* stmt) {
 
 char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderconv_need_t* need,
                                        int doInsertDefinitions) {
+    static shaderconv_need_t s_dummy_need = {0};
+    if (!need) {
+        s_dummy_need.need_texcoord = -1;
+        s_dummy_need.need_clean = 1;
+        need = &s_dummy_need;
+    }
     size_t entryLen = strlen(pEntry);
     int tmpsize = (int)(entryLen * 2 + 1024);
     char* Tmp = (char*)calloc(1, tmpsize);
@@ -1191,10 +1197,9 @@ char* ConvertShader(const char* pEntry, int isVertex, shaderconv_need_t* need, i
     int wanthighp = !fpeShader;
     if (wanthighp && !hardext.highp) wanthighp = 0;
     int versionHeader = 0;
-    printf("version string: %s", versionString);
-    if (versionString && (strcmp(versionString, "120") == 0 || strcmp(versionString, "110") == 0 ||
-                          strstr(versionString, "150") != NULL))
-        version120 = forwardPort ? 1 : 0;
+    if (forwardPort && (versionString || hardext.esversion >= 3)) {
+        version120 = 1;
+    }
     if (version120) {
         if (hardext.glsl120)
             versionHeader = 1;

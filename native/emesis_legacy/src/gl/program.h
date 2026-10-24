@@ -117,6 +117,13 @@ typedef struct {
     int cache_size;        // this is GLsizeof(type)*size
     uintptr_t parent_offs; // in case the uniform is from a fpe custom program
     int parent_size;       // 0 means not found in parent... like for builtin
+    void* parent_uniform;  // uniform_t* in father program for generation-stamped sync
+    uint32_t last_mod_gen;
+    uint16_t pending_elems;
+    uint8_t pending_upload;
+    uint8_t app_set;
+    uint8_t sm_source_id;
+    uint8_t sm_custom_id;
 } uniform_t;
 
 KHASH_MAP_DECLARE_INT(uniformlist, uniform_t*);
@@ -293,6 +300,13 @@ typedef struct {
     uint32_t synced_parent_gen;
     uniform_t** parent_sync_list;
     int parent_sync_count;
+    uniform_t** pending_list;
+    int pending_count;
+    int pending_cap;
+    uniform_t** custom_uniforms;
+    int custom_uniform_count;
+    uint32_t synced_sm_gen;
+    int gles_attached;
 } program_t;
 
 KHASH_MAP_DECLARE_INT(programlist, program_t*);
@@ -352,6 +366,7 @@ void GoUniformuiv(program_t* glprogram, GLint location, int size, int count, con
 void GoUniformMatrix2fv(program_t* glprogram, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
 void GoUniformMatrix3fv(program_t* glprogram, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
 void GoUniformMatrix4fv(program_t* glprogram, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void flush_pending_uniforms(program_t* glprogram);
 int GetUniformi(program_t* glprogram, GLint location);
 const char* GetUniformName(program_t* glprogram, GLint location);
 

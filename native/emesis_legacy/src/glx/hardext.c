@@ -503,6 +503,9 @@ void GetHardwareExtensions(int notest) {
         if (!hardext.prgbinary) {
             S("GL_OES_get_program_binary ", prgbinary, 1);
         }
+        if (hardext.esversion >= 3) {
+            hardext.prgbinary = 1;
+        }
         if (hardext.prgbinary) {
             gles_glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS_OES, &hardext.prgbin_n);
             if (gles_glGetError() != GL_NO_ERROR) hardext.prgbin_n = 0;

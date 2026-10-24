@@ -164,7 +164,11 @@ void* APIENTRY_GL4ES gl4es_GetProcAddress(const char* name) {
         _EXT(glClearNamedFramebufferfv)
         _EXT(glClearNamedFramebufferfi)
 
-        // draw_buffer_2 (partial)
+        // draw_buffer_2 / OpenGL 3.0+ indexed enable & color mask
+        _EX(glEnablei);
+        _EX(glDisablei);
+        _EX(glIsEnabledi);
+        _EX(glColorMaski);
         _EXT(glColorMaskIndexed)
     }
 
@@ -291,6 +295,9 @@ void* APIENTRY_GL4ES gl4es_GetProcAddress(const char* name) {
     if(hardext.blendeq) {
         _EXT(glBlendEquationSeparate);
         _ARB(glBlendEquationSeparate);
+        _EX(glBlendEquationi);
+        _EXT(glBlendEquationi);
+        _ARB(glBlendEquationi);
         _EX(glBlendEquationSeparatei);
         _EXT(glBlendEquationSeparatei);
         _ARB(glBlendEquationSeparatei);
@@ -298,6 +305,9 @@ void* APIENTRY_GL4ES gl4es_GetProcAddress(const char* name) {
     if(hardext.blendfunc) {
         _EXT(glBlendFuncSeparate);
         _ARB(glBlendFuncSeparate);
+        _EX(glBlendFunci);
+        _EXT(glBlendFunci);
+        _ARB(glBlendFunci);
         _EX(glBlendFuncSeparatei);
         _EXT(glBlendFuncSeparatei);
         _ARB(glBlendFuncSeparatei);

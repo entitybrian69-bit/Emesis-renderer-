@@ -112,7 +112,9 @@ int adjust_vertices(GLenum mode, int nb) {
     t.real_buffer = (glstate->vao->vertex) ? glstate->vao->vertex->real_buffer : 0;                                    \
     t.real_pointer = (glstate->vao->vertex) ? pointer : 0;                                                             \
     t.normalized = n;                                                                                                  \
-    t.divisor = 0
+    t.divisor = 0;                                                                                                     \
+    t.buffer = glstate->vao->vertex;                                                                                   \
+    t.integer = 0
 #define break_lockarrays(t)                                                                                            \
     if (glstate->vao->vertexattrib[t].real_buffer && glstate->vao->locked_mapped[t]) {                                 \
         glstate->vao->vertexattrib[t].real_buffer = 0;                                                                 \
@@ -1274,7 +1276,7 @@ void gl4es_use_scratch_indices(int use) {
     bindBuffer(GL_ELEMENT_ARRAY_BUFFER, use ? glstate->scratch_indices : 0);
 }
 
-void gl4es_glVertexP2ui(GLuint p1, GLuint p2) __attribute__((visibility("default"))) {
+__attribute__((visibility("default"))) void gl4es_glVertexP2ui(GLuint p1, GLuint p2) {
     if (glstate->list.active) {
         rlVertexP2ui(glstate->list.active, p1, p2);
         noerrorShimNoPurge();
@@ -1285,7 +1287,7 @@ void gl4es_glVertexP2ui(GLuint p1, GLuint p2) __attribute__((visibility("default
 }
 AliasExport(void, glVertexP2ui, , (GLuint p1, GLuint p2));
 
-void gl4es_glVertexP3ui(GLuint p1, GLuint p2, GLuint p3) __attribute__((visibility("default"))) {
+__attribute__((visibility("default"))) void gl4es_glVertexP3ui(GLuint p1, GLuint p2, GLuint p3) {
     if (glstate->list.active) {
         rlVertexP3ui(glstate->list.active, p1, p2, p3);
         noerrorShimNoPurge();
@@ -1297,7 +1299,7 @@ void gl4es_glVertexP3ui(GLuint p1, GLuint p2, GLuint p3) __attribute__((visibili
 }
 AliasExport(void, glVertexP3ui, , (GLuint p1, GLuint p2, GLuint p3));
 
-void gl4es_glVertexP4ui(GLuint p1, GLuint p2, GLuint p3, GLuint p4) __attribute__((visibility("default"))) {
+__attribute__((visibility("default"))) void gl4es_glVertexP4ui(GLuint p1, GLuint p2, GLuint p3, GLuint p4) {
     if (glstate->list.active) {
         rlVertexP4ui(glstate->list.active, p1, p2, p3, p4);
         noerrorShimNoPurge();
@@ -1310,7 +1312,7 @@ void gl4es_glVertexP4ui(GLuint p1, GLuint p2, GLuint p3, GLuint p4) __attribute_
 }
 AliasExport(void, glVertexP4ui, , (GLuint p1, GLuint p2, GLuint p3, GLuint p4));
 
-void gl4es_glVertexP2uiv(GLuint* p) __attribute__((visibility("default"))) {
+__attribute__((visibility("default"))) void gl4es_glVertexP2uiv(GLuint* p) {
     if (glstate->list.active) {
         rlVertexP2uiv(glstate->list.active, p);
         noerrorShimNoPurge();
@@ -1321,7 +1323,7 @@ void gl4es_glVertexP2uiv(GLuint* p) __attribute__((visibility("default"))) {
 }
 AliasExport(void, glVertexP2uiv, , (GLuint * p));
 
-void gl4es_glVertexP3uiv(GLuint* p) __attribute__((visibility("default"))) {
+__attribute__((visibility("default"))) void gl4es_glVertexP3uiv(GLuint* p) {
     if (glstate->list.active) {
         rlVertexP3uiv(glstate->list.active, p);
         noerrorShimNoPurge();
@@ -1333,7 +1335,7 @@ void gl4es_glVertexP3uiv(GLuint* p) __attribute__((visibility("default"))) {
 }
 AliasExport(void, glVertexP3uiv, , (GLuint * p));
 
-void gl4es_glVertexP4uiv(GLuint* p) __attribute__((visibility("default"))) {
+__attribute__((visibility("default"))) void gl4es_glVertexP4uiv(GLuint* p) {
     if (glstate->list.active) {
         rlVertexP4uiv(glstate->list.active, p);
         noerrorShimNoPurge();

@@ -5,6 +5,7 @@
 #include "glstate.h"
 #include "loader.h"
 #include "matvec.h"
+#include "shadermod_uniforms.h"
 #include "GL/gl.h"
 
 // #define DEBUG
@@ -247,6 +248,93 @@ void APIENTRY_GL4ES gl4es_glGetUniformuiv(GLuint program, GLint location, GLuint
     errorShim(GL_INVALID_VALUE);
 }
 
+static void queue_pending_uniform(program_t* glprogram, uniform_t* m, int count) {
+    if (!glprogram || !m || count <= 0) return;
+    if (count > m->size) count = m->size;
+    if ((uint16_t)count > m->pending_elems) {
+        m->pending_elems = (uint16_t)count;
+    }
+    if (!m->pending_upload) {
+        if (glprogram->pending_count >= glprogram->pending_cap) {
+            int new_cap = glprogram->pending_cap ? (glprogram->pending_cap * 2) : 32;
+            uniform_t** nl = (uniform_t**)realloc(glprogram->pending_list, (size_t)new_cap * sizeof(uniform_t*));
+            if (!nl) return;
+            glprogram->pending_list = nl;
+            glprogram->pending_cap = new_cap;
+        }
+        glprogram->pending_list[glprogram->pending_count++] = m;
+        m->pending_upload = 1;
+    }
+}
+
+void flush_pending_uniforms(program_t* glprogram) {
+    if (!glprogram || glprogram->pending_count <= 0 || !glprogram->pending_list || !glprogram->cache.cache) return;
+    LOAD_GLES2(glUniform1fv);
+    LOAD_GLES2(glUniform2fv);
+    LOAD_GLES2(glUniform3fv);
+    LOAD_GLES2(glUniform4fv);
+    LOAD_GLES2(glUniform1iv);
+    LOAD_GLES2(glUniform2iv);
+    LOAD_GLES2(glUniform3iv);
+    LOAD_GLES2(glUniform4iv);
+    LOAD_GLES2(glUniformMatrix2fv);
+    LOAD_GLES2(glUniformMatrix3fv);
+    LOAD_GLES2(glUniformMatrix4fv);
+
+    int total = glprogram->pending_count;
+    glprogram->pending_count = 0;
+
+    for (int i = 0; i < total; ++i) {
+        uniform_t* m = glprogram->pending_list[i];
+        if (!m || !m->pending_upload) continue;
+        int count = (int)m->pending_elems;
+        if (count <= 0) count = 1;
+        if (count > m->size) count = m->size;
+        m->pending_upload = 0;
+        m->pending_elems = 0;
+
+        const void* ptr = (const void*)((const char*)glprogram->cache.cache + m->cache_offs);
+        if (m->type == GL_FLOAT_MAT2) {
+            if (gles_glUniformMatrix2fv) gles_glUniformMatrix2fv(m->id, count, GL_FALSE, (const GLfloat*)ptr);
+        } else if (m->type == GL_FLOAT_MAT3) {
+            if (gles_glUniformMatrix3fv) gles_glUniformMatrix3fv(m->id, count, GL_FALSE, (const GLfloat*)ptr);
+        } else if (m->type == GL_FLOAT_MAT4) {
+            if (gles_glUniformMatrix4fv) gles_glUniformMatrix4fv(m->id, count, GL_FALSE, (const GLfloat*)ptr);
+        } else if (is_uniform_float(m->type)) {
+            int sz = n_uniform(m->type);
+            if (gles_glUniform1fv) {
+                switch (sz) {
+                case 1: gles_glUniform1fv(m->id, count, (const GLfloat*)ptr); break;
+                case 2: gles_glUniform2fv(m->id, count, (const GLfloat*)ptr); break;
+                case 3: gles_glUniform3fv(m->id, count, (const GLfloat*)ptr); break;
+                case 4: gles_glUniform4fv(m->id, count, (const GLfloat*)ptr); break;
+                }
+            }
+        } else if (is_uniform_uint(m->type)) {
+            int sz = n_uniform(m->type);
+            ensure_uiv_pfns();
+            if (p_gles_glUniform1uiv) {
+                switch (sz) {
+                case 1: p_gles_glUniform1uiv(m->id, count, (const GLuint*)ptr); break;
+                case 2: if (p_gles_glUniform2uiv) p_gles_glUniform2uiv(m->id, count, (const GLuint*)ptr); break;
+                case 3: if (p_gles_glUniform3uiv) p_gles_glUniform3uiv(m->id, count, (const GLuint*)ptr); break;
+                case 4: if (p_gles_glUniform4uiv) p_gles_glUniform4uiv(m->id, count, (const GLuint*)ptr); break;
+                }
+            }
+        } else if (is_uniform_int(m->type)) {
+            int sz = n_uniform(m->type);
+            if (gles_glUniform1iv) {
+                switch (sz) {
+                case 1: gles_glUniform1iv(m->id, count, (const GLint*)ptr); break;
+                case 2: gles_glUniform2iv(m->id, count, (const GLint*)ptr); break;
+                case 3: gles_glUniform3iv(m->id, count, (const GLint*)ptr); break;
+                case 4: gles_glUniform4iv(m->id, count, (const GLint*)ptr); break;
+                }
+            }
+        }
+    }
+}
+
 void GoUniformfv(program_t* glprogram, GLint location, int size, int count, const GLfloat* value) {
     DBG(SHUT_LOGD("GoUniformfv(%p[%d], %d, %d, %d, %p) =>(%f...)\n", glprogram, glprogram->id, location, size, count,
                   value, value[0]);)
@@ -275,6 +363,12 @@ void GoUniformfv(program_t* glprogram, GLint location, int size, int count, cons
         noerrorShim();
         return;
     }
+    if (!g_emesis_internal_uniform_upload) {
+        m->app_set = 1;
+        if (m->sm_source_id) {
+            emesis_sm_observe_float(m->sm_source_id, size, count, value);
+        }
+    }
     // ok, check the value in the cache BEFORE switching active GLES program
     int rsize = sizeof(GLfloat) * size * count;
     if (memcmp((char*)glprogram->cache.cache + m->cache_offs, value, rsize) == 0) {
@@ -283,8 +377,17 @@ void GoUniformfv(program_t* glprogram, GLint location, int size, int count, cons
     }
     // update uniform
     memcpy((char*)glprogram->cache.cache + m->cache_offs, value, rsize);
-    glprogram->uniform_gen++;
+    m->last_mod_gen = ++glprogram->uniform_gen;
+    if (glstate->gleshard->program != glprogram->id && !glprogram->last_comp) {
+        queue_pending_uniform(glprogram, m, count);
+        noerrorShim();
+        return;
+    }
     APPLY_PROGRAM(glprogram->id, glprogram);
+    if (m->pending_upload && count >= (int)m->pending_elems) {
+        m->pending_upload = 0;
+        m->pending_elems = 0;
+    }
     LOAD_GLES2(glUniform1fv);
     LOAD_GLES2(glUniform2fv);
     LOAD_GLES2(glUniform3fv);
@@ -333,14 +436,26 @@ void GoUniformuiv(program_t* glprogram, GLint location, int size, int count, con
         noerrorShim();
         return;
     }
+    if (!g_emesis_internal_uniform_upload) {
+        m->app_set = 1;
+    }
     int rsize = sizeof(GLuint) * size * count;
     if (memcmp((char*)glprogram->cache.cache + m->cache_offs, value, rsize) == 0) {
         noerrorShim();
         return;
     }
     memcpy((char*)glprogram->cache.cache + m->cache_offs, value, rsize);
-    glprogram->uniform_gen++;
+    m->last_mod_gen = ++glprogram->uniform_gen;
+    if (glstate->gleshard->program != glprogram->id && !glprogram->last_comp) {
+        queue_pending_uniform(glprogram, m, count);
+        noerrorShim();
+        return;
+    }
     APPLY_PROGRAM(glprogram->id, glprogram);
+    if (m->pending_upload && count >= (int)m->pending_elems) {
+        m->pending_upload = 0;
+        m->pending_elems = 0;
+    }
     ensure_uiv_pfns();
     if (p_gles_glUniform1uiv) {
         switch (size) {
@@ -395,6 +510,12 @@ void GoUniformiv(program_t* glprogram, GLint location, int size, int count, cons
         noerrorShim();
         return;
     }
+    if (!g_emesis_internal_uniform_upload) {
+        m->app_set = 1;
+        if (m->sm_source_id) {
+            emesis_sm_observe_int(m->sm_source_id, size, count, value);
+        }
+    }
     // ok, check the value in the cache BEFORE switching active GLES program
     int rsize = sizeof(GLint) * size * count;
     if (memcmp((char*)glprogram->cache.cache + m->cache_offs, value, rsize) == 0) {
@@ -405,8 +526,17 @@ void GoUniformiv(program_t* glprogram, GLint location, int size, int count, cons
                   glprogram->cache.size, glprogram->cache.cap, (void*)m->cache_offs, rsize);)
     // update uniform
     memcpy((char*)glprogram->cache.cache + m->cache_offs, value, rsize);
-    glprogram->uniform_gen++;
+    m->last_mod_gen = ++glprogram->uniform_gen;
+    if (glstate->gleshard->program != glprogram->id && !glprogram->last_comp) {
+        queue_pending_uniform(glprogram, m, count);
+        noerrorShim();
+        return;
+    }
     APPLY_PROGRAM(glprogram->id, glprogram);
+    if (m->pending_upload && count >= (int)m->pending_elems) {
+        m->pending_upload = 0;
+        m->pending_elems = 0;
+    }
     LOAD_GLES2(glUniform1iv);
     LOAD_GLES2(glUniform2iv);
     LOAD_GLES2(glUniform3iv);
@@ -810,6 +940,9 @@ void GoUniformMatrix2fv(program_t* glprogram, GLint location, GLsizei count, GLb
                 for (int j = 0; j < 2; j++)
                     v[n * 2 * 2 + i * 2 + j] = value[n * 2 * 2 + i + j * 2];
     }
+    if (!g_emesis_internal_uniform_upload) {
+        m->app_set = 1;
+    }
     // ok, check the value in the cache BEFORE switching active GLES program
     int rsize = sizeof(GLfloat) * 2 * 2 * count;
     if (memcmp((char*)glprogram->cache.cache + m->cache_offs, v, rsize) == 0) {
@@ -819,8 +952,18 @@ void GoUniformMatrix2fv(program_t* glprogram, GLint location, GLsizei count, GLb
     }
     // update uniform
     memcpy((char*)glprogram->cache.cache + m->cache_offs, v, rsize);
-    glprogram->uniform_gen++;
+    m->last_mod_gen = ++glprogram->uniform_gen;
+    if (glstate->gleshard->program != glprogram->id && !glprogram->last_comp) {
+        queue_pending_uniform(glprogram, m, count);
+        if (heap_tmp) free(heap_tmp);
+        noerrorShim();
+        return;
+    }
     APPLY_PROGRAM(glprogram->id, glprogram);
+    if (m->pending_upload && count >= (int)m->pending_elems) {
+        m->pending_upload = 0;
+        m->pending_elems = 0;
+    }
     LOAD_GLES2(glUniformMatrix2fv);
     if (gles_glUniformMatrix2fv) {
         gles_glUniformMatrix2fv(m->id, count, GL_FALSE, v);
@@ -895,6 +1038,9 @@ void GoUniformMatrix3fv(program_t* glprogram, GLint location, GLsizei count, GLb
                 for (int j = 0; j < 3; j++)
                     v[n * 3 * 3 + i * 3 + j] = value[n * 3 * 3 + i + j * 3];
     }
+    if (!g_emesis_internal_uniform_upload) {
+        m->app_set = 1;
+    }
     // ok, check the value in the cache BEFORE switching active GLES program
     int rsize = sizeof(GLfloat) * 3 * 3 * count;
     if (memcmp((char*)glprogram->cache.cache + m->cache_offs, v, rsize) == 0) {
@@ -904,8 +1050,18 @@ void GoUniformMatrix3fv(program_t* glprogram, GLint location, GLsizei count, GLb
     }
     // update uniform
     memcpy((char*)glprogram->cache.cache + m->cache_offs, v, rsize);
-    glprogram->uniform_gen++;
+    m->last_mod_gen = ++glprogram->uniform_gen;
+    if (glstate->gleshard->program != glprogram->id && !glprogram->last_comp) {
+        queue_pending_uniform(glprogram, m, count);
+        if (heap_tmp) free(heap_tmp);
+        noerrorShim();
+        return;
+    }
     APPLY_PROGRAM(glprogram->id, glprogram);
+    if (m->pending_upload && count >= (int)m->pending_elems) {
+        m->pending_upload = 0;
+        m->pending_elems = 0;
+    }
     LOAD_GLES2(glUniformMatrix3fv);
     if (gles_glUniformMatrix3fv) {
         gles_glUniformMatrix3fv(m->id, count, GL_FALSE, v);
@@ -978,6 +1134,12 @@ void GoUniformMatrix4fv(program_t* glprogram, GLint location, GLsizei count, GLb
         for (int n = 0; n < count; n++)
             matrix_transpose(value + n * 4 * 4, v + n * 4 * 4);
     }
+    if (!g_emesis_internal_uniform_upload) {
+        m->app_set = 1;
+        if (m->sm_source_id) {
+            emesis_sm_observe_mat4(m->sm_source_id, count, v);
+        }
+    }
     // ok, check the value in the cache BEFORE switching active GLES program
     int rsize = sizeof(GLfloat) * 4 * 4 * count;
     if (memcmp((char*)glprogram->cache.cache + m->cache_offs, v, rsize) == 0) {
@@ -987,8 +1149,18 @@ void GoUniformMatrix4fv(program_t* glprogram, GLint location, GLsizei count, GLb
     }
     // update uniform
     memcpy((char*)glprogram->cache.cache + m->cache_offs, v, rsize);
-    glprogram->uniform_gen++;
+    m->last_mod_gen = ++glprogram->uniform_gen;
+    if (glstate->gleshard->program != glprogram->id && !glprogram->last_comp) {
+        queue_pending_uniform(glprogram, m, count);
+        if (heap_tmp) free(heap_tmp);
+        noerrorShim();
+        return;
+    }
     APPLY_PROGRAM(glprogram->id, glprogram);
+    if (m->pending_upload && count >= (int)m->pending_elems) {
+        m->pending_upload = 0;
+        m->pending_elems = 0;
+    }
     LOAD_GLES2(glUniformMatrix4fv);
     if (gles_glUniformMatrix4fv) {
         gles_glUniformMatrix4fv(m->id, count, GL_FALSE, v);

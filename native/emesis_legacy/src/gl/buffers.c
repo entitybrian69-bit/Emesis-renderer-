@@ -136,7 +136,7 @@ void APIENTRY_GL4ES gl4es_glGenBuffers(GLsizei n, GLuint* buffers) {
         khint_t k;
         int ret;
         k = kh_put(buff, list, b, &ret);
-        glbuffer_t* buff = kh_value(list, k) = malloc(sizeof(glbuffer_t));
+        glbuffer_t* buff = kh_value(list, k) = calloc(1, sizeof(glbuffer_t));
         buff->buffer = b;
         buff->type = 0; // no target for now
         buff->data = NULL;
@@ -172,7 +172,7 @@ void APIENTRY_GL4ES gl4es_glBindBuffer(GLenum target, GLuint buffer) {
         glbuffer_t* buff = NULL;
         if (k == kh_end(list)) {
             k = kh_put(buff, list, buffer, &ret);
-            buff = kh_value(list, k) = malloc(sizeof(glbuffer_t));
+            buff = kh_value(list, k) = calloc(1, sizeof(glbuffer_t));
             buff->buffer = buffer;
             buff->type = target;
             buff->data = NULL;
@@ -755,66 +755,80 @@ void APIENTRY_GL4ES gl4es_glFlushMappedBufferRange(GLenum target, GLintptr offse
         errorShim(GL_INVALID_OPERATION);
         return;
     }
-
-    // UBO FIX: Add GL_UNIFORM_BUFFER to the condition for flushing data.
-    if (buff->real_buffer &&
-        (target == GL_ARRAY_BUFFER || target == GL_ELEMENT_ARRAY_BUFFER || target == GL_UNIFORM_BUFFER ||
-         target == GL_COPY_WRITE_BUFFER || target == GL_COPY_READ_BUFFER || target == GL_TEXTURE_BUFFER ||
-         target == GL_PIXEL_PACK_BUFFER || target == GL_PIXEL_UNPACK_BUFFER || target == GL_DRAW_INDIRECT_BUFFER) &&
-        (buff->access & GL_MAP_WRITE_BIT_EXT)) {
-        LOAD_GLES(glBufferSubData);
-        bindBuffer(buff->type, buff->real_buffer);
-        gles_glBufferSubData(buff->type, buff->offset + offset, length,
-                             (void*)((uintptr_t)buff->data + buff->offset + offset));
+    if (offset < 0 || length < 0 || buff->offset + offset + length > buff->size) {
+        errorShim(GL_INVALID_VALUE);
+        return;
     }
 
-    if (buff->type == GL_COPY_READ_BUFFER) {
-        LOAD_GLES(glBufferSubData);
-        bindBuffer(buff->type, buff->real_buffer);
-        gles_glBufferSubData(buff->type, buff->offset + offset, length,
-                             (void*)((uintptr_t)buff->data + buff->offset + offset));
+    if (buff->real_buffer && buff->data && length > 0 && (buff->access & GL_MAP_WRITE_BIT_EXT)) {
+        GLenum flush_target = target ? target : buff->type;
+        if (flush_target == GL_ARRAY_BUFFER || flush_target == GL_ELEMENT_ARRAY_BUFFER ||
+            flush_target == GL_UNIFORM_BUFFER || flush_target == GL_COPY_WRITE_BUFFER ||
+            flush_target == GL_COPY_READ_BUFFER || flush_target == GL_TEXTURE_BUFFER ||
+            flush_target == GL_PIXEL_PACK_BUFFER || flush_target == GL_PIXEL_UNPACK_BUFFER ||
+            flush_target == GL_DRAW_INDIRECT_BUFFER) {
+            LOAD_GLES(glBufferSubData);
+            bindBuffer(flush_target, buff->real_buffer);
+            gles_glBufferSubData(flush_target, buff->offset + offset, length,
+                                 (void*)((uintptr_t)buff->data + buff->offset + offset));
+        }
     }
+    noerrorShim();
 }
 
 void APIENTRY_GL4ES gl4es_glCopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset,
                                               GLintptr writeOffset, GLsizeiptr size) {
     DBG(SHUT_LOGD("glCopyBufferSubData(%s, %s, %p, %p, %zd)\n", PrintEnum(readTarget), PrintEnum(writeTarget),
                   (void*)readOffset, (void*)writeOffset, size);)
+    if (!buffer_target(readTarget) || !buffer_target(writeTarget)) {
+        errorShim(GL_INVALID_ENUM);
+        return;
+    }
 
     glbuffer_t* readbuff = getbuffer_buffer(readTarget);
     glbuffer_t* writebuff = getbuffer_buffer(writeTarget);
 
     if (!readbuff || !writebuff) {
-        errorShim(GL_INVALID_VALUE);
-        return;
-    }
-
-    if ((writebuff->ranged && !(writebuff->access & GL_MAP_PERSISTENT_BIT)) && readTarget != GL_COPY_READ_BUFFER) {
         errorShim(GL_INVALID_OPERATION);
         return;
     }
-
-    memcpy((char*)writebuff->data + writeOffset, (char*)readbuff->data + readOffset, size);
-
-    if (writebuff->real_buffer &&
-        (writebuff->type == GL_ARRAY_BUFFER || writebuff->type == GL_ELEMENT_ARRAY_BUFFER ||
-         writebuff->type == GL_UNIFORM_BUFFER || writebuff->type == GL_COPY_WRITE_BUFFER ||
-         writebuff->type == GL_COPY_READ_BUFFER || writebuff->type == GL_TEXTURE_BUFFER ||
-         writebuff->type == GL_PIXEL_PACK_BUFFER || writebuff->type == GL_PIXEL_UNPACK_BUFFER ||
-         writebuff->type == GL_DRAW_INDIRECT_BUFFER) &&
-        writebuff->mapped && (writebuff->access == GL_WRITE_ONLY || writebuff->access == GL_READ_WRITE)) {
-        LOAD_GLES(glBufferSubData);
-        bindBuffer(writebuff->type, writebuff->real_buffer);
-        gles_glBufferSubData(writebuff->type, writeOffset, size, (char*)writebuff->data + writeOffset);
+    if (readOffset < 0 || writeOffset < 0 || size < 0 ||
+        readOffset + size > readbuff->size || writeOffset + size > writebuff->size) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+    if (readbuff == writebuff &&
+        (readOffset + size > writeOffset && writeOffset + size > readOffset)) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+    if (size == 0) {
+        noerrorShim();
+        return;
     }
 
-    if (readTarget == GL_COPY_READ_BUFFER) {
-        DBG(SHUT_LOGD("GL_ARRAY_BUFFER data: %p\nGL_COPY_READ_BUFFER data: %p\n",
-                      getbuffer_buffer(GL_ARRAY_BUFFER)->data, readbuff->data);)
-        LOAD_GLES(glBufferSubData);
-        glstate->vao->write = writebuff;
-        bindBuffer(writebuff->type, writebuff->real_buffer);
-        gles_glBufferSubData(writebuff->type, writeOffset, size, (char*)writebuff->data + writeOffset);
+    if (writebuff->data && readbuff->data) {
+        memmove((char*)writebuff->data + writeOffset, (char*)readbuff->data + readOffset, (size_t)size);
+    }
+
+    if (writebuff->real_buffer) {
+        typedef void (APIENTRY_GLES *glCopyBufferSubData_pfn)(GLenum, GLenum, GLintptr, GLintptr, GLsizeiptr);
+        static glCopyBufferSubData_pfn fn_gpu_copy_buf = NULL;
+        static int checked_gpu_copy_buf = 0;
+        if (!checked_gpu_copy_buf && hardext.esversion >= 3) {
+            checked_gpu_copy_buf = 1;
+            if (gles) fn_gpu_copy_buf = (glCopyBufferSubData_pfn)proc_address(gles, "glCopyBufferSubData");
+        }
+        if (fn_gpu_copy_buf && readbuff->real_buffer && readTarget != writeTarget) {
+            bindBuffer(readTarget, readbuff->real_buffer);
+            bindBuffer(writeTarget, writebuff->real_buffer);
+            fn_gpu_copy_buf(readTarget, writeTarget, readOffset, writeOffset, size);
+        } else if (writebuff->data) {
+            LOAD_GLES(glBufferSubData);
+            GLenum upload_target = writeTarget ? writeTarget : writebuff->type;
+            bindBuffer(upload_target, writebuff->real_buffer);
+            gles_glBufferSubData(upload_target, writeOffset, size, (char*)writebuff->data + writeOffset);
+        }
     }
 
     noerrorShim();
@@ -831,6 +845,17 @@ void APIENTRY_GL4ES gl4es_glBindBufferBase(GLenum target, GLuint index, GLuint b
     }
 
     glbuffer_t* buff = getbuffer_id(buffer);
+    if (!buff) {
+        errorShim(GL_INVALID_OPERATION);
+        return;
+    }
+    if (!buff->real_buffer) {
+        LOAD_GLES(glGenBuffers);
+        LOAD_GLES(glBufferData);
+        gles_glGenBuffers(1, &buff->real_buffer);
+        bindBuffer(target, buff->real_buffer);
+        gles_glBufferData(target, buff->size, buff->size > 0 ? buff->data : NULL, buff->usage);
+    }
     gles_glBindBufferBase(target, index, buff->real_buffer);
     noerrorShim();
 }
@@ -840,6 +865,7 @@ void APIENTRY_GL4ES gl4es_glBindBufferRange(GLenum target, GLuint index, GLuint 
     DBG(SHUT_LOGD("glBindBufferRange(%s, %u, %u, %p, %zd)\n", PrintEnum(target), index, buffer, (void*)offset, size);)
 
     LOAD_GLES(glBindBufferRange);
+    if (!gles_glBindBufferRange) return;
 
     if (buffer == 0) {
         gles_glBindBufferRange(target, index, 0, offset, size);
@@ -855,26 +881,11 @@ void APIENTRY_GL4ES gl4es_glBindBufferRange(GLenum target, GLuint index, GLuint 
     }
 
     if (!buff->real_buffer) {
-        if (buff->size > 0) {
-            LOAD_GLES(glGenBuffers);
-            gles_glGenBuffers(1, &buff->real_buffer);
-
-            LOAD_GLES(glBindBuffer);
-            gles_glBindBuffer(target, buff->real_buffer);
-
-            LOAD_GLES(glBufferData);
-            gles_glBufferData(target, buff->size, buff->data, buff->usage);
-
-        } else {
-            LOAD_GLES(glGenBuffers);
-            gles_glGenBuffers(1, &buff->real_buffer);
-
-            LOAD_GLES(glBindBuffer);
-            gles_glBindBuffer(target, buff->real_buffer);
-
-            LOAD_GLES(glBufferData);
-            gles_glBufferData(target, 0, NULL, buff->usage);
-        }
+        LOAD_GLES(glGenBuffers);
+        LOAD_GLES(glBufferData);
+        gles_glGenBuffers(1, &buff->real_buffer);
+        bindBuffer(target, buff->real_buffer);
+        gles_glBufferData(target, buff->size, buff->size > 0 ? buff->data : NULL, buff->usage);
     }
 
     gles_glBindBufferRange(target, index, buff->real_buffer, offset, size);
@@ -977,6 +988,8 @@ void deleteSingleBuffer(GLuint buffer) {
     if (glstate->bind_buffer.index == buffer) glstate->bind_buffer.index = 0;
     if (glstate->bind_buffer.want_index == buffer) glstate->bind_buffer.want_index = 0;
     if (glstate->bind_buffer.array == buffer) glstate->bind_buffer.array = 0;
+    if (glstate->bind_buffer.copy_read == buffer) glstate->bind_buffer.copy_read = 0;
+    if (glstate->bind_buffer.copy_write == buffer) glstate->bind_buffer.copy_write = 0;
     if (glstate->bind_buffer.uniform == buffer) glstate->bind_buffer.uniform = 0;
     if (glstate->bind_buffer.texture == buffer) glstate->bind_buffer.texture = 0;
     if (glstate->bind_buffer.indirect == buffer) glstate->bind_buffer.indirect = 0;

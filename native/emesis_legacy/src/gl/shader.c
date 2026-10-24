@@ -9,6 +9,7 @@
 #include "loader.h"
 #include "shaderconv.h"
 #include "shader_cache.h"
+#include "shadermod_uniforms.h"
 #include "vgpu/shaderconv.h"
 #include "glsl/glsl_for_es.h"
 #include <ctype.h>
@@ -923,6 +924,8 @@ void APIENTRY_GL4ES gl4es_glShaderSource(GLuint shader, GLsizei count, const GLc
     }
     glshader->source[offset] = '\0';
     if (part_lens != stack_lens) free(part_lens);
+
+    emesis_sm_scan_shader_defines(glshader->source);
 
     LOAD_GLES2(glShaderSource);
     if (gles_glShaderSource) {

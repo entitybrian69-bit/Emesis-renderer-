@@ -639,8 +639,8 @@ const char* const* fpe_VertexShader(shaderconv_need_t* need, fpe_state_t* state)
         tg[1] = state->texgen[i].texgen_t;
         tg[2] = state->texgen[i].texgen_r;
         tg[3] = state->texgen[i].texgen_q;
-        int ntc = texnsize[t - 1];
         if (t) {
+            int ntc = texnsize[t - 1];
             if (comments) {
                 sprintf(buff, "// texture %d active: %X %s %s\n", i, t, mat ? "with matrix" : "",
                         adjust ? "npot adjusted" : "");

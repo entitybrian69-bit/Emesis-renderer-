@@ -1,3 +1,8 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <dlfcn.h>
+#include <string.h>
 #include "gl4es.h"
 
 #include "../texgen.h"
@@ -621,18 +626,6 @@ void APIENTRY_GL4ES gl4es_glVertex3f(GLfloat r, GLfloat g, GLfloat b) {
     gl4es_glVertex4f(v[0], v[1], v[2], v[3]);
 }*/
 
-void APIENTRY_GL4ES gl4es_glBlendEquationSeparatei(GLuint buf, GLenum modeRGB, GLenum modeAlpha) {
-	// ignore buf is better than nothing...
-	// TODO: handle buf
-	gl4es_glBlendEquationSeparate(modeRGB, modeAlpha);
-}
-
-void APIENTRY_GL4ES gl4es_glBlendFuncSeparatei(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
-	// ignore buf is better than nothing..
-	// TODO: handle buf
-	gl4es_glBlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
-}
-
 #undef constDoubleToFloat
 
 void APIENTRY_GL4ES gl4es_glGetTexParameterfv(GLenum target, GLenum pname, GLfloat * params) {
@@ -644,8 +637,256 @@ void APIENTRY_GL4ES gl4es_glGetTexParameteriv(GLenum target, GLenum pname, GLint
 }
 
 
-// Samples stuff
+// Samples & Indexed Draw Buffers (GLES 3.2 / OES / EXT_draw_buffers_indexed)
 #include "../loader.h"
+
+static void* resolve_gles_indexed_fn(const char* core_name, const char* oes_name, const char* ext_name,
+                                     const void* self1, const void* self2) {
+    (void)self1;
+    void* fn = NULL;
+    Dl_info self_info;
+    int have_self = dladdr((const void*)&resolve_gles_indexed_fn, &self_info);
+    const char* names[3] = {core_name, oes_name, ext_name};
+    if (gles) {
+        for (int i = 0; i < 3 && !fn; ++i) {
+            if (!names[i]) continue;
+            void* cand = proc_address(gles, names[i]);
+            if (!cand || cand == self2) continue;
+            Dl_info cand_info;
+            if (have_self && dladdr(cand, &cand_info)) {
+                if (cand_info.dli_fbase && cand_info.dli_fbase == self_info.dli_fbase) continue;
+                if (cand_info.dli_fname && strstr(cand_info.dli_fname, "emesis") != NULL) continue;
+            }
+            fn = cand;
+        }
+    }
+    if (!fn) {
+        LOAD_EGL(eglGetProcAddress);
+        if (egl_eglGetProcAddress) {
+            for (int i = 0; i < 3 && !fn; ++i) {
+                if (!names[i]) continue;
+                void* cand = (void*)egl_eglGetProcAddress(names[i]);
+                if (!cand || cand == self2) continue;
+                Dl_info cand_info;
+                if (have_self && dladdr(cand, &cand_info)) {
+                    if (cand_info.dli_fbase && cand_info.dli_fbase == self_info.dli_fbase) continue;
+                    if (cand_info.dli_fname && strstr(cand_info.dli_fname, "emesis") != NULL) continue;
+                }
+                fn = cand;
+            }
+        }
+    }
+    return fn;
+}
+
+void VISIBLE glEnablei(GLenum target, GLuint index);
+void VISIBLE glDisablei(GLenum target, GLuint index);
+GLboolean VISIBLE glIsEnabledi(GLenum target, GLuint index);
+void VISIBLE glColorMaski(GLuint buf, GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
+void VISIBLE glBlendEquationi(GLuint buf, GLenum mode);
+void VISIBLE glBlendEquationSeparatei(GLuint buf, GLenum modeRGB, GLenum modeAlpha);
+void VISIBLE glBlendFunci(GLuint buf, GLenum src, GLenum dst);
+void VISIBLE glBlendFuncSeparatei(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha);
+
+void APIENTRY_GL4ES gl4es_glEnablei(GLenum target, GLuint index) {
+    FLUSH_BEGINEND;
+    typedef void (APIENTRY_GLES *pfn_t)(GLenum, GLuint);
+    static pfn_t fn = NULL;
+    static int checked = 0;
+    if (!checked) {
+        checked = 1;
+        fn = (pfn_t)resolve_gles_indexed_fn("glEnablei", "glEnableiOES", "glEnableiEXT",
+                                            (const void*)glEnablei, (const void*)gl4es_glEnablei);
+    }
+    if (fn) {
+        if (glstate) {
+            if (target == GL_BLEND) glstate->enable.blend = 2;
+            else if (target == GL_SCISSOR_TEST) glstate->enable.scissor = 2;
+        }
+        fn(target, index);
+        errorGL();
+    } else if (index == 0) {
+        gl4es_glEnable(target);
+    } else {
+        noerrorShim();
+    }
+}
+
+void APIENTRY_GL4ES gl4es_glDisablei(GLenum target, GLuint index) {
+    FLUSH_BEGINEND;
+    typedef void (APIENTRY_GLES *pfn_t)(GLenum, GLuint);
+    static pfn_t fn = NULL;
+    static int checked = 0;
+    if (!checked) {
+        checked = 1;
+        fn = (pfn_t)resolve_gles_indexed_fn("glDisablei", "glDisableiOES", "glDisableiEXT",
+                                            (const void*)glDisablei, (const void*)gl4es_glDisablei);
+    }
+    if (fn) {
+        if (glstate) {
+            if (target == GL_BLEND) glstate->enable.blend = 2;
+            else if (target == GL_SCISSOR_TEST) glstate->enable.scissor = 2;
+        }
+        fn(target, index);
+        errorGL();
+    } else if (index == 0) {
+        gl4es_glDisable(target);
+    } else {
+        noerrorShim();
+    }
+}
+
+GLboolean APIENTRY_GL4ES gl4es_glIsEnabledi(GLenum target, GLuint index) {
+    FLUSH_BEGINEND;
+    typedef GLboolean (APIENTRY_GLES *pfn_t)(GLenum, GLuint);
+    static pfn_t fn = NULL;
+    static int checked = 0;
+    if (!checked) {
+        checked = 1;
+        fn = (pfn_t)resolve_gles_indexed_fn("glIsEnabledi", "glIsEnablediOES", "glIsEnablediEXT",
+                                            (const void*)glIsEnabledi, (const void*)gl4es_glIsEnabledi);
+    }
+    if (fn) {
+        GLboolean r = fn(target, index);
+        errorGL();
+        return r;
+    }
+    return gl4es_glIsEnabled(target);
+}
+
+void APIENTRY_GL4ES gl4es_glColorMaski(GLuint buf, GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) {
+    FLUSH_BEGINEND;
+    typedef void (APIENTRY_GLES *pfn_t)(GLuint, GLboolean, GLboolean, GLboolean, GLboolean);
+    static pfn_t fn = NULL;
+    static int checked = 0;
+    if (!checked) {
+        checked = 1;
+        fn = (pfn_t)resolve_gles_indexed_fn("glColorMaski", "glColorMaskiOES", "glColorMaskiEXT",
+                                            (const void*)glColorMaski, (const void*)gl4es_glColorMaski);
+    }
+    if (fn) {
+        if (glstate) {
+            if (buf == 0) {
+                glstate->colormask[0] = red;
+                glstate->colormask[1] = green;
+                glstate->colormask[2] = blue;
+                glstate->colormask[3] = alpha;
+            }
+            glstate->colormask[0] = 2;
+        }
+        fn(buf, red, green, blue, alpha);
+        errorGL();
+    } else if (buf == 0) {
+        gl4es_glColorMask(red, green, blue, alpha);
+    } else {
+        noerrorShim();
+    }
+}
+
+void APIENTRY_GL4ES gl4es_glBlendEquationi(GLuint buf, GLenum mode) {
+    FLUSH_BEGINEND;
+    typedef void (APIENTRY_GLES *pfn_t)(GLuint, GLenum);
+    static pfn_t fn = NULL;
+    static int checked = 0;
+    if (!checked) {
+        checked = 1;
+        fn = (pfn_t)resolve_gles_indexed_fn("glBlendEquationi", "glBlendEquationiOES", "glBlendEquationiEXT",
+                                            (const void*)glBlendEquationi, (const void*)gl4es_glBlendEquationi);
+    }
+    if (fn) {
+        if (glstate) glstate->blendeqrgb = 0;
+        fn(buf, mode);
+        errorGL();
+    } else if (buf == 0) {
+        gl4es_glBlendEquation(mode);
+    } else {
+        noerrorShim();
+    }
+}
+
+void APIENTRY_GL4ES gl4es_glBlendEquationSeparatei(GLuint buf, GLenum modeRGB, GLenum modeAlpha) {
+    FLUSH_BEGINEND;
+    typedef void (APIENTRY_GLES *pfn_t)(GLuint, GLenum, GLenum);
+    static pfn_t fn = NULL;
+    static int checked = 0;
+    if (!checked) {
+        checked = 1;
+        fn = (pfn_t)resolve_gles_indexed_fn("glBlendEquationSeparatei", "glBlendEquationSeparateiOES",
+                                            "glBlendEquationSeparateiEXT",
+                                            (const void*)glBlendEquationSeparatei,
+                                            (const void*)gl4es_glBlendEquationSeparatei);
+    }
+    if (fn) {
+        if (glstate) glstate->blendeqrgb = 0;
+        fn(buf, modeRGB, modeAlpha);
+        errorGL();
+    } else if (buf == 0) {
+        gl4es_glBlendEquationSeparate(modeRGB, modeAlpha);
+    } else {
+        noerrorShim();
+    }
+}
+
+void APIENTRY_GL4ES gl4es_glBlendFunci(GLuint buf, GLenum src, GLenum dst) {
+    FLUSH_BEGINEND;
+    typedef void (APIENTRY_GLES *pfn_t)(GLuint, GLenum, GLenum);
+    static pfn_t fn = NULL;
+    static int checked = 0;
+    if (!checked) {
+        checked = 1;
+        fn = (pfn_t)resolve_gles_indexed_fn("glBlendFunci", "glBlendFunciOES", "glBlendFunciEXT",
+                                            (const void*)glBlendFunci, (const void*)gl4es_glBlendFunci);
+    }
+    if (fn) {
+        if (glstate) glstate->blendsfactorrgb = 0;
+        fn(buf, src, dst);
+        errorGL();
+    } else if (buf == 0) {
+        gl4es_glBlendFunc(src, dst);
+    } else {
+        noerrorShim();
+    }
+}
+
+void APIENTRY_GL4ES gl4es_glBlendFuncSeparatei(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
+    FLUSH_BEGINEND;
+    typedef void (APIENTRY_GLES *pfn_t)(GLuint, GLenum, GLenum, GLenum, GLenum);
+    static pfn_t fn = NULL;
+    static int checked = 0;
+    if (!checked) {
+        checked = 1;
+        fn = (pfn_t)resolve_gles_indexed_fn("glBlendFuncSeparatei", "glBlendFuncSeparateiOES",
+                                            "glBlendFuncSeparateiEXT",
+                                            (const void*)glBlendFuncSeparatei,
+                                            (const void*)gl4es_glBlendFuncSeparatei);
+    }
+    if (fn) {
+        if (glstate) glstate->blendsfactorrgb = 0;
+        fn(buf, srcRGB, dstRGB, srcAlpha, dstAlpha);
+        errorGL();
+    } else if (buf == 0) {
+        gl4es_glBlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
+    } else {
+        noerrorShim();
+    }
+}
+
+AliasExport(void, glEnablei, , (GLenum target, GLuint index));
+AliasExport(void, glDisablei, , (GLenum target, GLuint index));
+AliasExport(GLboolean, glIsEnabledi, , (GLenum target, GLuint index));
+AliasExport(void, glColorMaski, , (GLuint buf, GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha));
+AliasExport(void, glBlendEquationi, , (GLuint buf, GLenum mode));
+AliasExport(void, glBlendEquationi, ARB, (GLuint buf, GLenum mode));
+AliasExport(void, glBlendEquationi, EXT, (GLuint buf, GLenum mode));
+AliasExport(void, glBlendEquationSeparatei, , (GLuint buf, GLenum modeRGB, GLenum modeAlpha));
+AliasExport(void, glBlendEquationSeparatei, ARB, (GLuint buf, GLenum modeRGB, GLenum modeAlpha));
+AliasExport(void, glBlendEquationSeparatei, EXT, (GLuint buf, GLenum modeRGB, GLenum modeAlpha));
+AliasExport(void, glBlendFunci, , (GLuint buf, GLenum src, GLenum dst));
+AliasExport(void, glBlendFunci, ARB, (GLuint buf, GLenum src, GLenum dst));
+AliasExport(void, glBlendFunci, EXT, (GLuint buf, GLenum src, GLenum dst));
+AliasExport(void, glBlendFuncSeparatei, , (GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha));
+AliasExport(void, glBlendFuncSeparatei, ARB, (GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha));
+AliasExport(void, glBlendFuncSeparatei, EXT, (GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha));
 void APIENTRY_GL4ES gl4es_glSampleCoverage(GLclampf value, GLboolean invert) {
     LOAD_GLES(glSampleCoverage);
     PUSH_IF_COMPILING(glSampleCoverage)

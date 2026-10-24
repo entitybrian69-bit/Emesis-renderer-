@@ -143,6 +143,13 @@ static GLuint bind_cached_copy_blit_fbo(GLenum fb_target, GLuint tex_glname, GLe
     }
     gles_glBindFramebuffer(fb_target, slot->fbo);
     gles_glFramebufferTexture2D(fb_target, attach, tex_target, tex_glname, level);
+    if (hardext.esversion >= 3) {
+        LOAD_GLES2(glDrawBuffers);
+        LOAD_GLES2(glReadBuffer);
+        GLenum buf_mode = (attach == GL_COLOR_ATTACHMENT0) ? GL_COLOR_ATTACHMENT0 : GL_NONE;
+        if (gles_glDrawBuffers) gles_glDrawBuffers(1, &buf_mode);
+        if (gles_glReadBuffer) gles_glReadBuffer(buf_mode);
+    }
     int complete = (!gles_glCheckFramebufferStatus ||
                     gles_glCheckFramebufferStatus(fb_target) == GL_FRAMEBUFFER_COMPLETE)
                        ? 1
@@ -251,7 +258,12 @@ void APIENTRY_GL4ES gl4es_glCopyTexImage2D(GLenum target, GLint level, GLenum in
             bind_cached_copy_blit_fbo(GL_DRAW_FRAMEBUFFER, dst_tex, target, level, GL_DEPTH_ATTACHMENT, &fb_ok);
         }
         if (fb_ok && gles_glBlitFramebuffer) {
+            LOAD_GLES(glDisable);
+            LOAD_GLES(glEnable);
+            int had_scissor = glstate->enable.scissor;
+            if (had_scissor && gles_glDisable) gles_glDisable(GL_SCISSOR_TEST);
             gles_glBlitFramebuffer(x, y, x + width, y + height, 0, 0, width, height, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+            if (had_scissor && gles_glEnable) gles_glEnable(GL_SCISSOR_TEST);
         }
         gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prevDrawFBO);
     }
@@ -380,8 +392,13 @@ void APIENTRY_GL4ES gl4es_glCopyTexSubImage2D(GLenum target, GLint level, GLint 
                 int complete = 0;
                 bind_cached_copy_blit_fbo(GL_DRAW_FRAMEBUFFER, dstTex, target, level, attach, &complete);
                 if (complete) {
+                    LOAD_GLES(glDisable);
+                    LOAD_GLES(glEnable);
+                    int had_scissor = glstate->enable.scissor;
+                    if (had_scissor && gles_glDisable) gles_glDisable(GL_SCISSOR_TEST);
                     gles_glBlitFramebuffer(x, y, x + width, y + height, xoffset, yoffset, xoffset + width,
                                            yoffset + height, mask, GL_NEAREST);
+                    if (had_scissor && gles_glEnable) gles_glEnable(GL_SCISSOR_TEST);
                 } else if (!is_depth) {
                     gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, restoreDrawFBO);
                     gles_glCopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
@@ -600,6 +617,61 @@ void APIENTRY_GL4ES gl4es_glCopyImageSubData(GLuint srcName, GLenum srcTarget, G
         }
     }
 
+    /* Fast path for same-format 2D texture-to-texture copies (e.g. Iris depthtex0 -> depthtex1/2):
+       cached FBO glBlitFramebuffer pipelines on Mali TBDR tile buffers without draining fragment jobs */
+    if (srcTarget == GL_TEXTURE_2D && dstTarget == GL_TEXTURE_2D && srcDepth == 1 && srcZ == 0 && dstZ == 0) {
+        LOAD_GLES2(glBindFramebuffer);
+        LOAD_GLES2(glBlitFramebuffer);
+        if (gles_glBlitFramebuffer && gles_glBindFramebuffer && realSrc && realDst &&
+            !(realSrc == realDst && srcLevel == dstLevel)) {
+            GLenum srcIF = srcTex ? (srcTex->internalformat ? srcTex->internalformat : srcTex->format) : 0;
+            GLenum dstIF = dstTex ? (dstTex->internalformat ? dstTex->internalformat : dstTex->format) : 0;
+            if ((!srcIF && !dstIF) || (srcIF && srcIF == dstIF)) {
+                GLuint prevRead = (glstate && glstate->fbo.fbo_read && glstate->fbo.fbo_read->id)
+                                      ? glstate->fbo.fbo_read->id
+                                      : (glstate ? glstate->fbo.mainfbo_fbo : 0);
+                GLuint prevDraw = (glstate && glstate->fbo.fbo_draw && glstate->fbo.fbo_draw->id)
+                                      ? glstate->fbo.fbo_draw->id
+                                      : (glstate ? glstate->fbo.mainfbo_fbo : 0);
+
+                int is_depth = is_depth_format(srcIF) || is_depth_format(dstIF);
+                GLenum attach = is_depth ? GL_DEPTH_ATTACHMENT : GL_COLOR_ATTACHMENT0;
+                if (srcIF == GL_DEPTH_STENCIL || srcIF == GL_DEPTH24_STENCIL8 || srcIF == GL_DEPTH32F_STENCIL8 ||
+                    dstIF == GL_DEPTH_STENCIL || dstIF == GL_DEPTH24_STENCIL8 || dstIF == GL_DEPTH32F_STENCIL8) {
+                    attach = GL_DEPTH_STENCIL_ATTACHMENT;
+                }
+                GLbitfield mask = is_depth ? GL_DEPTH_BUFFER_BIT : GL_COLOR_BUFFER_BIT;
+
+                int r_ok = 0, d_ok = 0;
+                bind_cached_copy_blit_fbo(GL_READ_FRAMEBUFFER, realSrc, GL_TEXTURE_2D, srcLevel, attach, &r_ok);
+                bind_cached_copy_blit_fbo(GL_DRAW_FRAMEBUFFER, realDst, GL_TEXTURE_2D, dstLevel, attach, &d_ok);
+                if (r_ok && d_ok) {
+                    LOAD_GLES(glDisable);
+                    LOAD_GLES(glEnable);
+                    int had_scissor = glstate ? glstate->enable.scissor : 0;
+                    if (had_scissor && gles_glDisable) gles_glDisable(GL_SCISSOR_TEST);
+                    gles_glBlitFramebuffer(srcX, srcY, srcX + srcWidth, srcY + srcHeight, dstX, dstY, dstX + srcWidth,
+                                           dstY + srcHeight, mask, GL_NEAREST);
+                    if (had_scissor && gles_glEnable) gles_glEnable(GL_SCISSOR_TEST);
+                    if (prevRead == prevDraw) {
+                        gles_glBindFramebuffer(GL_FRAMEBUFFER, prevDraw);
+                    } else {
+                        gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, prevRead);
+                        gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prevDraw);
+                    }
+                    errorGL();
+                    return;
+                }
+                if (prevRead == prevDraw) {
+                    gles_glBindFramebuffer(GL_FRAMEBUFFER, prevDraw);
+                } else {
+                    gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, prevRead);
+                    gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prevDraw);
+                }
+            }
+        }
+    }
+
     typedef void (*glCopyImageSubData_fn)(GLuint, GLenum, GLint, GLint, GLint, GLint, GLuint, GLenum, GLint, GLint,
                                           GLint, GLint, GLsizei, GLsizei, GLsizei);
     static glCopyImageSubData_fn fn_copy_image = NULL;
@@ -620,39 +692,6 @@ void APIENTRY_GL4ES gl4es_glCopyImageSubData(GLuint srcName, GLenum srcTarget, G
         return;
     }
 
-    /* Fallback for ES 3.0 / 3.1 without EXT_copy_image: cached 2D FBO blit */
-    if (srcTarget == GL_TEXTURE_2D && dstTarget == GL_TEXTURE_2D && srcDepth == 1) {
-        LOAD_GLES2(glBindFramebuffer);
-        LOAD_GLES2(glBlitFramebuffer);
-        if (gles_glBlitFramebuffer && gles_glBindFramebuffer && realSrc && realDst) {
-            GLuint prevRead = (glstate->fbo.fbo_read && glstate->fbo.fbo_read->id) ? glstate->fbo.fbo_read->id
-                                                                                   : glstate->fbo.mainfbo_fbo;
-            GLuint prevDraw = (glstate->fbo.fbo_draw && glstate->fbo.fbo_draw->id) ? glstate->fbo.fbo_draw->id
-                                                                                   : glstate->fbo.mainfbo_fbo;
-
-            GLenum srcIF = srcTex ? (srcTex->internalformat ? srcTex->internalformat : srcTex->format) : 0;
-            GLenum dstIF = dstTex ? (dstTex->internalformat ? dstTex->internalformat : dstTex->format) : 0;
-            int is_depth = is_depth_format(srcIF) || is_depth_format(dstIF);
-            GLenum attach = is_depth ? GL_DEPTH_ATTACHMENT : GL_COLOR_ATTACHMENT0;
-            if (srcIF == GL_DEPTH_STENCIL || srcIF == GL_DEPTH24_STENCIL8 || srcIF == GL_DEPTH32F_STENCIL8 ||
-                dstIF == GL_DEPTH_STENCIL || dstIF == GL_DEPTH24_STENCIL8 || dstIF == GL_DEPTH32F_STENCIL8) {
-                attach = GL_DEPTH_STENCIL_ATTACHMENT;
-            }
-            GLbitfield mask = is_depth ? GL_DEPTH_BUFFER_BIT : GL_COLOR_BUFFER_BIT;
-
-            int r_ok = 0, d_ok = 0;
-            bind_cached_copy_blit_fbo(GL_READ_FRAMEBUFFER, realSrc, GL_TEXTURE_2D, srcLevel, attach, &r_ok);
-            bind_cached_copy_blit_fbo(GL_DRAW_FRAMEBUFFER, realDst, GL_TEXTURE_2D, dstLevel, attach, &d_ok);
-            if (r_ok && d_ok) {
-                gles_glBlitFramebuffer(srcX, srcY, srcX + srcWidth, srcY + srcHeight, dstX, dstY, dstX + srcWidth,
-                                       dstY + srcHeight, mask, GL_NEAREST);
-            }
-            gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, prevRead);
-            gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prevDraw);
-            errorGL();
-            return;
-        }
-    }
     errorShim(GL_INVALID_OPERATION);
 }
 

@@ -100,6 +100,7 @@ file(GLOB Legacy_C_SRC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/shader_cache.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/shaderconv.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/shader_hacks.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/shadermod_uniforms.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/stack.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/stencil.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/gl/stubs.c"

@@ -13,12 +13,12 @@ jobs:
 
       - name: Verify Signed Universal APK & All 4 ABIs
         run: |
-          test -f EmesisRenderer-Universal-v1.1.6.apk
+          test -f EmesisRenderer-Universal-v1.1.7.apk
           python3 - << 'PY'
           import zipfile
           expected_abis = ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"]
           expected_libs = ["libemesis_renderer.so", "libemesis_modern.so", "libemesis_legacy.so"]
-          with zipfile.ZipFile("EmesisRenderer-Universal-v1.1.6.apk", "r") as zf:
+          with zipfile.ZipFile("EmesisRenderer-Universal-v1.1.7.apk", "r") as zf:
               names = set(zf.namelist())
               assert "AndroidManifest.xml" in names
               assert "classes.dex" in names

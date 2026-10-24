@@ -761,6 +761,13 @@ static void inject_ngg_macro_definition(std::string& glslCode) {
             "#endif\n";
         glslCode.insert(find_insertion_point(glslCode), quality_fallbacks);
     }
+    if (glslCode.find("MC_VERSION") != std::string::npos) {
+        static const char* version_fallback =
+            "#ifndef MC_VERSION\n"
+            "#define MC_VERSION 11605\n"
+            "#endif\n";
+        glslCode.insert(find_insertion_point(glslCode), version_fallback);
+    }
 }
 
 static void upgrade_to_compatibility_version(std::string& glsl) {
@@ -821,6 +828,7 @@ static std::string preprocess_glsl(const char* raw_glsl, GLenum shaderType, bool
     replace_all(ret, "#ifndef GL_ARB_derivative_control", "#if 1");
     replace_all(ret, "mix(, currentDepth, decay2)", "mix(oldDepth, currentDepth, decay2)");
     replace_all(ret, "if (oldDepth != oldDepth)", "if (isnan(oldDepth))");
+    replace_all(ret, "NewColor *= OldL / NewL;", "NewColor *= OldL / max(NewL, 1e-6);");
     replace_all(ret, "const mat3 rotInverse = transpose(rot);",
                 "const mat3 rotInverse = mat3(rot[0][0], rot[1][0], rot[2][0], rot[0][1], rot[1][1], rot[2][1], "
                 "rot[0][2], rot[1][2], rot[2][2]);");

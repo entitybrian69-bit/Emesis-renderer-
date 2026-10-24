@@ -15,7 +15,7 @@
 
 typedef struct {
     GLboolean line_stipple, auto_normal, normalize, normal_rescale, lighting, alpha_test, fog, color_material, blend,
-        cull_face, color_sum, depth_test, stencil_test, pointsprite, point_size, texgen_s[MAX_TEX_UNITS],
+        cull_face, color_sum, depth_test, stencil_test, scissor, pointsprite, point_size, texgen_s[MAX_TEX_UNITS],
         texgen_t[MAX_TEX_UNITS], texgen_r[MAX_TEX_UNITS], texgen_q[MAX_TEX_UNITS], plane[MAX_CLIP_PLANES],
         light[MAX_LIGHT], map1_color4, map1_index,
         map1_normal, map1_texture1, map1_texture2, map1_texture3, map1_texture4, map1_vertex3, map1_vertex4,

@@ -12,6 +12,7 @@
 #include "program.h"
 #include "shader.h"
 #include "shaderconv.h"
+#include "shadermod_uniforms.h"
 #include "uniform.h"
 
 #include "fpe.h"
@@ -481,7 +482,11 @@ program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* st
                                                                            : glprogram->last_frag->source)
                                         : NULL);
         fpe->vert = gl4es_glCreateShader(GL_VERTEX_SHADER);
-        gl4es_glShaderSource(fpe->vert, 1, fpe_CustomVertexShader(vs_src, state, 0), NULL);
+        if (state->plane) {
+            gl4es_glShaderSource(fpe->vert, 1, fpe_CustomVertexShader(vs_src, state, 0), NULL);
+        } else {
+            gl4es_glShaderSource(fpe->vert, 1, &vs_src, NULL);
+        }
         gl4es_glCompileShader(fpe->vert);
         gl4es_glGetShaderiv(fpe->vert, GL_COMPILE_STATUS, &status);
         if (status != GL_TRUE) {
@@ -573,6 +578,7 @@ program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* st
                     if (n) {
                         m->parent_offs = n->cache_offs;
                         m->parent_size = n->cache_size;
+                        m->parent_uniform = n;
                         if (fpe->glprogram->parent_sync_list) {
                             fpe->glprogram->parent_sync_list[sync_cnt++] = m;
                         }
@@ -692,6 +698,7 @@ program_t* APIENTRY_GL4ES fpe_CustomShader_DefaultVertex(program_t* glprogram, f
                     if (n) {
                         m->parent_offs = n->cache_offs;
                         m->parent_size = n->cache_size;
+                        m->parent_uniform = n;
                         if (fpe->glprogram->parent_sync_list) {
                             fpe->glprogram->parent_sync_list[sync_cnt++] = m;
                         }
@@ -710,12 +717,22 @@ static void sync_single_child_uniform(uniformcache_t* cache, program_t* glprogra
     if (!cache || !cache->cache || !glprogram || !glprogram->cache.cache || m->parent_size <= 0 || m->cache_size <= 0) {
         return;
     }
+    if (glprogram->synced_parent_gen != 0 && m->parent_uniform) {
+        const uniform_t* pu = (const uniform_t*)m->parent_uniform;
+        if (pu->last_mod_gen <= glprogram->synced_parent_gen) {
+            return;
+        }
+    }
     size_t elem_sz = (size_t)uniformsize(m->type);
     if (elem_sz == 0) return;
-    if (elem_sz > (size_t)m->cache_size || elem_sz > (size_t)m->parent_size) return;
+    size_t max_bytes = (size_t)m->cache_size < (size_t)m->parent_size ? (size_t)m->cache_size : (size_t)m->parent_size;
+    int count = (int)(max_bytes / elem_sz);
+    if (count <= 0) return;
+    if (count > m->size) count = m->size;
+    size_t total_sz = elem_sz * (size_t)count;
     const void* src = (const void*)((uintptr_t)cache->cache + m->parent_offs);
     void* dst = (void*)((uintptr_t)glprogram->cache.cache + m->cache_offs);
-    if (memcmp(dst, src, elem_sz) == 0) {
+    if (memcmp(dst, src, total_sz) == 0) {
         return;
     }
     switch (m->type) {
@@ -723,22 +740,22 @@ static void sync_single_child_uniform(uniformcache_t* cache, program_t* glprogra
     case GL_FLOAT_VEC2:
     case GL_FLOAT_VEC3:
     case GL_FLOAT_VEC4:
-        GoUniformfv(glprogram, m->id, n_uniform(m->type), 1, (const GLfloat*)src);
+        GoUniformfv(glprogram, m->id, n_uniform(m->type), count, (const GLfloat*)src);
         break;
     case GL_UNSIGNED_INT:
     case 0x8DC6: /* GL_UNSIGNED_INT_VEC2 */
     case 0x8DC7: /* GL_UNSIGNED_INT_VEC3 */
     case 0x8DC8: /* GL_UNSIGNED_INT_VEC4 */
-        GoUniformuiv(glprogram, m->id, n_uniform(m->type), 1, (const GLuint*)src);
+        GoUniformuiv(glprogram, m->id, n_uniform(m->type), count, (const GLuint*)src);
         break;
     case GL_FLOAT_MAT2:
-        GoUniformMatrix2fv(glprogram, m->id, 1, false, (const GLfloat*)src);
+        GoUniformMatrix2fv(glprogram, m->id, count, false, (const GLfloat*)src);
         break;
     case GL_FLOAT_MAT3:
-        GoUniformMatrix3fv(glprogram, m->id, 1, false, (const GLfloat*)src);
+        GoUniformMatrix3fv(glprogram, m->id, count, false, (const GLfloat*)src);
         break;
     case GL_FLOAT_MAT4:
-        GoUniformMatrix4fv(glprogram, m->id, 1, false, (const GLfloat*)src);
+        GoUniformMatrix4fv(glprogram, m->id, count, false, (const GLfloat*)src);
         break;
     default:
         /* Covers GL_INT*, GL_BOOL*, and all ES2/ES3 sampler & image uniform types */
@@ -749,7 +766,7 @@ static void sync_single_child_uniform(uniformcache_t* cache, program_t* glprogra
             (m->type >= 0x900C && m->type <= 0x900F) ||
             (m->type >= 0x904C && m->type <= 0x906C) ||
             (m->type >= 0x9108 && m->type <= 0x910D)) {
-            GoUniformiv(glprogram, m->id, n_uniform(m->type), 1, (const GLint*)src);
+            GoUniformiv(glprogram, m->id, n_uniform(m->type), count, (const GLint*)src);
         } else {
             DBGLOGD("LIBGL: Warning, sync uniform on father/son program with unknown uniform type %s\n",
                     PrintEnum(m->type));
@@ -763,6 +780,8 @@ void APIENTRY_GL4ES fpe_SyncUniforms(uniformcache_t* cache, program_t* glprogram
     if (father && glprogram->synced_parent_gen == father->uniform_gen) {
         return;
     }
+    int prev_internal = g_emesis_internal_uniform_upload;
+    g_emesis_internal_uniform_upload = 1;
     if (glprogram->parent_sync_list) {
         int cnt = glprogram->parent_sync_count;
         uniform_t** list = glprogram->parent_sync_list;
@@ -775,6 +794,7 @@ void APIENTRY_GL4ES fpe_SyncUniforms(uniformcache_t* cache, program_t* glprogram
         khint_t k;
         kh_foreach(uniforms, k, m, if (m->parent_size) { sync_single_child_uniform(cache, glprogram, m); });
     }
+    g_emesis_internal_uniform_upload = prev_internal;
     if (father) {
         glprogram->synced_parent_gen = father->uniform_gen;
     }
@@ -1277,14 +1297,21 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
                 DBG(DBGLOGD("%d\n", program);)
             }
         }
+        program_t* father_prog = glstate->glsl->glprogram;
         if (glstate->gleshard->program != program) {
             glstate->gleshard->program = program;
             glstate->gleshard->glprogram = glprogram;
             gles_glUseProgram(glstate->gleshard->program);
             DBG(DBGLOGD("Use GLSL program %d\n", glstate->gleshard->program);)
         }
+        if (father_prog && father_prog->custom_uniform_count > 0) {
+            emesis_sm_apply_program_custom_uniforms(father_prog);
+        }
+        if (glprogram && glprogram->pending_count > 0) {
+            flush_pending_uniforms(glprogram);
+        }
         // synchronize uniforms with parent!
-        if (glprogram != glstate->glsl->glprogram) fpe_SyncUniforms(&glstate->glsl->glprogram->cache, glprogram);
+        if (glprogram != father_prog && father_prog) fpe_SyncUniforms(&father_prog->cache, glprogram);
     } else {
         fpe_program(ispoint);
         if (glstate->gleshard->program != glstate->fpe->prog) {
@@ -1292,6 +1319,9 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
             glstate->gleshard->glprogram = glstate->fpe->glprogram;
             gles_glUseProgram(glstate->gleshard->program);
             DBG(DBGLOGD("Use FPE program %d\n", glstate->gleshard->program);)
+        }
+        if (glstate->fpe && glstate->fpe->glprogram && glstate->fpe->glprogram->pending_count > 0) {
+            flush_pending_uniforms(glstate->fpe->glprogram);
         }
     }
     program_t* glprogram = glstate->gleshard->glprogram;

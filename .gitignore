@@ -12,3 +12,6 @@ app/src/main/jniLibs/
 *.keystore
 local.properties
 .cxx/
+.emesis_shader_cache/
+.emesis_fpe.psa
+

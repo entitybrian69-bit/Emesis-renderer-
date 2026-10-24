@@ -1,5 +1,9 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "program.h"
 
+#include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
 #include <GL/gl.h>
@@ -12,6 +16,7 @@
 #include "loader.h"
 #include "shaderconv.h"
 #include "shader_cache.h"
+#include "shadermod_uniforms.h"
 #include "fpe_shader.h"
 #include "string_utils.h"
 
@@ -169,13 +174,9 @@ void APIENTRY_GL4ES gl4es_glAttachShader(GLuint program, GLuint shader) {
         glprogram->last_comp = glshader;
     // merge uniforms_declarations
     uniform_decls_merge(&glprogram->declarations, &glshader->uniforms_declarations);
-    // send to hadware
-    LOAD_GLES2(glAttachShader);
-    if (gles_glAttachShader) {
-        gles_glAttachShader(glprogram->id, glshader->id);
-        errorGL();
-    } else
-        noerrorShim();
+    /* Defer gles_glAttachShader until glLinkProgram misses the .ep1 program binary cache,
+       avoiding attaching uncompiled GLES shader objects before glProgramBinary */
+    noerrorShim();
 }
 
 void APIENTRY_GL4ES gl4es_glBindAttribLocation(GLuint program, GLuint index, const GLchar* name) {
@@ -218,6 +219,9 @@ void APIENTRY_GL4ES gl4es_glBindAttribLocation(GLuint program, GLuint index, con
         noerrorShim();
 }
 
+void actually_deleteshader(GLuint shader);
+void actually_detachshader(GLuint shader);
+
 GLuint APIENTRY_GL4ES gl4es_glCreateProgram(void) {
     DBG(SHUT_LOGD("glCreateProgram()\n"))
     FLUSH_BEGINEND;
@@ -246,6 +250,9 @@ GLuint APIENTRY_GL4ES gl4es_glCreateProgram(void) {
         glprogram = kh_value(programs, k) = (program_t*)calloc(1, sizeof(program_t));
     } else {
         glprogram = kh_value(programs, k);
+        for (int i = 0; i < glprogram->attach_size; i++) {
+            actually_detachshader(glprogram->attach[i]);
+        }
         if (glprogram->attribloc) {
             attribloc_t* m;
             kh_foreach_value(glprogram->attribloc, m, free(m->name); free(m);)
@@ -266,9 +273,22 @@ GLuint APIENTRY_GL4ES gl4es_glCreateProgram(void) {
         if (glprogram->vert_essl_copy) free(glprogram->vert_essl_copy);
         if (glprogram->frag_essl_copy) free(glprogram->frag_essl_copy);
         if (glprogram->parent_sync_list) free(glprogram->parent_sync_list);
+        if (glprogram->pending_list) free(glprogram->pending_list);
+        if (glprogram->custom_uniforms) free(glprogram->custom_uniforms);
         if (glprogram->attach) free(glprogram->attach);
         if (glprogram->default_need) free(glprogram->default_need);
         if (glprogram->fpe_cache) fpe_disposeCache((fpe_cache_t*)glprogram->fpe_cache, 1);
+        if (glstate->glsl && (glstate->glsl->glprogram == glprogram || glstate->glsl->program == program)) {
+            glstate->glsl->glprogram = NULL;
+            glstate->glsl->program = 0;
+        }
+        if (glstate->gleshard && (glstate->gleshard->glprogram == glprogram || glstate->gleshard->program == program)) {
+            glstate->gleshard->glprogram = NULL;
+            glstate->gleshard->program = 0;
+        }
+        if (glstate->fpe && glstate->fpe->glprogram == glprogram) {
+            glstate->fpe = NULL;
+        }
         uniform_decls_clear(&glprogram->declarations);
         memset(glprogram, 0, sizeof(program_t));
     }
@@ -281,9 +301,6 @@ GLuint APIENTRY_GL4ES gl4es_glCreateProgram(void) {
     // all done
     return program;
 }
-
-void actually_deleteshader(GLuint shader);
-void actually_detachshader(GLuint shader);
 
 void deleteProgram(program_t* glprogram, khint_t k_program) {
     free(glprogram->attach);
@@ -323,6 +340,14 @@ void deleteProgram(program_t* glprogram, khint_t k_program) {
     if (glprogram->parent_sync_list) {
         free(glprogram->parent_sync_list);
         glprogram->parent_sync_list = NULL;
+    }
+    if (glprogram->pending_list) {
+        free(glprogram->pending_list);
+        glprogram->pending_list = NULL;
+    }
+    if (glprogram->custom_uniforms) {
+        free(glprogram->custom_uniforms);
+        glprogram->custom_uniforms = NULL;
     }
     // clean fpe cache if it exist
     if (glprogram->fpe_cache) fpe_disposeCache((fpe_cache_t*)glprogram->fpe_cache, 1);
@@ -392,11 +417,15 @@ void APIENTRY_GL4ES gl4es_glDetachShader(GLuint program, GLuint shader) {
     if (glprogram->last_frag == glshader) glprogram->last_frag = NULL;
     if (glprogram->last_comp == glshader) glprogram->last_comp = NULL;
 
-    // send to hardware (even on linked programs so GLES driver can release compiled shader IR/AST)
-    LOAD_GLES2(glDetachShader);
-    if (gles_glDetachShader) {
-        gles_glDetachShader(glprogram->id, glshader->id);
-        errorGL();
+    // Only call hardware detach if currently attached on the GLES program object
+    if (glprogram->gles_attached) {
+        LOAD_GLES2(glDetachShader);
+        if (gles_glDetachShader) {
+            gles_glDetachShader(glprogram->id, glshader->id);
+            errorGL();
+        } else {
+            noerrorShim();
+        }
     } else {
         noerrorShim();
     }
@@ -494,6 +523,10 @@ void APIENTRY_GL4ES gl4es_glGetActiveUniform(GLuint program, GLuint index, GLsiz
     if (!glprogram->linked) {
         errorShim(GL_INVALID_OPERATION);
         DBG(SHUT_LOGD(" not linked\n"))
+        return;
+    }
+    if (index >= (GLuint)glprogram->num_uniform) {
+        errorShim(GL_INVALID_VALUE);
         return;
     }
     noerrorShim();
@@ -599,8 +632,12 @@ void APIENTRY_GL4ES gl4es_glGetProgramiv(GLuint program, GLenum pname, GLint* pa
         break;
     case GL_ACTIVE_UNIFORM_MAX_LENGTH: {
         int l = 0;
-        uniform_t* m;
-        kh_foreach_value(glprogram->uniform, m, if (l < strlen(m->name) + 1) l = strlen(m->name) + 1;)* params = l;
+        if (glprogram->uniform) {
+            uniform_t* m;
+            kh_foreach_value(glprogram->uniform, m,
+                             if (m->internal_id != ~0u && l < (int)strlen(m->name) + 1) l = (int)strlen(m->name) + 1;)
+        }
+        *params = l;
     } break;
     case GL_PROGRAM_BINARY_LENGTH:
         // TODO: check if extension is present
@@ -739,6 +776,13 @@ static void clear_program(program_t* glprogram) {
         glprogram->parent_sync_list = NULL;
     }
     glprogram->parent_sync_count = 0;
+    glprogram->pending_count = 0;
+    if (glprogram->custom_uniforms) {
+        free(glprogram->custom_uniforms);
+        glprogram->custom_uniforms = NULL;
+    }
+    glprogram->custom_uniform_count = 0;
+    glprogram->synced_sm_gen = 0;
     glprogram->uniform_gen = 1;
     glprogram->synced_parent_gen = 0;
     memset(glprogram->va_size, 0, sizeof(glprogram->va_size));
@@ -764,19 +808,26 @@ static void fill_program(program_t* glprogram) {
     // Grab all Uniform
     gles_glGetProgramiv(glprogram->id, GL_ACTIVE_UNIFORMS, &n);
     gles_glGetProgramiv(glprogram->id, GL_ACTIVE_UNIFORM_MAX_LENGTH, &maxsize);
+    int u_buf_sz = (maxsize < 256) ? 256 : maxsize;
     khash_t(uniformlist)* uniforms = glprogram->uniform;
     uniform_t* gluniform = NULL;
     int uniform_cache = 0;
     GLint size = 0;
     GLenum type = 0;
-    GLchar* name = (char*)malloc(maxsize);
+    GLchar* name = (char*)malloc((size_t)u_buf_sz);
     int tu_idx = 0;
-    for (int i = 0; i < n; i++) {
-        gles_glGetActiveUniform(glprogram->id, i, maxsize, NULL, &size, &type, name);
+    int custom_cap = 0;
+    for (int i = 0; i < n && name; i++) {
+        name[0] = '\0';
+        size = 0;
+        type = 0;
+        gles_glGetActiveUniform(glprogram->id, i, u_buf_sz, NULL, &size, &type, name);
+        name[u_buf_sz - 1] = '\0';
         DBG(e2 = gles_glGetError());
         DBG(if (e2 == GL_NO_ERROR)) {
             // remove any ending "[]" that could be present
-            if (name[strlen(name) - 1] == ']' && strrchr(name, '[')) (*strrchr(name, '[')) = '\0';
+            size_t nlen = strlen(name);
+            if (nlen > 0 && name[nlen - 1] == ']' && strrchr(name, '[')) (*strrchr(name, '[')) = '\0';
             GLint id = gles_glGetUniformLocation(glprogram->id, name);
             if (id != -1) {
                 /* Unmap vgpu_texture / vgpu_Sample back to original GLSL 120 names ("texture" / "sample")
@@ -804,12 +855,34 @@ static void fill_program(program_t* glprogram) {
                         khint_t nk = kh_put(uniformnamelist, glprogram->uniform_by_name, gluniform->name, &nret);
                         kh_value(glprogram->uniform_by_name, nk) = id;
                     }
-                    gluniform->internal_id = i;
                     gluniform->size = size - j;
                     gluniform->type = type;
                     gluniform->cache_offs = uniform_cache + j * uniformsize(type);
                     gluniform->cache_size = uniformsize(type) * (size - j);
                     gluniform->builtin = builtin_CheckUniform(glprogram, name, id, size - j);
+                    /* Hide internal _gl4es_* builtins and secondary array elements from app reflection */
+                    if (j == 0 && !gluniform->builtin && gluniform->name &&
+                        strncmp(gluniform->name, "_gl4es_", 7) != 0) {
+                        gluniform->internal_id = (GLuint)(glprogram->num_uniform++);
+                        gluniform->sm_source_id = emesis_sm_classify_source(gluniform->name);
+                        gluniform->sm_custom_id = emesis_sm_classify_custom(gluniform->name, type);
+                        if (gluniform->sm_custom_id != 0) {
+                            if (glprogram->custom_uniform_count >= custom_cap) {
+                                int ncap = custom_cap ? (custom_cap * 2) : 8;
+                                uniform_t** nc = (uniform_t**)realloc(glprogram->custom_uniforms,
+                                                                      (size_t)ncap * sizeof(uniform_t*));
+                                if (nc) {
+                                    glprogram->custom_uniforms = nc;
+                                    custom_cap = ncap;
+                                }
+                            }
+                            if (glprogram->custom_uniform_count < custom_cap) {
+                                glprogram->custom_uniforms[glprogram->custom_uniform_count++] = gluniform;
+                            }
+                        }
+                    } else {
+                        gluniform->internal_id = ~0u;
+                    }
                     // TextureUnit grabbing...
                     if (tu_idx < MAX_TEX_UNITS) {
                         if (type == GL_SAMPLER_CUBE) {
@@ -838,7 +911,6 @@ static void fill_program(program_t* glprogram) {
                     }
                     DBG(SHUT_LOGD(" uniform #%d : \"%s\"%s type=%s size=%d\n", id, gluniform->name,
                                   gluniform->builtin ? " (builtin) " : "", PrintEnum(gluniform->type), gluniform->size))
-                    if (gluniform->size == 1) ++glprogram->num_uniform;
                     id++;
                 }
                 uniform_cache += uniformsize(type) * size;
@@ -871,11 +943,14 @@ static void fill_program(program_t* glprogram) {
     // Grab all Attrib
     gles_glGetProgramiv(glprogram->id, GL_ACTIVE_ATTRIBUTES, &n);
     gles_glGetProgramiv(glprogram->id, GL_ACTIVE_ATTRIBUTE_MAX_LENGTH, &maxsize);
-    name = (char*)malloc(maxsize);
-    for (int i = 0; i < n; i++) {
+    int a_buf_sz = (maxsize < 256) ? 256 : maxsize;
+    name = (char*)malloc((size_t)a_buf_sz);
+    for (int i = 0; i < n && name; i++) {
         DBG(e2 = gles_glGetError());
         DBG(if (e2 == GL_NO_ERROR)) {
-            gles_glGetActiveAttrib(glprogram->id, i, maxsize, NULL, &size, &type, name);
+            name[0] = '\0';
+            gles_glGetActiveAttrib(glprogram->id, i, a_buf_sz, NULL, &size, &type, name);
+            name[a_buf_sz - 1] = '\0';
             GLint id = gles_glGetAttribLocation(glprogram->id, name);
             if (id != -1) {
                 attribloc_t* glattribloc = NULL;
@@ -914,18 +989,95 @@ static void fill_program(program_t* glprogram) {
     free(name);
 }
 
+static int is_external_gles_fn_prog(const void* cand, const void* self_anchor) {
+    if (!cand || cand == self_anchor) return 0;
+    Dl_info self_info, cand_info;
+    if (dladdr(self_anchor, &self_info) && dladdr(cand, &cand_info)) {
+        if (cand_info.dli_fbase && cand_info.dli_fbase == self_info.dli_fbase) return 0;
+        if (cand_info.dli_fname && strstr(cand_info.dli_fname, "emesis") != NULL) return 0;
+    }
+    return 1;
+}
+
+static glProgramBinary_PTR resolve_program_binary_fn(void) {
+    static glProgramBinary_PTR fn = NULL;
+    static int checked = 0;
+    if (!checked) {
+        checked = 1;
+        const char* names[2] = {"glProgramBinary", "glProgramBinaryOES"};
+        for (int i = 0; i < 2 && !fn; ++i) {
+            if (gles) {
+                void* p = proc_address(gles, names[i]);
+                if (is_external_gles_fn_prog(p, (const void*)&resolve_program_binary_fn)) {
+                    fn = (glProgramBinary_PTR)p;
+                    break;
+                }
+            }
+        }
+#ifndef NOEGL
+        if (!fn) {
+            LOAD_EGL(eglGetProcAddress);
+            if (egl_eglGetProcAddress) {
+                for (int i = 0; i < 2 && !fn; ++i) {
+                    void* p = (void*)egl_eglGetProcAddress(names[i]);
+                    if (is_external_gles_fn_prog(p, (const void*)&resolve_program_binary_fn)) {
+                        fn = (glProgramBinary_PTR)p;
+                        break;
+                    }
+                }
+            }
+        }
+#endif
+    }
+    return fn;
+}
+
+static glGetProgramBinary_PTR resolve_get_program_binary_fn(void) {
+    static glGetProgramBinary_PTR fn = NULL;
+    static int checked = 0;
+    if (!checked) {
+        checked = 1;
+        const char* names[2] = {"glGetProgramBinary", "glGetProgramBinaryOES"};
+        for (int i = 0; i < 2 && !fn; ++i) {
+            if (gles) {
+                void* p = proc_address(gles, names[i]);
+                if (is_external_gles_fn_prog(p, (const void*)&resolve_get_program_binary_fn)) {
+                    fn = (glGetProgramBinary_PTR)p;
+                    break;
+                }
+            }
+        }
+#ifndef NOEGL
+        if (!fn) {
+            LOAD_EGL(eglGetProcAddress);
+            if (egl_eglGetProcAddress) {
+                for (int i = 0; i < 2 && !fn; ++i) {
+                    void* p = (void*)egl_eglGetProcAddress(names[i]);
+                    if (is_external_gles_fn_prog(p, (const void*)&resolve_get_program_binary_fn)) {
+                        fn = (glGetProgramBinary_PTR)p;
+                        break;
+                    }
+                }
+            }
+        }
+#endif
+    }
+    return fn;
+}
+
 int gl4es_useProgramBinary(GLuint program, int length, GLenum format, const void* binary) {
     if (hardext.prgbin_n == 0) return 0;
     DBG(SHUT_LOGD("useProgramBinary(%d, %d, %d, %p)\n", program, length, format, binary))
     CHECK_PROGRAM(int, program)
     noerrorShim();
 
+    glProgramBinary_PTR fn_prog_bin = resolve_program_binary_fn();
+    LOAD_GLES2(glGetProgramiv);
+    if (!fn_prog_bin || !gles_glGetProgramiv) return 0;
+
     clear_program(glprogram);
 
-    LOAD_GLES_OES(glProgramBinary);
-    LOAD_GLES2(glGetProgramiv);
-
-    gles_glProgramBinary(glprogram->id, format, binary, length);
+    fn_prog_bin(glprogram->id, format, binary, length);
 
     gles_glGetProgramiv(glprogram->id, GL_LINK_STATUS, &glprogram->linked);
     DBG(SHUT_LOGD(" link status = %d\n", glprogram->linked))
@@ -941,20 +1093,28 @@ int gl4es_useProgramBinary(GLuint program, int length, GLenum format, const void
 }
 
 int gl4es_getProgramBinary(GLuint program, int* length, GLenum* format, void** binary) {
-    if (hardext.prgbin_n == 0) return 0;
+    if (hardext.prgbin_n == 0 || !length || !format || !binary) return 0;
     DBG(SHUT_LOGD("getProgramBinary(%d, %p, %p, %p)\n", program, length, format, binary))
     CHECK_PROGRAM(int, program)
     noerrorShim();
 
-    LOAD_GLES_OES(glGetProgramBinary);
+    glGetProgramBinary_PTR fn_get_prog_bin = resolve_get_program_binary_fn();
     LOAD_GLES2(glGetProgramiv);
+    if (!fn_get_prog_bin || !gles_glGetProgramiv) return 0;
 
-    int l;
+    int l = 0;
     gles_glGetProgramiv(glprogram->id, GL_PROGRAM_BINARY_LENGTH_OES, &l);
-    if (!l) return 0;
+    if (l <= 0) return 0;
 
     *binary = malloc(l);
-    gles_glGetProgramBinary(glprogram->id, l, length, format, *binary);
+    if (!*binary) return 0;
+    *length = 0;
+    fn_get_prog_bin(glprogram->id, l, length, format, *binary);
+    if (*length <= 0) {
+        free(*binary);
+        *binary = NULL;
+        return 0;
+    }
 
     return (*length);
 }
@@ -967,8 +1127,12 @@ void APIENTRY_GL4ES gl4es_glGetProgramBinary(GLuint program, GLsizei bufSize, GL
     }
     DBG(SHUT_LOGD("glGetProgramBinary(%d, %d, %p, %p, %p)\n", program, bufSize, length, binaryFormat, binary))
     CHECK_PROGRAM(void, program)
-    LOAD_GLES_OES(glGetProgramBinary);
-    gles_glGetProgramBinary(glprogram->id, bufSize, length, binaryFormat, binary);
+    glGetProgramBinary_PTR fn_get_prog_bin = resolve_get_program_binary_fn();
+    if (!fn_get_prog_bin) {
+        errorShim(GL_INVALID_OPERATION);
+        return;
+    }
+    fn_get_prog_bin(glprogram->id, bufSize, length, binaryFormat, binary);
     errorGL();
 }
 
@@ -996,11 +1160,14 @@ static void apply_program_uniform_defaults(GLuint program, program_t* glprogram)
 
     GLuint prev_prog = glstate->glsl->program;
     program_t* prev_glprog = glstate->glsl->glprogram;
+    int prev_internal = g_emesis_internal_uniform_upload;
     glstate->glsl->program = glprogram->id;
     glstate->glsl->glprogram = glprogram;
+    g_emesis_internal_uniform_upload = 1;
 
     set_uniforms_default_value(program, &glprogram->declarations);
 
+    g_emesis_internal_uniform_upload = prev_internal;
     glstate->glsl->program = prev_prog;
     glstate->glsl->glprogram = prev_glprog;
 }
@@ -1133,7 +1300,7 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
     if (vs_essl) glprogram->vert_essl_copy = strdup(vs_essl);
     if (fs_essl) glprogram->frag_essl_copy = strdup(fs_essl);
 
-    /* Fast path: load pre-linked native GPU program binary from disk cache (.ep1) */
+    /* Fast path: load pre-linked native GPU program binary from RAM/disk cache (.ep1) */
     if (!glprogram->frag_data_changed &&
         emesis_program_cache_try_load(glprogram->id, vs_essl, fs_essl, cs_essl, caller_attrib_sig)) {
         free(caller_attrib_sig);
@@ -1144,10 +1311,17 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
         return;
     }
 
-    /* .ep1 cache miss: ensure all attached shaders are compiled in the GLES driver before linking */
+    /* .ep1 cache miss: compile and attach shaders in the GLES driver before linking */
+    LOAD_GLES2(glAttachShader);
+    LOAD_GLES2(glDetachShader);
     for (int i = 0; i < glprogram->attach_size; ++i) {
-        ensure_shader_gles_compiled(getShader(glprogram->attach[i]));
+        shader_t* sh = getShader(glprogram->attach[i]);
+        ensure_shader_gles_compiled(sh);
+        if (sh && gles_glAttachShader) {
+            gles_glAttachShader(glprogram->id, sh->id);
+        }
     }
+    glprogram->gles_attached = 1;
 
     LOAD_GLES2(glLinkProgram);
     if (gles_glLinkProgram) {
@@ -1169,11 +1343,34 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
         gles_glLinkProgram(glprogram->id);
         GLenum err = gles_glGetError();
         gles_glGetProgramiv(glprogram->id, GL_LINK_STATUS, &glprogram->linked);
+
+        if (glprogram->linked && !glprogram->frag_data_changed) {
+            emesis_program_cache_store(glprogram->id, vs_essl, fs_essl, cs_essl, caller_attrib_sig);
+        }
+
+        /* Detach GLES shader objects right after linking so the GLES driver can immediately
+           release internal compiler AST/IR memory when shaders are deleted */
+        if (gles_glDetachShader) {
+            for (int i = 0; i < glprogram->attach_size; ++i) {
+                shader_t* sh = getShader(glprogram->attach[i]);
+                if (sh) gles_glDetachShader(glprogram->id, sh->id);
+            }
+            while (gles_glGetError() != GL_NO_ERROR) {}
+        }
+        glprogram->gles_attached = 0;
+
+        {
+            static uint32_t s_full_links = 0;
+            if ((++s_full_links & 7u) == 0u) {
+                LOAD_GLES2(glReleaseShaderCompiler);
+                if (gles_glReleaseShaderCompiler) {
+                    gles_glReleaseShaderCompiler();
+                }
+            }
+        }
+
         DBG(SHUT_LOGD(" link status = %d\n", glprogram->linked))
         if (glprogram->linked) {
-            if (!glprogram->frag_data_changed) {
-                emesis_program_cache_store(glprogram->id, vs_essl, fs_essl, cs_essl, caller_attrib_sig);
-            }
             free(caller_attrib_sig);
             fill_program(glprogram);
             apply_program_uniform_defaults(program, glprogram);

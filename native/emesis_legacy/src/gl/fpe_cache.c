@@ -62,11 +62,17 @@ void fpe_disposeCache(fpe_cache_t* cache, int freeprog) {
     if (!cache) return;
     fpe_fpe_t* m;
     kh_foreach_value(
-        cache, m, if (freeprog) {
+        cache, m,
+        if (glstate && glstate->fpe == m) {
+            glstate->fpe = NULL;
+        }
+        if (freeprog) {
             if (m->vert) gl4es_glDeleteShader(m->vert);
             if (m->frag) gl4es_glDeleteShader(m->frag);
             if (m->glprogram) gl4es_glDeleteProgram(m->glprogram->id);
-        } free(m);) kh_destroy(fpecachelist, cache);
+        }
+        free(m);)
+    kh_destroy(fpecachelist, cache);
 }
 
 fpe_fpe_t* fpe_GetCache(fpe_cache_t* cur, fpe_state_t* state, int fixed) {

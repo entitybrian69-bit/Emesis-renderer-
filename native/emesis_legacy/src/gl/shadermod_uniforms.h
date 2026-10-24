@@ -1,0 +1,75 @@
+#ifndef _EMESIS_SHADERMOD_UNIFORMS_H_
+#define _EMESIS_SHADERMOD_UNIFORMS_H_
+
+#include "gles.h"
+#include <stdint.h>
+
+struct program_s;
+
+enum {
+    EMESIS_SM_SRC_NONE = 0,
+    EMESIS_SM_SRC_VIEW_WIDTH,
+    EMESIS_SM_SRC_VIEW_HEIGHT,
+    EMESIS_SM_SRC_FRAME_COUNTER,
+    EMESIS_SM_SRC_FRAME_TIME,
+    EMESIS_SM_SRC_FRAME_TIME_COUNTER,
+    EMESIS_SM_SRC_WORLD_TIME,
+    EMESIS_SM_SRC_SUN_ANGLE,
+    EMESIS_SM_SRC_SUN_POSITION,
+    EMESIS_SM_SRC_MOON_POSITION,
+    EMESIS_SM_SRC_UP_POSITION,
+    EMESIS_SM_SRC_SHADOW_LIGHT_POSITION,
+    EMESIS_SM_SRC_GBUFFER_MV_INVERSE,
+    EMESIS_SM_SRC_EYE_BRIGHTNESS,
+    EMESIS_SM_SRC_EYE_BRIGHTNESS_SMOOTH,
+    EMESIS_SM_SRC_RAIN_STRENGTH,
+    EMESIS_SM_SRC_WETNESS,
+    EMESIS_SM_SRC_IS_EYE_IN_WATER,
+};
+
+enum {
+    EMESIS_SM_CUST_NONE = 0,
+    EMESIS_SM_CUST_VIEW_SIZE,
+    EMESIS_SM_CUST_PIXEL_SIZE,
+    EMESIS_SM_CUST_ASPECT_RATIO,
+    EMESIS_SM_CUST_FRAMEMOD8_F,
+    EMESIS_SM_CUST_FRAMEMOD8_I,
+    EMESIS_SM_CUST_TAA_OFFSET,
+    EMESIS_SM_CUST_TAA_JITTER,
+    EMESIS_SM_CUST_UP_DIR_VIEW,
+    EMESIS_SM_CUST_UP_DIR,
+    EMESIS_SM_CUST_SUN_DIR_VIEW,
+    EMESIS_SM_CUST_SUN_DIR,
+    EMESIS_SM_CUST_MOON_DIR_VIEW,
+    EMESIS_SM_CUST_MOON_DIR,
+    EMESIS_SM_CUST_LIGHT_DIR_VIEW,
+    EMESIS_SM_CUST_LIGHT_DIR,
+    EMESIS_SM_CUST_SUN_OR_MOON_POS_N,
+    EMESIS_SM_CUST_LIGHT_FLIP,
+    EMESIS_SM_CUST_TIME_ANGLE,
+    EMESIS_SM_CUST_SUN_ANGLE_AT_HOME,
+    EMESIS_SM_CUST_DAY_STRENGTH,
+    EMESIS_SM_CUST_NIGHT_STRENGTH,
+    EMESIS_SM_CUST_SUNRISE_STRENGTH,
+    EMESIS_SM_CUST_SUNSET_STRENGTH,
+    EMESIS_SM_CUST_DAYTIME_VEC4,
+    EMESIS_SM_CUST_EXPOSURE_LEVEL,
+    EMESIS_SM_CUST_IS_OUTDOORS_SMOOTH,
+    EMESIS_SM_CUST_PRECIPITATION_SMOOTH,
+    EMESIS_SM_CUST_RAINBOW_STRENGTH,
+    EMESIS_SM_CUST_FOG_AMOUNT,
+};
+
+extern int g_emesis_internal_uniform_upload;
+
+uint8_t emesis_sm_classify_source(const char* name);
+uint8_t emesis_sm_classify_custom(const char* name, GLenum type);
+void emesis_sm_scan_shader_defines(const char* glsl);
+
+void emesis_sm_observe_float(uint8_t src_id, int size, int count, const GLfloat* value);
+void emesis_sm_observe_int(uint8_t src_id, int size, int count, const GLint* value);
+void emesis_sm_observe_mat4(uint8_t src_id, int count, const GLfloat* value);
+
+void emesis_sm_apply_program_custom_uniforms(void* glprogram_ptr);
+
+#endif /* _EMESIS_SHADERMOD_UNIFORMS_H_ */

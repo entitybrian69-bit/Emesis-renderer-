@@ -1,8 +1,14 @@
 #include "../gles.h"
 
 //GLint APIENTRY_GL4ES gl4es_glRenderMode(GLenum mode);
+void APIENTRY_GL4ES gl4es_glEnablei(GLenum target, GLuint index);
+void APIENTRY_GL4ES gl4es_glDisablei(GLenum target, GLuint index);
+GLboolean APIENTRY_GL4ES gl4es_glIsEnabledi(GLenum target, GLuint index);
+void APIENTRY_GL4ES gl4es_glColorMaski(GLuint buf, GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
+void APIENTRY_GL4ES gl4es_glBlendEquationi(GLuint buf, GLenum mode);
 //void APIENTRY_GL4ES gl4es_glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha);
 void APIENTRY_GL4ES gl4es_glBlendEquationSeparatei(GLuint buf, GLenum modeRGB, GLenum modeAlpha);
+void APIENTRY_GL4ES gl4es_glBlendFunci(GLuint buf, GLenum src, GLenum dst);
 //void APIENTRY_GL4ES gl4es_glBlendFuncSeparate(GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha);
 void APIENTRY_GL4ES gl4es_glBlendFuncSeparatei(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha);
 //void APIENTRY_GL4ES gl4es_glColorMaterial(GLenum face, GLenum mode);

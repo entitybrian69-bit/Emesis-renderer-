@@ -1,9 +1,13 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "shader_cache.h"
 #include "../glx/hardext.h"
 #include "init.h"
 #include "loader.h"
 #include "logs.h"
 
+#include <dlfcn.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -13,13 +17,15 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define EMESIS_SC_SCHEMA_VERSION 0x454D534300010008ULL /* EMSC v1.8 */
-#define EMESIS_PC_SCHEMA_VERSION 0x454D504200010008ULL /* EMPB v1.8 */
+#define EMESIS_SC_SCHEMA_VERSION 0x454D534300010009ULL /* EMSC v1.9 */
+#define EMESIS_PC_SCHEMA_VERSION 0x454D504200010009ULL /* EMPB v1.9 */
 
 #define EMESIS_SC_MAGIC 0x43534D45U /* 'EMSC' */
 #define EMESIS_PC_MAGIC 0x42504D45U /* 'EMPB' */
 
-#define EMESIS_MEM_SHADER_SLOTS 512
+#define EMESIS_MEM_SHADER_SLOTS 128
+#define EMESIS_MEM_PROGBIN_SLOTS 64
+#define EMESIS_MAX_MEM_PROGBIN_ENTRY_BYTES (256 * 1024)
 #define EMESIS_MAX_DISK_SHADER_BYTES (4 * 1024 * 1024)
 #define EMESIS_MAX_DISK_PROGBIN_BYTES (16 * 1024 * 1024)
 
@@ -32,6 +38,14 @@ typedef struct {
     uniform_declarations_list_t decls;
 } mem_shader_entry_t;
 
+typedef struct {
+    int valid;
+    emesis_hash128_t key;
+    GLenum format;
+    uint32_t length;
+    void* binary;
+} mem_progbin_entry_t;
+
 static pthread_mutex_t g_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int g_cache_inited = 0;
 static int g_cache_enabled = 1;
@@ -40,6 +54,7 @@ static char g_cache_dir[1024] = {0};
 static emesis_hash128_t g_driver_fp = {0, 0};
 static int g_driver_fp_ready = 0;
 static mem_shader_entry_t g_mem_shaders[EMESIS_MEM_SHADER_SLOTS];
+static mem_progbin_entry_t g_mem_progbins[EMESIS_MEM_PROGBIN_SLOTS];
 
 static inline uint64_t mix64(uint64_t z) {
     z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -400,22 +415,45 @@ void emesis_shader_cache_store(const emesis_hash128_t* key,
     }
 }
 
+static int is_external_gles_fn_sc(const void* cand, const void* self_anchor) {
+    if (!cand || cand == self_anchor) return 0;
+    Dl_info self_info, cand_info;
+    if (dladdr(self_anchor, &self_info) && dladdr(cand, &cand_info)) {
+        if (cand_info.dli_fbase && cand_info.dli_fbase == self_info.dli_fbase) return 0;
+        if (cand_info.dli_fname && strstr(cand_info.dli_fname, "emesis") != NULL) return 0;
+    }
+    return 1;
+}
+
 static glProgramBinary_PTR resolve_glProgramBinary(void) {
     static glProgramBinary_PTR fn = NULL;
     static int checked = 0;
     if (!checked) {
         checked = 1;
-        if (gles) fn = (glProgramBinary_PTR)proc_address(gles, "glProgramBinary");
+        const char* names[2] = {"glProgramBinary", "glProgramBinaryOES"};
+        for (int i = 0; i < 2 && !fn; ++i) {
+            if (gles) {
+                void* p = proc_address(gles, names[i]);
+                if (is_external_gles_fn_sc(p, (const void*)&resolve_glProgramBinary)) {
+                    fn = (glProgramBinary_PTR)p;
+                    break;
+                }
+            }
+        }
 #ifndef NOEGL
         if (!fn) {
             LOAD_EGL(eglGetProcAddress);
             if (egl_eglGetProcAddress) {
-                fn = (glProgramBinary_PTR)egl_eglGetProcAddress("glProgramBinary");
-                if (!fn) fn = (glProgramBinary_PTR)egl_eglGetProcAddress("glProgramBinaryOES");
+                for (int i = 0; i < 2 && !fn; ++i) {
+                    void* p = (void*)egl_eglGetProcAddress(names[i]);
+                    if (is_external_gles_fn_sc(p, (const void*)&resolve_glProgramBinary)) {
+                        fn = (glProgramBinary_PTR)p;
+                        break;
+                    }
+                }
             }
         }
 #endif
-        if (!fn && gles) fn = (glProgramBinary_PTR)proc_address(gles, "glProgramBinaryOES");
     }
     return fn;
 }
@@ -425,17 +463,30 @@ static glGetProgramBinary_PTR resolve_glGetProgramBinary(void) {
     static int checked = 0;
     if (!checked) {
         checked = 1;
-        if (gles) fn = (glGetProgramBinary_PTR)proc_address(gles, "glGetProgramBinary");
+        const char* names[2] = {"glGetProgramBinary", "glGetProgramBinaryOES"};
+        for (int i = 0; i < 2 && !fn; ++i) {
+            if (gles) {
+                void* p = proc_address(gles, names[i]);
+                if (is_external_gles_fn_sc(p, (const void*)&resolve_glGetProgramBinary)) {
+                    fn = (glGetProgramBinary_PTR)p;
+                    break;
+                }
+            }
+        }
 #ifndef NOEGL
         if (!fn) {
             LOAD_EGL(eglGetProcAddress);
             if (egl_eglGetProcAddress) {
-                fn = (glGetProgramBinary_PTR)egl_eglGetProcAddress("glGetProgramBinary");
-                if (!fn) fn = (glGetProgramBinary_PTR)egl_eglGetProcAddress("glGetProgramBinaryOES");
+                for (int i = 0; i < 2 && !fn; ++i) {
+                    void* p = (void*)egl_eglGetProcAddress(names[i]);
+                    if (is_external_gles_fn_sc(p, (const void*)&resolve_glGetProgramBinary)) {
+                        fn = (glGetProgramBinary_PTR)p;
+                        break;
+                    }
+                }
             }
         }
 #endif
-        if (!fn && gles) fn = (glGetProgramBinary_PTR)proc_address(gles, "glGetProgramBinaryOES");
     }
     return fn;
 }
@@ -467,6 +518,22 @@ static emesis_hash128_t compute_program_key(const char* vert_essl,
     return h;
 }
 
+static void store_mem_progbin_locked(const emesis_hash128_t* key, GLenum fmt, const void* binary, uint32_t len) {
+    if (!key || !binary || len == 0 || len > EMESIS_MAX_MEM_PROGBIN_ENTRY_BYTES) return;
+    size_t slot = (size_t)(key->h1 & (EMESIS_MEM_PROGBIN_SLOTS - 1));
+    mem_progbin_entry_t* pe = &g_mem_progbins[slot];
+    if (pe->valid && pe->key.h1 == key->h1 && pe->key.h2 == key->h2) return;
+    void* copy = malloc(len);
+    if (!copy) return;
+    memcpy(copy, binary, len);
+    if (pe->binary) free(pe->binary);
+    pe->valid = 1;
+    pe->key = *key;
+    pe->format = fmt;
+    pe->length = len;
+    pe->binary = copy;
+}
+
 int emesis_program_cache_try_load(GLuint gl_program_id,
                                   const char* vert_essl,
                                   const char* frag_essl,
@@ -474,15 +541,62 @@ int emesis_program_cache_try_load(GLuint gl_program_id,
                                   const char* attrib_bindings_sig) {
     if (!gl_program_id || hardext.prgbin_n <= 0 || (!vert_essl && !frag_essl && !comp_essl)) return 0;
 
+    glProgramBinary_PTR fn_prog_bin = resolve_glProgramBinary();
+    LOAD_GLES2(glGetProgramiv);
+    LOAD_GLES(glGetError);
+    if (!fn_prog_bin || !gles_glGetProgramiv) return 0;
+
     pthread_mutex_lock(&g_cache_mutex);
     if (!g_cache_inited) init_locked();
-    int ok_cfg = (g_cache_enabled && g_disk_enabled);
+    if (!g_cache_enabled) {
+        pthread_mutex_unlock(&g_cache_mutex);
+        return 0;
+    }
+    int disk_ok = g_disk_enabled;
     char dir_copy[1024];
-    if (ok_cfg) memcpy(dir_copy, g_cache_dir, sizeof(dir_copy));
+    if (disk_ok) memcpy(dir_copy, g_cache_dir, sizeof(dir_copy));
     pthread_mutex_unlock(&g_cache_mutex);
-    if (!ok_cfg) return 0;
 
     emesis_hash128_t key = compute_program_key(vert_essl, frag_essl, comp_essl, attrib_bindings_sig);
+
+    /* 1. Try RAM program binary cache first (deduplicates repeated ProgramTable fallback links in <1ms) */
+    {
+        void* mem_bin = NULL;
+        uint32_t mem_len = 0;
+        GLenum mem_fmt = 0;
+        pthread_mutex_lock(&g_cache_mutex);
+        size_t slot = (size_t)(key.h1 & (EMESIS_MEM_PROGBIN_SLOTS - 1));
+        mem_progbin_entry_t* pe = &g_mem_progbins[slot];
+        if (pe->valid && pe->key.h1 == key.h1 && pe->key.h2 == key.h2 && pe->binary && pe->length > 0) {
+            mem_bin = malloc(pe->length);
+            if (mem_bin) {
+                memcpy(mem_bin, pe->binary, pe->length);
+                mem_len = pe->length;
+                mem_fmt = pe->format;
+            }
+        }
+        pthread_mutex_unlock(&g_cache_mutex);
+
+        if (mem_bin) {
+            while (gles_glGetError() != GL_NO_ERROR) {}
+            fn_prog_bin(gl_program_id, mem_fmt, mem_bin, (GLsizei)mem_len);
+            free(mem_bin);
+            GLint linked = 0;
+            gles_glGetProgramiv(gl_program_id, GL_LINK_STATUS, &linked);
+            while (gles_glGetError() != GL_NO_ERROR) {}
+            if (linked) return 1;
+            pthread_mutex_lock(&g_cache_mutex);
+            if (pe->valid && pe->key.h1 == key.h1 && pe->key.h2 == key.h2) {
+                free(pe->binary);
+                pe->binary = NULL;
+                pe->valid = 0;
+            }
+            pthread_mutex_unlock(&g_cache_mutex);
+        }
+    }
+
+    if (!disk_ok) return 0;
+
     char path[1152];
     snprintf(path, sizeof(path), "%s/pbin_%016llx_%016llx.ep1", dir_copy,
              (unsigned long long)key.h1, (unsigned long long)key.h2);
@@ -511,26 +625,23 @@ int emesis_program_cache_try_load(GLuint gl_program_id,
     }
     fclose(fp);
 
-    glProgramBinary_PTR fn_prog_bin = resolve_glProgramBinary();
-    LOAD_GLES2(glGetProgramiv);
-    LOAD_GLES(glGetError);
-    if (!fn_prog_bin || !gles_glGetProgramiv) {
-        free(binary);
-        return 0;
-    }
-
     while (gles_glGetError() != GL_NO_ERROR) {}
     fn_prog_bin(gl_program_id, (GLenum)fmt, binary, (GLsizei)bin_len);
-    free(binary);
 
     GLint linked = 0;
     gles_glGetProgramiv(gl_program_id, GL_LINK_STATUS, &linked);
     while (gles_glGetError() != GL_NO_ERROR) {}
     if (!linked) {
+        free(binary);
         /* Driver updated or rejected binary; purge stale cache file so fresh link replaces it */
         unlink(path);
         return 0;
     }
+
+    pthread_mutex_lock(&g_cache_mutex);
+    store_mem_progbin_locked(&key, (GLenum)fmt, binary, bin_len);
+    pthread_mutex_unlock(&g_cache_mutex);
+    free(binary);
     return 1;
 }
 
@@ -543,17 +654,16 @@ void emesis_program_cache_store(GLuint gl_program_id,
 
     pthread_mutex_lock(&g_cache_mutex);
     if (!g_cache_inited) init_locked();
-    int ok_cfg = (g_cache_enabled && g_disk_enabled);
+    if (!g_cache_enabled) {
+        pthread_mutex_unlock(&g_cache_mutex);
+        return;
+    }
+    int disk_ok = g_disk_enabled;
     char dir_copy[1024];
-    if (ok_cfg) memcpy(dir_copy, g_cache_dir, sizeof(dir_copy));
+    if (disk_ok) memcpy(dir_copy, g_cache_dir, sizeof(dir_copy));
     pthread_mutex_unlock(&g_cache_mutex);
-    if (!ok_cfg) return;
 
     emesis_hash128_t key = compute_program_key(vert_essl, frag_essl, comp_essl, attrib_bindings_sig);
-    char final_path[1152];
-    snprintf(final_path, sizeof(final_path), "%s/pbin_%016llx_%016llx.ep1", dir_copy,
-             (unsigned long long)key.h1, (unsigned long long)key.h2);
-    if (access(final_path, F_OK) == 0) return;
 
     glGetProgramBinary_PTR fn_get_bin = resolve_glGetProgramBinary();
     LOAD_GLES2(glGetProgramiv);
@@ -574,6 +684,23 @@ void emesis_program_cache_store(GLuint gl_program_id,
     GLenum format = 0;
     fn_get_bin(gl_program_id, buf_len, &actual_len, &format, binary);
     if (gles_glGetError() != GL_NO_ERROR || actual_len <= 0 || actual_len > buf_len) {
+        free(binary);
+        return;
+    }
+
+    pthread_mutex_lock(&g_cache_mutex);
+    store_mem_progbin_locked(&key, format, binary, (uint32_t)actual_len);
+    pthread_mutex_unlock(&g_cache_mutex);
+
+    if (!disk_ok) {
+        free(binary);
+        return;
+    }
+
+    char final_path[1152];
+    snprintf(final_path, sizeof(final_path), "%s/pbin_%016llx_%016llx.ep1", dir_copy,
+             (unsigned long long)key.h1, (unsigned long long)key.h2);
+    if (access(final_path, F_OK) == 0) {
         free(binary);
         return;
     }
