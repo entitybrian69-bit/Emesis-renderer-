@@ -585,47 +585,56 @@ void APIENTRY_GL4ES gl4es_glDeleteTextures(GLsizei n, const GLuint* textures) {
     }
 }
 
+static GLuint s_emesis_next_client_tex = 1;
+
 void APIENTRY_GL4ES gl4es_glGenTextures(GLsizei n, GLuint* textures) {
     DBG(SHUT_LOGD("glGenTextures(%d, %p)\n", n, textures);)
-    if (n <= 0) return;
+    if (n <= 0 || !textures) return;
     FLUSH_BEGINEND;
     LOAD_GLES(glGenTextures);
-    gles_glGenTextures(n, textures);
+    GLuint stack_hw[64];
+    GLuint* hw_names = (n <= 64) ? stack_hw : (GLuint*)malloc((size_t)n * sizeof(GLuint));
+    if (!hw_names) {
+        errorShim(GL_OUT_OF_MEMORY);
+        return;
+    }
+    memset(hw_names, 0, (size_t)n * sizeof(GLuint));
+    gles_glGenTextures(n, hw_names);
     errorGL();
-    // now, add all the textures to the list
+
     int ret;
     khint_t k;
     khash_t(tex)* list = glstate->texture.list;
 
     for (int i = 0; i < n; i++) {
-        k = kh_get(tex, list, textures[i]);
-        DBG(SHUT_LOGD(" -> textures[%d] = %u\n", i, textures[i]);)
-        gltexture_t* tex = NULL;
-        if (k == kh_end(list)) {
-            k = kh_put(tex, list, textures[i], &ret);
-            tex = kh_value(list, k) = malloc(sizeof(gltexture_t));
-            memset(tex, 0, sizeof(gltexture_t));
-            tex->texture = textures[i];
-            tex->glname = textures[i];
-            tex->adjustxy[0] = tex->adjustxy[1] = 1.f;
-            tex->mipmap_auto = (GL4ES_AUTOMIPMAP_PLACEHOLDER == 1);
-            tex->mipmap_need = (GL4ES_AUTOMIPMAP_PLACEHOLDER == 1) ? 1 : 0;
-            tex->streamingID = -1;
-            tex->base_level = -1;
-            tex->max_level = -1;
-            tex->alpha = true;
-            init_sampler(&tex->sampler);
-            tex->fpe_format = FPE_TEX_RGBA;
-            tex->format = GL_RGBA;
-            tex->type = GL_UNSIGNED_BYTE;
-            tex->inter_format = GL_RGBA;
-            tex->inter_type = GL_UNSIGNED_BYTE;
-        } else {
-            tex = kh_value(list, k);
-            // in case of no delete here...
-            if (tex->glname == 0) tex->glname = tex->texture;
-        }
+        GLuint cid = 0;
+        do {
+            cid = s_emesis_next_client_tex++;
+            if (cid == 0) cid = s_emesis_next_client_tex++;
+        } while (kh_get(tex, list, cid) != kh_end(list));
+
+        textures[i] = cid;
+        DBG(SHUT_LOGD(" -> textures[%d] = client %u (glname %u)\n", i, cid, hw_names[i]);)
+        k = kh_put(tex, list, cid, &ret);
+        gltexture_t* tex = kh_value(list, k) = malloc(sizeof(gltexture_t));
+        memset(tex, 0, sizeof(gltexture_t));
+        tex->texture = cid;
+        tex->glname = hw_names[i];
+        tex->adjustxy[0] = tex->adjustxy[1] = 1.f;
+        tex->mipmap_auto = (GL4ES_AUTOMIPMAP_PLACEHOLDER == 1);
+        tex->mipmap_need = (GL4ES_AUTOMIPMAP_PLACEHOLDER == 1) ? 1 : 0;
+        tex->streamingID = -1;
+        tex->base_level = -1;
+        tex->max_level = -1;
+        tex->alpha = true;
+        init_sampler(&tex->sampler);
+        tex->fpe_format = FPE_TEX_RGBA;
+        tex->format = GL_RGBA;
+        tex->type = GL_UNSIGNED_BYTE;
+        tex->inter_format = GL_RGBA;
+        tex->inter_type = GL_UNSIGNED_BYTE;
     }
+    if (hw_names != stack_hw) free(hw_names);
 }
 
 GLboolean APIENTRY_GL4ES gl4es_glAreTexturesResident(GLsizei n, const GLuint* textures, GLboolean* residences) {
@@ -940,55 +949,41 @@ void realize_1texture(GLenum target, int wantedTMU, gltexture_t* tex, glsampler_
     GLuint oldtex = 0;
     int TMU = (wantedTMU == -1) ? glstate->gleshard->active : wantedTMU;
     GLenum param;
+#define EMESIS_BIND_FOR_PARAM()                                                                                        \
+    do {                                                                                                               \
+        if (wantedTMU == -1) {                                                                                         \
+            realize_textures(0);                                                                                       \
+            TMU = glstate->gleshard->active;                                                                           \
+            oldtex = (TMU >= 0 && TMU < MAX_TEX) ? glstate->actual_tex2d[TMU] : 0;                                     \
+            if (oldtex != tex->glname) {                                                                               \
+                gles_glBindTexture(GL_TEXTURE_2D, tex->glname);                                                        \
+                if (target == GL_TEXTURE_2D && TMU >= 0 && TMU < MAX_TEX) glstate->actual_tex2d[TMU] = tex->glname;    \
+            }                                                                                                          \
+            wantedTMU = -2;                                                                                            \
+        } else if (glstate->gleshard->active != TMU) {                                                                 \
+            glstate->gleshard->active = TMU;                                                                           \
+            gles_glActiveTexture(GL_TEXTURE0 + TMU);                                                                   \
+        }                                                                                                              \
+    } while (0)
     param = get_texture_min_filter(tex, sampler);
     if (tex->actual.min_filter != param) {
-        if (wantedTMU == -1) {
-            realize_textures(0);
-            gltexture_t* bound = glstate->texture.bound[TMU][ENABLED_TEX2D];
-            oldtex = bound->glname;
-            if (oldtex != tex->glname) gles_glBindTexture(GL_TEXTURE_2D, tex->glname);
-            wantedTMU = -2;
-        }
+        EMESIS_BIND_FOR_PARAM();
         DBG(SHUT_LOGD("Adjusting %s[%d]:Texture[%u].min_filter = %s (binded=%u)\n", PrintEnum(target), TMU, tex->glname,
                       PrintEnum(param), glstate->actual_tex2d[TMU]);)
-        if (glstate->gleshard->active != TMU) {
-            glstate->gleshard->active = TMU;
-            gles_glActiveTexture(GL_TEXTURE0 + TMU);
-        }
         gles_glTexParameteri(target, GL_TEXTURE_MIN_FILTER, param);
         tex->actual.min_filter = param;
     }
     param = get_texture_mag_filter(tex, sampler);
     if (tex->actual.mag_filter != param) {
-        if (wantedTMU == -1) {
-            realize_textures(0);
-            gltexture_t* bound = glstate->texture.bound[TMU][ENABLED_TEX2D];
-            oldtex = bound->glname;
-            if (oldtex != tex->glname) gles_glBindTexture(GL_TEXTURE_2D, tex->glname);
-            wantedTMU = -2;
-        }
+        EMESIS_BIND_FOR_PARAM();
         DBG(SHUT_LOGD("Adjusting %s[%d]:Texture[%u].mag_filter = %s (min=%s/%s)\n", PrintEnum(target), TMU, tex->glname,
                       PrintEnum(param), PrintEnum(sampler->min_filter), PrintEnum(tex->actual.min_filter));)
-        if (glstate->gleshard->active != TMU) {
-            glstate->gleshard->active = TMU;
-            gles_glActiveTexture(GL_TEXTURE0 + TMU);
-        }
         gles_glTexParameteri(target, GL_TEXTURE_MAG_FILTER, param);
         tex->actual.mag_filter = param;
     }
     if (hardext.esversion >= 3 && (tex->format == GL_DEPTH_COMPONENT || tex->format == GL_DEPTH_STENCIL)) {
         if (tex->actual.compare != sampler->compare || tex->actual.func != sampler->func) {
-            if (wantedTMU == -1) {
-                realize_textures(0);
-                gltexture_t* bound = glstate->texture.bound[TMU][ENABLED_TEX2D];
-                oldtex = bound->glname;
-                if (oldtex != tex->glname) gles_glBindTexture(GL_TEXTURE_2D, tex->glname);
-                wantedTMU = -2;
-            }
-            if (glstate->gleshard->active != TMU) {
-                glstate->gleshard->active = TMU;
-                gles_glActiveTexture(GL_TEXTURE0 + TMU);
-            }
+            EMESIS_BIND_FOR_PARAM();
             gles_glTexParameteri(target, GL_TEXTURE_COMPARE_MODE, sampler->compare);
             gles_glTexParameteri(target, GL_TEXTURE_COMPARE_FUNC, sampler->func);
             tex->actual.compare = sampler->compare;
@@ -997,42 +992,30 @@ void realize_1texture(GLenum target, int wantedTMU, gltexture_t* tex, glsampler_
     }
     param = get_texture_wrap_s(tex, sampler);
     if (tex->actual.wrap_s != param) {
-        if (wantedTMU == -1) {
-            realize_textures(0);
-            gltexture_t* bound = glstate->texture.bound[TMU][ENABLED_TEX2D];
-            oldtex = bound->glname;
-            if (oldtex != tex->glname) gles_glBindTexture(GL_TEXTURE_2D, tex->glname);
-            wantedTMU = -2;
-        }
+        EMESIS_BIND_FOR_PARAM();
         DBG(SHUT_LOGD("Adjusting %s[%d]:Texture[%u].wrap_s = %s\n", PrintEnum(target), TMU, tex->glname,
                       PrintEnum(param));)
-        if (glstate->gleshard->active != TMU) {
-            glstate->gleshard->active = TMU;
-            gles_glActiveTexture(GL_TEXTURE0 + TMU);
-        }
         gles_glTexParameteri(target, GL_TEXTURE_WRAP_S, param);
         tex->actual.wrap_s = param;
     }
     param = get_texture_wrap_t(tex, sampler);
     if (tex->actual.wrap_t != param) {
-        if (wantedTMU == -1) {
-            realize_textures(0);
-            gltexture_t* bound = glstate->texture.bound[TMU][ENABLED_TEX2D];
-            oldtex = bound->glname;
-            if (oldtex != tex->glname) gles_glBindTexture(GL_TEXTURE_2D, tex->glname);
-            wantedTMU = -2;
-        }
+        EMESIS_BIND_FOR_PARAM();
         DBG(SHUT_LOGD("Adjusting %s[%d]:Texture[%u].wrap_t = %s\n", PrintEnum(target), TMU, tex->glname,
                       PrintEnum(param));)
+        gles_glTexParameteri(target, GL_TEXTURE_WRAP_T, param);
+        tex->actual.wrap_t = param;
+    }
+#undef EMESIS_BIND_FOR_PARAM
+    if (wantedTMU == -2) {
         if (glstate->gleshard->active != TMU) {
             glstate->gleshard->active = TMU;
             gles_glActiveTexture(GL_TEXTURE0 + TMU);
         }
-        gles_glTexParameteri(target, GL_TEXTURE_WRAP_T, param);
-        tex->actual.wrap_t = param;
-    }
-    if (wantedTMU == -2) {
-        if (oldtex != tex->glname) gles_glBindTexture(GL_TEXTURE_2D, oldtex);
+        if (oldtex != tex->glname) {
+            gles_glBindTexture(GL_TEXTURE_2D, oldtex);
+            if (target == GL_TEXTURE_2D && TMU >= 0 && TMU < MAX_TEX) glstate->actual_tex2d[TMU] = oldtex;
+        }
     }
 }
 
@@ -1180,3 +1163,59 @@ AliasExport(void, glPixelStorei, , (GLenum pname, GLint param));
 // ARB mapper
 AliasExport(void, glActiveTexture, ARB, (GLenum texture));
 AliasExport(void, glClientActiveTexture, ARB, (GLenum texture));
+AliasExport(void, glBindImageTexture, EXT,
+            (GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access, GLenum format));
+
+void APIENTRY_GL4ES gl4es_glTexParameterIiv(GLenum target, GLenum pname, const GLint* params) {
+    if (!params) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+    gl4es_glTexParameteriv(target, pname, params);
+}
+
+void APIENTRY_GL4ES gl4es_glTexParameterIuiv(GLenum target, GLenum pname, const GLuint* params) {
+    if (!params) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+    if (pname == GL_TEXTURE_BORDER_COLOR) {
+        GLint ip[4] = {(GLint)params[0], (GLint)params[1], (GLint)params[2], (GLint)params[3]};
+        gl4es_glTexParameteriv(target, pname, ip);
+    } else {
+        GLint ip = (GLint)params[0];
+        gl4es_glTexParameteriv(target, pname, &ip);
+    }
+}
+
+void APIENTRY_GL4ES gl4es_glGetTexParameterIiv(GLenum target, GLenum pname, GLint* params) {
+    if (!params) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+    gl4es_glGetTexParameteriv(target, pname, params);
+}
+
+void APIENTRY_GL4ES gl4es_glGetTexParameterIuiv(GLenum target, GLenum pname, GLuint* params) {
+    if (!params) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+    GLint ip[4] = {0, 0, 0, 0};
+    gl4es_glGetTexParameteriv(target, pname, ip);
+    if (pname == GL_TEXTURE_BORDER_COLOR) {
+        for (int i = 0; i < 4; ++i)
+            params[i] = (GLuint)ip[i];
+    } else {
+        params[0] = (GLuint)ip[0];
+    }
+}
+
+AliasExport(void, glTexParameterIiv, , (GLenum target, GLenum pname, const GLint* params));
+AliasExport(void, glTexParameterIuiv, , (GLenum target, GLenum pname, const GLuint* params));
+AliasExport(void, glGetTexParameterIiv, , (GLenum target, GLenum pname, GLint* params));
+AliasExport(void, glGetTexParameterIuiv, , (GLenum target, GLenum pname, GLuint* params));
+AliasExport(void, glTexParameterIiv, EXT, (GLenum target, GLenum pname, const GLint* params));
+AliasExport(void, glTexParameterIuiv, EXT, (GLenum target, GLenum pname, const GLuint* params));
+AliasExport(void, glGetTexParameterIiv, EXT, (GLenum target, GLenum pname, GLint* params));
+AliasExport(void, glGetTexParameterIuiv, EXT, (GLenum target, GLenum pname, GLuint* params));

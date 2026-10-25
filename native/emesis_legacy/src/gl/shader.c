@@ -347,12 +347,62 @@ void remove_before_version(char* str) {
         return;
     }
 
-    char* version_ptr = strstr(str, "#version");
+    char* p = str;
+    char* version_line = NULL;
+    int at_line_start = 1;
+    char* cur_line_start = str;
 
-    if (version_ptr != NULL) {
-        size_t remaining_len = strlen(version_ptr) + 1;
+    while (*p) {
+        if (p[0] == '/' && p[1] == '/') {
+            p += 2;
+            while (*p && *p != '\n') ++p;
+            if (*p == '\n') {
+                ++p;
+                at_line_start = 1;
+                cur_line_start = p;
+            }
+            continue;
+        }
+        if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) {
+                if (*p == '\n') {
+                    at_line_start = 1;
+                    cur_line_start = p + 1;
+                }
+                ++p;
+            }
+            if (*p) {
+                p += 2;
+                at_line_start = 0;
+            }
+            continue;
+        }
+        if (*p == '\n') {
+            ++p;
+            at_line_start = 1;
+            cur_line_start = p;
+            continue;
+        }
+        if (at_line_start && (*p == ' ' || *p == '\t' || *p == '\r')) {
+            ++p;
+            continue;
+        }
+        if (at_line_start && *p == '#') {
+            char* h = p + 1;
+            while (*h == ' ' || *h == '\t') ++h;
+            if (strncmp(h, "version", 7) == 0 &&
+                (h[7] == '\0' || isspace((unsigned char)h[7]) || h[7] == '/')) {
+                version_line = cur_line_start;
+                break;
+            }
+        }
+        at_line_start = 0;
+        ++p;
+    }
 
-        memmove(str, version_ptr, remaining_len);
+    if (version_line != NULL && version_line > str) {
+        memmove(str, version_line, strlen(version_line) + 1);
     }
 }
 
@@ -759,6 +809,47 @@ static int effective_target_es(void) {
     return 100;
 }
 
+static int has_es_profile_on_version_line(const char* src) {
+    if (!src) return 0;
+    const char* p = src;
+    while (*p) {
+        if (p[0] == '/' && p[1] == '/') {
+            p += 2;
+            while (*p && *p != '\n') ++p;
+            continue;
+        }
+        if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) ++p;
+            if (*p) p += 2;
+            continue;
+        }
+        if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') {
+            ++p;
+            continue;
+        }
+        if (*p == '#') {
+            const char* h = p + 1;
+            while (*h == ' ' || *h == '\t') ++h;
+            if (strncmp(h, "version", 7) == 0 && isspace((unsigned char)h[7])) {
+                const char* eol = strchr(h, '\n');
+                if (!eol) eol = h + strlen(h);
+                for (const char* q = h + 7; q + 2 <= eol; ++q) {
+                    if (q[0] == '/' && (q[1] == '/' || q[1] == '*')) break;
+                    if (q[0] == 'e' && q[1] == 's' &&
+                        !isalnum((unsigned char)q[-1]) && q[-1] != '_' &&
+                        (q + 2 == eol || (!isalnum((unsigned char)q[2]) && q[2] != '_'))) {
+                        return 1;
+                    }
+                }
+                return 0;
+            }
+        }
+        break;
+    }
+    return 0;
+}
+
 static void translate_shader_with_cache(shader_t* glshader) {
     const char* base_src = glshader->source;
     if (!base_src) return;
@@ -786,6 +877,15 @@ static void translate_shader_with_cache(shader_t* glshader) {
     }
 
     int isFPEShader = (strstr(base_src, fpeshader_signature) != NULL) ? 1 : 0;
+    if (!isFPEShader && target_es >= 300 && has_es_profile_on_version_line(base_src) &&
+        GetShaderVersion(base_src) >= 300) {
+        /* Already-translated ESSL 3.x shader (e.g. from fpe_CustomShader): skip redundant glslang + SPIRV-Cross */
+        glshader->converted = strdup(base_src);
+        glshader->is_converted_essl_320 = 0;
+        emesis_shader_cache_store(&cache_key, glshader->converted, 0,
+                                  &glshader->need, &glshader->uniforms_declarations);
+        return;
+    }
     if (isFPEShader || target_es < 300) {
         char* prev_src = glshader->source;
         glshader->source = (char*)base_src;
@@ -825,7 +925,9 @@ static void translate_shader_with_cache(shader_t* glshader) {
             int sourceLength = (int)strlen(work) + 1;
             if (contains_glFragColor(work)) {
                 work = ReplaceGLFragColor(work, &sourceLength);
-            } else if (strstr(work, "gl_FragData")) {
+            }
+            if (strstr(work, "gl_FragData")) {
+                sourceLength = (int)strlen(work) + 1;
                 work = ReplaceGLFragData(work, &sourceLength);
             }
         }
@@ -853,11 +955,14 @@ static void translate_shader_with_cache(shader_t* glshader) {
         uniform_decls_clear(&glshader->uniforms_declarations);
         glshader->need = req_need;
         char* prev_src = glshader->source;
-        glshader->source = strdup(base_src);
+        char* fb_stripped = process_uniform_declarations((char*)base_src, &glshader->uniforms_declarations);
+        if (!fb_stripped) fb_stripped = strdup(base_src);
+        remove_before_version(fb_stripped);
+        glshader->source = fb_stripped;
         char* cond = ConvertShaderConditionally(glshader);
-        char* final_cond = cond ? strdup(cond) : strdup(base_src);
+        char* final_cond = cond ? strdup(cond) : strdup(fb_stripped);
         if (cond) free(cond);
-        free(glshader->source);
+        free(fb_stripped);
         glshader->source = prev_src;
         glshader->converted = final_cond;
         glshader->is_converted_essl_320 = 0;

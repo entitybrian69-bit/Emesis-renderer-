@@ -486,9 +486,73 @@ void APIENTRY_GL4ES gl4es_glGet##XXX##Indexedv(GLenum target, GLuint index, GL##
 
 GETXXX(Float, float);
 GETXXX(Double, double);
-GETXXX(Integer, int);
-GETXXX(Boolean, boolean);
 #undef GETXXX
+
+void APIENTRY_GL4ES gl4es_glGetIntegeri_v(GLenum target, GLuint index, GLint* data);
+void APIENTRY_GL4ES gl4es_glGetBooleani_v(GLenum target, GLuint index, GLboolean* data);
+
+void APIENTRY_GL4ES gl4es_glGetIntegerIndexedv(GLenum target, GLuint index, GLint *data) {
+    switch (target) {
+        case GL_PROGRAM_MATRIX_EXT:
+        case GL_TRANSPOSE_PROGRAM_MATRIX_EXT:
+        case GL_PROGRAM_MATRIX_STACK_DEPTH_EXT:
+        case GL_TEXTURE_MATRIX:
+        case GL_TEXTURE_STACK_DEPTH:
+        case GL_TRANSPOSE_TEXTURE_MATRIX:
+        case GL_TEXTURE_1D:
+        case GL_TEXTURE_2D:
+        case GL_TEXTURE_3D:
+        case GL_TEXTURE_CUBE_MAP:
+        case GL_TEXTURE_RECTANGLE_ARB: {
+            int old = glstate->texture.active;
+            if (old != (int)(index + GL_TEXTURE0)) gl4es_glActiveTexture(index + GL_TEXTURE0);
+            gl4es_glGetIntegerv(target, data);
+            if (old != (int)(index + GL_TEXTURE0)) gl4es_glActiveTexture(old);
+            break;
+        }
+        case GL_TEXTURE_COORD_ARRAY:
+        case GL_TEXTURE_COORD_ARRAY_BUFFER_BINDING:
+        case GL_TEXTURE_COORD_ARRAY_COUNT:
+        case GL_TEXTURE_COORD_ARRAY_SIZE:
+        case GL_TEXTURE_COORD_ARRAY_STRIDE:
+        case GL_TEXTURE_COORD_ARRAY_TYPE: {
+            int old = glstate->texture.client;
+            if (old != (int)index) gl4es_glClientActiveTexture(index + GL_TEXTURE0);
+            gl4es_glGetIntegerv(target, data);
+            if (old != (int)index) gl4es_glClientActiveTexture(old + GL_TEXTURE0);
+            break;
+        }
+        default:
+            gl4es_glGetIntegeri_v(target, index, data);
+            break;
+    }
+}
+
+void APIENTRY_GL4ES gl4es_glGetBooleanIndexedv(GLenum target, GLuint index, GLboolean *data) {
+    switch (target) {
+        case GL_TEXTURE_1D:
+        case GL_TEXTURE_2D:
+        case GL_TEXTURE_3D:
+        case GL_TEXTURE_CUBE_MAP:
+        case GL_TEXTURE_RECTANGLE_ARB: {
+            int old = glstate->texture.active;
+            if (old != (int)(index + GL_TEXTURE0)) gl4es_glActiveTexture(index + GL_TEXTURE0);
+            gl4es_glGetBooleanv(target, data);
+            if (old != (int)(index + GL_TEXTURE0)) gl4es_glActiveTexture(old);
+            break;
+        }
+        case GL_TEXTURE_COORD_ARRAY: {
+            int old = glstate->texture.client;
+            if (old != (int)index) gl4es_glClientActiveTexture(index + GL_TEXTURE0);
+            gl4es_glGetBooleanv(target, data);
+            if (old != (int)index) gl4es_glClientActiveTexture(old + GL_TEXTURE0);
+            break;
+        }
+        default:
+            gl4es_glGetBooleani_v(target, index, data);
+            break;
+    }
+}
 
 void APIENTRY_GL4ES gl4es_glGetPointerIndexedv(GLenum pname, GLuint index, GLvoid **params) {
     int old = glstate->texture.client;

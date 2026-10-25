@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include "../glx/hardext.h"
 #include "array.h"
 #include "debug.h"
@@ -457,6 +458,72 @@ void APIENTRY_GL4ES fpe_program(int ispoint) {
     }
 }
 
+static int has_standalone_token_fast(const char* src, const char* tok) {
+    if (!src || !tok || !tok[0]) return 0;
+    size_t tlen = strlen(tok);
+    const char* p = strstr(src, tok);
+    while (p) {
+        int prev_ok = (p == src) || (!isalnum((unsigned char)p[-1]) && p[-1] != '_');
+        int next_ok = !isalnum((unsigned char)p[tlen]) && p[tlen] != '_';
+        if (prev_ok && next_ok) return 1;
+        p = strstr(p + tlen, tok);
+    }
+    return 0;
+}
+
+static int emesis_should_skip_fpe_alphatest(program_t* glprogram) {
+    if (!glprogram) return 1;
+    if (glprogram->uniform_by_name) {
+        if (kh_get(uniformnamelist, glprogram->uniform_by_name, "alphaTestRef") !=
+            kh_end(glprogram->uniform_by_name)) {
+            return 1;
+        }
+        int has_post_rt =
+            (kh_get(uniformnamelist, glprogram->uniform_by_name, "colortex0") != kh_end(glprogram->uniform_by_name)) ||
+            (kh_get(uniformnamelist, glprogram->uniform_by_name, "colortex1") != kh_end(glprogram->uniform_by_name)) ||
+            (kh_get(uniformnamelist, glprogram->uniform_by_name, "depthtex0") != kh_end(glprogram->uniform_by_name)) ||
+            (kh_get(uniformnamelist, glprogram->uniform_by_name, "depthtex1") != kh_end(glprogram->uniform_by_name));
+        int has_albedo =
+            (kh_get(uniformnamelist, glprogram->uniform_by_name, "gtexture") != kh_end(glprogram->uniform_by_name)) ||
+            (kh_get(uniformnamelist, glprogram->uniform_by_name, "texture") != kh_end(glprogram->uniform_by_name)) ||
+            (kh_get(uniformnamelist, glprogram->uniform_by_name, "tex") != kh_end(glprogram->uniform_by_name));
+        int has_gcolor =
+            (kh_get(uniformnamelist, glprogram->uniform_by_name, "gcolor") != kh_end(glprogram->uniform_by_name));
+        /* Fullscreen composite/deferred/final passes or untextured skybasic passes never use fixed-function alpha test */
+        if (has_post_rt && !has_albedo) return 1;
+        if (!has_albedo && !has_gcolor && kh_size(glprogram->uniform_by_name) > 0) {
+            int any_sampler2d = 0;
+            if (glprogram->uniform) {
+                uniform_t* u;
+                kh_foreach_value(glprogram->uniform, u, {
+                    if (u && u->type == GL_SAMPLER_2D) {
+                        any_sampler2d = 1;
+                        break;
+                    }
+                });
+            }
+            if (!any_sampler2d) return 1;
+        }
+        if (has_gcolor && !has_albedo) {
+            /* Distinguish composite/deferred/final (`gcolor` without lightmap) from legacy gbuffers_terrain (`gcolor` + `lightmap`) */
+            if (kh_get(uniformnamelist, glprogram->uniform_by_name, "lightmap") ==
+                kh_end(glprogram->uniform_by_name)) {
+                return 1;
+            }
+        }
+    }
+    const char* fs_src = glprogram->frag_essl_copy
+                             ? glprogram->frag_essl_copy
+                             : (glprogram->last_frag
+                                    ? (glprogram->last_frag->converted ? glprogram->last_frag->converted
+                                                                       : glprogram->last_frag->source)
+                                    : NULL);
+    if (fs_src && has_standalone_token_fast(fs_src, "discard")) {
+        return 1;
+    }
+    return 0;
+}
+
 program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* state) {
     // state is not empty and glprogram already has some cache (it may be empty, but kh'thingy is initialized)
     fpe_fpe_t* fpe = fpe_GetCache((fpe_cache_t*)glprogram->fpe_cache, state, 0);
@@ -861,55 +928,75 @@ void APIENTRY_GL4ES fpe_glMultiTexCoord4f(GLenum target, GLfloat s, GLfloat t, G
 
 void APIENTRY_GL4ES fpe_glSecondaryColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
     DBG(DBGLOGD("fpe_glSecondaryColorPointer(%d, %s, %d, %p)\n", size, PrintEnum(type), stride, pointer);)
+    glbuffer_t* vbuf = (glstate->defaultvao) ? glstate->defaultvao->vertex : glstate->vao->vertex;
+    if (vbuf) {
+        emesis_note_buffer_vao_ref(vbuf, glstate->vao);
+        if (size == GL_BGRA || type == GL_DOUBLE) vbuf->used_by_divisor = 1;
+    }
     glstate->vao->vertexattrib[ATT_SECONDARY].size = size;
     glstate->vao->vertexattrib[ATT_SECONDARY].type = type;
     glstate->vao->vertexattrib[ATT_SECONDARY].stride = stride;
     glstate->vao->vertexattrib[ATT_SECONDARY].pointer = pointer;
     glstate->vao->vertexattrib[ATT_SECONDARY].divisor = 0;
     glstate->vao->vertexattrib[ATT_SECONDARY].normalized = (type == GL_FLOAT) ? GL_FALSE : GL_TRUE;
-    glstate->vao->vertexattrib[ATT_SECONDARY].real_buffer = 0;
-    glstate->vao->vertexattrib[ATT_SECONDARY].real_pointer = 0;
-    glstate->vao->vertexattrib[ATT_SECONDARY].buffer = glstate->vao->vertex;
+    glstate->vao->vertexattrib[ATT_SECONDARY].real_buffer = vbuf ? vbuf->real_buffer : 0;
+    glstate->vao->vertexattrib[ATT_SECONDARY].real_pointer = vbuf ? pointer : 0;
+    glstate->vao->vertexattrib[ATT_SECONDARY].buffer = vbuf;
 }
 
 void APIENTRY_GL4ES fpe_glVertexPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
     DBG(DBGLOGD("fpe_glVertexPointer(%d, %s, %d, %p), vertex_buffer=%p\n", size, PrintEnum(type), stride, pointer,
                 glstate->vao->vertex);)
+    glbuffer_t* vbuf = (glstate->defaultvao) ? glstate->defaultvao->vertex : glstate->vao->vertex;
+    if (vbuf) {
+        emesis_note_buffer_vao_ref(vbuf, glstate->vao);
+        if (type == GL_DOUBLE) vbuf->used_by_divisor = 1;
+    }
     glstate->vao->vertexattrib[ATT_VERTEX].size = size;
     glstate->vao->vertexattrib[ATT_VERTEX].type = type;
     glstate->vao->vertexattrib[ATT_VERTEX].stride = stride;
     glstate->vao->vertexattrib[ATT_VERTEX].pointer = pointer;
     glstate->vao->vertexattrib[ATT_VERTEX].divisor = 0;
     glstate->vao->vertexattrib[ATT_VERTEX].normalized = GL_FALSE;
-    glstate->vao->vertexattrib[ATT_VERTEX].real_buffer = 0;
-    glstate->vao->vertexattrib[ATT_VERTEX].real_pointer = 0;
-    glstate->vao->vertexattrib[ATT_VERTEX].buffer = glstate->vao->vertex;
+    glstate->vao->vertexattrib[ATT_VERTEX].real_buffer = vbuf ? vbuf->real_buffer : 0;
+    glstate->vao->vertexattrib[ATT_VERTEX].real_pointer = vbuf ? pointer : 0;
+    glstate->vao->vertexattrib[ATT_VERTEX].buffer = vbuf;
 }
 
 void APIENTRY_GL4ES fpe_glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
     DBG(DBGLOGD("fpe_glColorPointer(%d, %s, %d, %p)\n", size, PrintEnum(type), stride, pointer);)
+    glbuffer_t* vbuf = (glstate->defaultvao) ? glstate->defaultvao->vertex : glstate->vao->vertex;
+    if (vbuf) {
+        emesis_note_buffer_vao_ref(vbuf, glstate->vao);
+        if (size == GL_BGRA || type == GL_DOUBLE) vbuf->used_by_divisor = 1;
+    }
     glstate->vao->vertexattrib[ATT_COLOR].size = size;
     glstate->vao->vertexattrib[ATT_COLOR].type = type;
     glstate->vao->vertexattrib[ATT_COLOR].stride = stride;
     glstate->vao->vertexattrib[ATT_COLOR].pointer = pointer;
     glstate->vao->vertexattrib[ATT_COLOR].divisor = 0;
     glstate->vao->vertexattrib[ATT_COLOR].normalized = (type == GL_FLOAT) ? GL_FALSE : GL_TRUE;
-    glstate->vao->vertexattrib[ATT_COLOR].real_buffer = 0;
-    glstate->vao->vertexattrib[ATT_COLOR].real_pointer = 0;
-    glstate->vao->vertexattrib[ATT_COLOR].buffer = glstate->vao->vertex;
+    glstate->vao->vertexattrib[ATT_COLOR].real_buffer = vbuf ? vbuf->real_buffer : 0;
+    glstate->vao->vertexattrib[ATT_COLOR].real_pointer = vbuf ? pointer : 0;
+    glstate->vao->vertexattrib[ATT_COLOR].buffer = vbuf;
 }
 
 void APIENTRY_GL4ES fpe_glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
     DBG(DBGLOGD("fpe_glNormalPointer(%s, %d, %p)\n", PrintEnum(type), stride, pointer);)
+    glbuffer_t* vbuf = (glstate->defaultvao) ? glstate->defaultvao->vertex : glstate->vao->vertex;
+    if (vbuf) {
+        emesis_note_buffer_vao_ref(vbuf, glstate->vao);
+        if (type == GL_DOUBLE) vbuf->used_by_divisor = 1;
+    }
     glstate->vao->vertexattrib[ATT_NORMAL].size = 3;
     glstate->vao->vertexattrib[ATT_NORMAL].type = type;
     glstate->vao->vertexattrib[ATT_NORMAL].stride = stride;
     glstate->vao->vertexattrib[ATT_NORMAL].pointer = pointer;
     glstate->vao->vertexattrib[ATT_NORMAL].divisor = 0;
     glstate->vao->vertexattrib[ATT_NORMAL].normalized = (type == GL_FLOAT) ? GL_FALSE : GL_TRUE;
-    glstate->vao->vertexattrib[ATT_NORMAL].real_buffer = 0;
-    glstate->vao->vertexattrib[ATT_NORMAL].real_pointer = 0;
-    glstate->vao->vertexattrib[ATT_NORMAL].buffer = glstate->vao->vertex;
+    glstate->vao->vertexattrib[ATT_NORMAL].real_buffer = vbuf ? vbuf->real_buffer : 0;
+    glstate->vao->vertexattrib[ATT_NORMAL].real_pointer = vbuf ? pointer : 0;
+    glstate->vao->vertexattrib[ATT_NORMAL].buffer = vbuf;
 }
 
 void APIENTRY_GL4ES fpe_glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
@@ -918,28 +1005,39 @@ void APIENTRY_GL4ES fpe_glTexCoordPointer(GLint size, GLenum type, GLsizei strid
 
 void APIENTRY_GL4ES fpe_glTexCoordPointerTMU(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer, int TMU) {
     DBG(DBGLOGD("fpe_glTexCoordPointer(%d, %s, %d, %p) on tmu=%d\n", size, PrintEnum(type), stride, pointer, TMU);)
+    if (TMU < 0 || ATT_MULTITEXCOORD0 + TMU >= NB_VA) return;
+    glbuffer_t* vbuf = (glstate->defaultvao) ? glstate->defaultvao->vertex : glstate->vao->vertex;
+    if (vbuf) {
+        emesis_note_buffer_vao_ref(vbuf, glstate->vao);
+        if (type == GL_DOUBLE) vbuf->used_by_divisor = 1;
+    }
     glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + TMU].size = size;
     glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + TMU].type = type;
     glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + TMU].stride = stride;
     glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + TMU].pointer = pointer;
     glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + TMU].divisor = 0;
     glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + TMU].normalized = GL_FALSE;
-    glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + TMU].real_buffer = 0;
-    glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + TMU].real_pointer = 0;
-    glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + TMU].buffer = glstate->vao->vertex;
+    glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + TMU].real_buffer = vbuf ? vbuf->real_buffer : 0;
+    glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + TMU].real_pointer = vbuf ? pointer : 0;
+    glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + TMU].buffer = vbuf;
 }
 
 void APIENTRY_GL4ES fpe_glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
     DBG(DBGLOGD("fpe_glFogPointer(%s, %d, %p)\n", PrintEnum(type), stride, pointer);)
+    glbuffer_t* vbuf = (glstate->defaultvao) ? glstate->defaultvao->vertex : glstate->vao->vertex;
+    if (vbuf) {
+        emesis_note_buffer_vao_ref(vbuf, glstate->vao);
+        if (type == GL_DOUBLE) vbuf->used_by_divisor = 1;
+    }
     glstate->vao->vertexattrib[ATT_FOGCOORD].size = 1;
     glstate->vao->vertexattrib[ATT_FOGCOORD].type = type;
     glstate->vao->vertexattrib[ATT_FOGCOORD].stride = stride;
     glstate->vao->vertexattrib[ATT_FOGCOORD].pointer = pointer;
     glstate->vao->vertexattrib[ATT_FOGCOORD].divisor = 0;
     glstate->vao->vertexattrib[ATT_FOGCOORD].normalized = (type == GL_FLOAT) ? GL_FALSE : GL_TRUE;
-    glstate->vao->vertexattrib[ATT_FOGCOORD].real_buffer = 0;
-    glstate->vao->vertexattrib[ATT_FOGCOORD].real_pointer = 0;
-    glstate->vao->vertexattrib[ATT_FOGCOORD].buffer = glstate->vao->vertex;
+    glstate->vao->vertexattrib[ATT_FOGCOORD].real_buffer = vbuf ? vbuf->real_buffer : 0;
+    glstate->vao->vertexattrib[ATT_FOGCOORD].real_pointer = vbuf ? pointer : 0;
+    glstate->vao->vertexattrib[ATT_FOGCOORD].buffer = vbuf;
 }
 
 void APIENTRY_GL4ES fpe_glEnable(GLenum cap) {
@@ -974,12 +1072,17 @@ void APIENTRY_GL4ES fpe_glDrawElements(GLenum mode, GLsizei count, GLenum type, 
     realize_glenv(mode == GL_POINTS, 0, count, type, indices, &scratch);
     LOAD_GLES(glDrawElements);
     int use_vbo = 0;
-    if (glstate->vao->elements && glstate->vao->elements->real_buffer && indices >= glstate->vao->elements->data &&
-        indices <= ((void*)((char*)glstate->vao->elements->data + glstate->vao->elements->size))) {
-        use_vbo = 1;
-        bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->vao->elements->real_buffer);
-        indices = (GLvoid*)((uintptr_t)indices - (uintptr_t)(glstate->vao->elements->data));
-        DBG(DBGLOGD("Using VBO %d for indices\n", glstate->vao->elements->real_buffer);)
+    if (glstate->vao->elements && glstate->vao->elements->real_buffer) {
+        if (!glstate->vao->elements->data) {
+            use_vbo = 1;
+            bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->vao->elements->real_buffer);
+        } else if (indices >= glstate->vao->elements->data &&
+                   indices <= ((void*)((char*)glstate->vao->elements->data + glstate->vao->elements->size))) {
+            use_vbo = 1;
+            bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->vao->elements->real_buffer);
+            indices = (GLvoid*)((uintptr_t)indices - (uintptr_t)(glstate->vao->elements->data));
+            DBG(DBGLOGD("Using VBO %d for indices\n", glstate->vao->elements->real_buffer);)
+        }
     }
     realize_bufferIndex();
     gles_glDrawElements(mode, count, type, indices);
@@ -1002,6 +1105,9 @@ void APIENTRY_GL4ES fpe_glDrawArraysInstanced(GLenum mode, GLint first, GLsizei 
             {
                 vertexattrib_t* w = &glstate->vao->vertexattrib[i];
                 if (w->divisor && w->enabled) {
+                    if (w->buffer && !w->buffer->data) {
+                        emesis_ensure_buffer_cpu_shadow(w->buffer, GL_ARRAY_BUFFER, 1);
+                    }
                     char* current = (char*)((uintptr_t)w->pointer + ((w->buffer) ? (uintptr_t)w->buffer->data : 0));
                     int stride = w->stride;
                     if (!stride) stride = gl_sizeof(w->type) * w->size;
@@ -1045,8 +1151,13 @@ void APIENTRY_GL4ES fpe_glDrawElementsInstanced(GLenum mode, GLsizei count, GLen
     int use_vbo = 0;
     void* inds;
     GLfloat tmp[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-    if (glstate->vao->elements && glstate->vao->elements->real_buffer && indices >= glstate->vao->elements->data &&
-        indices <= ((void*)((char*)glstate->vao->elements->data + glstate->vao->elements->size))) {
+    if (glstate->vao->elements && glstate->vao->elements->real_buffer && !glstate->vao->elements->data) {
+        use_vbo = 1;
+        bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->vao->elements->real_buffer);
+        inds = (void*)indices;
+    } else if (glstate->vao->elements && glstate->vao->elements->real_buffer && glstate->vao->elements->data &&
+               indices >= glstate->vao->elements->data &&
+               indices <= ((void*)((char*)glstate->vao->elements->data + glstate->vao->elements->size))) {
         use_vbo = 1;
         bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->vao->elements->real_buffer);
         inds = (void*)((uintptr_t)indices - (uintptr_t)(glstate->vao->elements->data));
@@ -1062,6 +1173,9 @@ void APIENTRY_GL4ES fpe_glDrawElementsInstanced(GLenum mode, GLsizei count, GLen
             {
                 vertexattrib_t* w = &glstate->vao->vertexattrib[i];
                 if (w->divisor && w->enabled) {
+                    if (w->buffer && !w->buffer->data) {
+                        emesis_ensure_buffer_cpu_shadow(w->buffer, GL_ARRAY_BUFFER, 1);
+                    }
                     char* current = (char*)((uintptr_t)w->pointer + ((w->buffer) ? (uintptr_t)w->buffer->data : 0));
                     int stride = w->stride;
                     if (!stride) stride = gl_sizeof(w->type) * w->size;
@@ -1282,13 +1396,13 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
                 fpe_CustomShader_DefaultVertex(glprogram, &vertex_state); // fetch from cache if exist or create it
             program = glprogram->id;
         } else if (glstate->fpe_state->plane ||
-                   (glstate->fpe_state->alphatest && glstate->fpe_state->alphafunc != FPE_ALWAYS)) {
+                   (glstate->fpe_state->alphatest && glstate->fpe_state->alphafunc != FPE_ALWAYS &&
+                    !emesis_should_skip_fpe_alphatest(glprogram))) {
+            int want_alpha = (glstate->fpe_state->alphatest && glstate->fpe_state->alphafunc != FPE_ALWAYS &&
+                              !emesis_should_skip_fpe_alphatest(glprogram));
             uint32_t custom_key =
                 (uint32_t)glstate->fpe_state->plane |
-                (((glstate->fpe_state->alphatest && glstate->fpe_state->alphafunc != FPE_ALWAYS)
-                      ? (1u | ((uint32_t)glstate->fpe_state->alphafunc << 1))
-                      : 0u)
-                 << 8);
+                ((want_alpha ? (1u | ((uint32_t)glstate->fpe_state->alphafunc << 1)) : 0u) << 8);
             if (glprogram->last_custom_valid && glprogram->last_custom_key == custom_key &&
                 glprogram->last_custom_prog) {
                 glprogram = (program_t*)glprogram->last_custom_prog;
@@ -1296,6 +1410,10 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
             } else {
                 fpe_state_t state;
                 fpe_ReleventState(&state, glstate->fpe_state, 0);
+                if (!want_alpha) {
+                    state.alphatest = 0;
+                    state.alphafunc = FPE_ALWAYS;
+                }
                 if (!fpe_IsEmpty(&state)) {
                     DBG(DBGLOGD("GLSL program %d need customization => ", program);)
                     if (!glprogram->fpe_cache) glprogram->fpe_cache = fpe_NewCache();
@@ -1592,7 +1710,7 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
     }
     // fpe
     if (glprogram->fpe_alpharef != -1) {
-        float alpharef = floorf(glstate->alpharef * 255.f);
+        float alpharef = (glstate->alpharef < 0.0f) ? 0.0f : ((glstate->alpharef > 1.0f) ? 1.0f : glstate->alpharef);
         GoUniformfv(glprogram, glprogram->fpe_alpharef, 1, 1, &alpharef);
     }
     if (glprogram->has_builtin_texsampler) {

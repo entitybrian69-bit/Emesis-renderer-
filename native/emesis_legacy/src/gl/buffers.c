@@ -357,9 +357,9 @@ void APIENTRY_GL4ES gl4es_glBufferData(GLenum target, GLsizeiptr size, const GLv
     }
 
     int skip_cpu_shadow = (!defer_gpu_upload && !is_cpu_emul_target &&
-                           go_real && buff->real_buffer && emesis_has_gpu_copy_buffer() && !buff->mapped &&
-                           (((target == GL_COPY_WRITE_BUFFER || target == GL_COPY_READ_BUFFER) && data == NULL) ||
-                            (target == GL_ARRAY_BUFFER && usage == GL_STREAM_COPY)));
+                           target != GL_ELEMENT_ARRAY_BUFFER &&
+                           go_real && buff->real_buffer && emesis_has_gpu_copy_buffer() &&
+                           !buff->mapped && !buff->used_by_divisor);
     if (skip_cpu_shadow) {
         if (buff->data) {
             free(buff->data);
@@ -419,6 +419,17 @@ void APIENTRY_GL4ES gl4es_glBufferData(GLenum target, GLsizeiptr size, const GLv
                 }
             });
         }
+        if (glstate->clientStack) {
+            for (int s = 0; s < glstate->clientStack->len; ++s) {
+                if (glstate->clientStack[s].mask & GL_CLIENT_VERTEX_ARRAY_BIT) {
+                    for (int i = 0; i < NB_VA; ++i) {
+                        if (glstate->clientStack[s].vertexattrib[i].buffer == buff) {
+                            glstate->clientStack[s].vertexattrib[i].real_buffer = buff->real_buffer;
+                        }
+                    }
+                }
+            }
+        }
     }
     noerrorShim();
 }
@@ -455,7 +466,12 @@ void APIENTRY_GL4ES gl4es_glNamedBufferData(GLuint buffer, GLsizeiptr size, cons
         LOAD_GLES(glBindBuffer);
         GLenum upload_target = (buff->type == GL_ELEMENT_ARRAY_BUFFER)
                                    ? GL_ELEMENT_ARRAY_BUFFER
-                                   : ((hardext.esversion >= 3 && buff->type) ? buff->type : GL_ARRAY_BUFFER);
+                                   : ((hardext.esversion >= 3 && buff->type &&
+                                       buff->type != GL_PIXEL_PACK_BUFFER &&
+                                       buff->type != GL_PIXEL_UNPACK_BUFFER &&
+                                       buff->type != GL_DRAW_INDIRECT_BUFFER)
+                                          ? buff->type
+                                          : GL_ARRAY_BUFFER);
         bindBuffer(upload_target, buff->real_buffer);
         gles_glBufferData(upload_target, size, data, usage);
     }
@@ -582,8 +598,12 @@ void APIENTRY_GL4ES gl4es_glNamedBufferSubData(GLuint buffer, GLintptr offset, G
         buff->real_buffer) {
         LOAD_GLES(glBufferSubData);
         LOAD_GLES(glBindBuffer);
-        bindBuffer(buff->type, buff->real_buffer);
-        gles_glBufferSubData(buff->type, offset, size, data);
+        GLenum sub_target = (buff->type == GL_PIXEL_PACK_BUFFER || buff->type == GL_PIXEL_UNPACK_BUFFER ||
+                             buff->type == GL_DRAW_INDIRECT_BUFFER)
+                                ? ((hardext.esversion >= 3) ? GL_COPY_READ_BUFFER : GL_ARRAY_BUFFER)
+                                : buff->type;
+        bindBuffer(sub_target, buff->real_buffer);
+        gles_glBufferSubData(sub_target, offset, size, data);
     }
     if (!buff->data && !buff->real_buffer && buff->size > 0) {
         buff->data = calloc(1, (size_t)buff->size);
@@ -650,6 +670,21 @@ void APIENTRY_GL4ES gl4es_glDeleteBuffers(GLsizei n, const GLuint* buffers) {
                                 emesis_scrub_vao_buffer(v, buff);
                             }
                         });
+                    }
+                    if (glstate->clientStack) {
+                        for (int s = 0; s < glstate->clientStack->len; ++s) {
+                            if (glstate->clientStack[s].mask & GL_CLIENT_VERTEX_ARRAY_BIT) {
+                                for (int j = 0; j < NB_VA; ++j) {
+                                    if (glstate->clientStack[s].vertexattrib[j].buffer == buff) {
+                                        glstate->clientStack[s].vertexattrib[j].buffer = NULL;
+                                        glstate->clientStack[s].vertexattrib[j].real_buffer = 0;
+                                        glstate->clientStack[s].vertexattrib[j].real_pointer = 0;
+                                        glstate->clientStack[s].vertexattrib[j].pointer = NULL;
+                                        glstate->clientStack[s].vertexattrib[j].enabled = 0;
+                                    }
+                                }
+                            }
+                        }
                     }
                     DBG(SHUT_LOGD("\t buff->data = %p\n", buff->data);)
                     if (buff->data) free(buff->data);
@@ -738,6 +773,10 @@ void emesis_ensure_buffer_cpu_shadow(glbuffer_t* buff, GLenum target, int need_r
     buff->cap = buff->data ? (GLsizeiptr)alloc_sz : 0;
     if (buff->data && need_read && buff->real_buffer && buff->size > 0 && hardext.esversion >= 3) {
         GLenum map_target = target ? target : (buff->type ? buff->type : GL_COPY_READ_BUFFER);
+        if (map_target == GL_PIXEL_PACK_BUFFER || map_target == GL_PIXEL_UNPACK_BUFFER ||
+            map_target == GL_DRAW_INDIRECT_BUFFER) {
+            map_target = GL_COPY_READ_BUFFER;
+        }
         LOAD_GLES3(glMapBufferRange);
         LOAD_GLES3(glUnmapBuffer);
         if (gles_glMapBufferRange && gles_glUnmapBuffer) {
@@ -819,6 +858,10 @@ GLboolean APIENTRY_GL4ES gl4es_glUnmapBuffer(GLenum target) {
     noerrorShim();
 
     GLenum upload_target = target ? target : buff->type;
+    GLenum gles_upload_target = (upload_target == GL_PIXEL_PACK_BUFFER || upload_target == GL_PIXEL_UNPACK_BUFFER ||
+                                 upload_target == GL_DRAW_INDIRECT_BUFFER || upload_target == 0)
+                                    ? ((hardext.esversion >= 3) ? GL_COPY_READ_BUFFER : GL_ARRAY_BUFFER)
+                                    : upload_target;
     if (buff->real_buffer && buff->data &&
         (upload_target == GL_ARRAY_BUFFER || upload_target == GL_ELEMENT_ARRAY_BUFFER ||
          upload_target == GL_UNIFORM_BUFFER || upload_target == GL_COPY_WRITE_BUFFER ||
@@ -828,8 +871,8 @@ GLboolean APIENTRY_GL4ES gl4es_glUnmapBuffer(GLenum target) {
         buff->mapped && !buff->ranged && (buff->access == GL_WRITE_ONLY || buff->access == GL_READ_WRITE)) {
         LOAD_GLES(glBufferSubData);
         LOAD_GLES(glBindBuffer);
-        bindBuffer(upload_target, buff->real_buffer);
-        gles_glBufferSubData(upload_target, 0, buff->size, buff->data);
+        bindBuffer(gles_upload_target, buff->real_buffer);
+        gles_glBufferSubData(gles_upload_target, 0, buff->size, buff->data);
     }
 
     if (buff->real_buffer && buff->data &&
@@ -841,8 +884,9 @@ GLboolean APIENTRY_GL4ES gl4es_glUnmapBuffer(GLenum target) {
         buff->mapped && buff->ranged && (buff->access & GL_MAP_WRITE_BIT_EXT) &&
         !(buff->access & GL_MAP_FLUSH_EXPLICIT_BIT_EXT)) {
         LOAD_GLES(glBufferSubData);
-        bindBuffer(upload_target, buff->real_buffer);
-        gles_glBufferSubData(upload_target, buff->offset, buff->length, (void*)((uintptr_t)buff->data + buff->offset));
+        bindBuffer(gles_upload_target, buff->real_buffer);
+        gles_glBufferSubData(gles_upload_target, buff->offset, buff->length,
+                             (void*)((uintptr_t)buff->data + buff->offset));
     }
     if (buff->mapped) {
         buff->mapped = 0;
@@ -873,7 +917,12 @@ GLboolean APIENTRY_GL4ES gl4es_glUnmapNamedBuffer(GLuint buffer) {
         LOAD_GLES(glBindBuffer);
         GLenum upload_target = (buff->type == GL_ELEMENT_ARRAY_BUFFER)
                                    ? GL_ELEMENT_ARRAY_BUFFER
-                                   : ((hardext.esversion >= 3 && buff->type) ? buff->type : GL_ARRAY_BUFFER);
+                                   : ((hardext.esversion >= 3 && buff->type &&
+                                       buff->type != GL_PIXEL_PACK_BUFFER &&
+                                       buff->type != GL_PIXEL_UNPACK_BUFFER &&
+                                       buff->type != GL_DRAW_INDIRECT_BUFFER)
+                                          ? buff->type
+                                          : GL_ARRAY_BUFFER);
         bindBuffer(upload_target, buff->real_buffer);
         gles_glBufferSubData(upload_target, 0, buff->size, buff->data);
     }
@@ -889,7 +938,12 @@ GLboolean APIENTRY_GL4ES gl4es_glUnmapNamedBuffer(GLuint buffer) {
         LOAD_GLES(glBindBuffer);
         GLenum upload_target = (buff->type == GL_ELEMENT_ARRAY_BUFFER)
                                    ? GL_ELEMENT_ARRAY_BUFFER
-                                   : ((hardext.esversion >= 3 && buff->type) ? buff->type : GL_ARRAY_BUFFER);
+                                   : ((hardext.esversion >= 3 && buff->type &&
+                                       buff->type != GL_PIXEL_PACK_BUFFER &&
+                                       buff->type != GL_PIXEL_UNPACK_BUFFER &&
+                                       buff->type != GL_DRAW_INDIRECT_BUFFER)
+                                          ? buff->type
+                                          : GL_ARRAY_BUFFER);
         bindBuffer(upload_target, buff->real_buffer);
         gles_glBufferSubData(upload_target, buff->offset, buff->length, (void*)((uintptr_t)buff->data + buff->offset));
     }
@@ -1021,9 +1075,14 @@ void APIENTRY_GL4ES gl4es_glFlushMappedBufferRange(GLenum target, GLintptr offse
             flush_target == GL_COPY_READ_BUFFER || flush_target == GL_TEXTURE_BUFFER ||
             flush_target == GL_PIXEL_PACK_BUFFER || flush_target == GL_PIXEL_UNPACK_BUFFER ||
             flush_target == GL_DRAW_INDIRECT_BUFFER) {
+            GLenum gles_flush_target = (flush_target == GL_PIXEL_PACK_BUFFER ||
+                                        flush_target == GL_PIXEL_UNPACK_BUFFER ||
+                                        flush_target == GL_DRAW_INDIRECT_BUFFER)
+                                           ? ((hardext.esversion >= 3) ? GL_COPY_READ_BUFFER : GL_ARRAY_BUFFER)
+                                           : flush_target;
             LOAD_GLES(glBufferSubData);
-            bindBuffer(flush_target, buff->real_buffer);
-            gles_glBufferSubData(flush_target, buff->offset + offset, length,
+            bindBuffer(gles_flush_target, buff->real_buffer);
+            gles_glBufferSubData(gles_flush_target, buff->offset + offset, length,
                                  (void*)((uintptr_t)buff->data + buff->offset + offset));
         }
     }
@@ -1159,20 +1218,114 @@ void APIENTRY_GL4ES gl4es_glBindBufferRange(GLenum target, GLuint index, GLuint 
 }
 
 GLuint APIENTRY_GL4ES gl4es_glGetUniformBlockIndex(GLuint program, const GLchar* name) {
-    LOAD_GLES(glGetUniformBlockIndex);
-    if (!gles_glGetUniformBlockIndex) return GL_INVALID_INDEX;
+    LOAD_GLES3(glGetUniformBlockIndex);
+    if (!gles_glGetUniformBlockIndex || !name) return GL_INVALID_INDEX;
 
     GLuint result = gles_glGetUniformBlockIndex(program, name);
-    noerrorShim();
+    errorGL();
     return result;
 }
 
 void APIENTRY_GL4ES gl4es_glUniformBlockBinding(GLuint program, GLuint blockIndex, GLuint binding) {
-    LOAD_GLES(glUniformBlockBinding);
+    LOAD_GLES3(glUniformBlockBinding);
     if (!gles_glUniformBlockBinding) return;
 
     gles_glUniformBlockBinding(program, blockIndex, binding);
+    errorGL();
+}
+
+void APIENTRY_GL4ES gl4es_glGetActiveUniformBlockiv(GLuint program, GLuint uniformBlockIndex, GLenum pname,
+                                                    GLint* params) {
+    if (!params) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+    LOAD_GLES3(glGetActiveUniformBlockiv);
+    if (!gles_glGetActiveUniformBlockiv) {
+        *params = 0;
+        errorShim(GL_INVALID_OPERATION);
+        return;
+    }
+    errorGL();
+    gles_glGetActiveUniformBlockiv(program, uniformBlockIndex, pname, params);
+}
+
+void APIENTRY_GL4ES gl4es_glGetActiveUniformBlockName(GLuint program, GLuint uniformBlockIndex, GLsizei bufSize,
+                                                      GLsizei* length, GLchar* uniformBlockName) {
+    LOAD_GLES3(glGetActiveUniformBlockName);
+    if (!gles_glGetActiveUniformBlockName) {
+        if (length) *length = 0;
+        if (uniformBlockName && bufSize > 0) uniformBlockName[0] = '\0';
+        errorShim(GL_INVALID_OPERATION);
+        return;
+    }
+    errorGL();
+    gles_glGetActiveUniformBlockName(program, uniformBlockIndex, bufSize, length, uniformBlockName);
+}
+
+void APIENTRY_GL4ES gl4es_glGetBufferParameteri64v(GLenum target, GLenum value, GLint64* data) {
+    if (!data) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+    if (!buffer_target(target)) {
+        errorShim(GL_INVALID_ENUM);
+        return;
+    }
+    glbuffer_t* buff = getbuffer_buffer(target);
+    if (!buff) {
+        errorShim(GL_INVALID_OPERATION);
+        return;
+    }
+    switch (value) {
+    case GL_BUFFER_ACCESS:
+        *data = (GLint64)buff->access;
+        break;
+    case GL_BUFFER_ACCESS_FLAGS:
+        *data = (GLint64)(buff->mapping_flags ? buff->mapping_flags : (GL_MAP_READ_BIT | GL_MAP_WRITE_BIT));
+        break;
+    case GL_BUFFER_MAPPED:
+        *data = (buff->mapped) ? GL_TRUE : GL_FALSE;
+        break;
+    case GL_BUFFER_MAP_LENGTH:
+        *data = (GLint64)(buff->ranged ? buff->length : (buff->mapped ? buff->size : 0));
+        break;
+    case GL_BUFFER_MAP_OFFSET:
+        *data = (GLint64)(buff->ranged ? buff->offset : 0);
+        break;
+    case GL_BUFFER_SIZE:
+        *data = (GLint64)buff->size;
+        break;
+    case GL_BUFFER_USAGE:
+        *data = (GLint64)buff->usage;
+        break;
+    default:
+        if (hardext.esversion >= 3 && buff->real_buffer) {
+            typedef void (*p_glGetBufferParameteri64v_t)(GLenum, GLenum, GLint64*);
+            static p_glGetBufferParameteri64v_t fn = NULL;
+            static int fn_checked = 0;
+            if (!fn_checked && gles) {
+                fn = (p_glGetBufferParameteri64v_t)proc_address(gles, "glGetBufferParameteri64v");
+                fn_checked = 1;
+            }
+            if (fn) {
+                GLenum safe_tgt = (target == GL_PIXEL_PACK_BUFFER || target == GL_PIXEL_UNPACK_BUFFER ||
+                                   target == GL_DRAW_INDIRECT_BUFFER)
+                                      ? ((hardext.esversion >= 3) ? GL_COPY_WRITE_BUFFER : GL_ARRAY_BUFFER)
+                                      : target;
+                errorGL();
+                fn(safe_tgt, value, data);
+                return;
+            }
+        }
+        errorShim(GL_INVALID_ENUM);
+        return;
+    }
     noerrorShim();
+}
+
+void APIENTRY_GL4ES gl4es_glTexBuffer(GLenum target, GLenum internalformat, GLuint buffer) {
+    glTexBuffer(target, internalformat, buffer);
 }
 
 void bindBuffer(GLenum target, GLuint buffer) {
@@ -1353,6 +1506,13 @@ AliasExport(void, glBindBufferBase, , (GLenum target, GLuint index, GLuint buffe
 AliasExport(void, glBindBufferRange, , (GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size));
 AliasExport(GLuint, glGetUniformBlockIndex, , (GLuint program, const GLchar* name));
 AliasExport(void, glUniformBlockBinding, , (GLuint program, GLuint blockIndex, GLuint binding));
+AliasExport(void, glGetActiveUniformBlockiv, ,
+            (GLuint program, GLuint uniformBlockIndex, GLenum pname, GLint* params));
+AliasExport(void, glGetActiveUniformBlockName, ,
+            (GLuint program, GLuint uniformBlockIndex, GLsizei bufSize, GLsizei* length, GLchar* uniformBlockName));
+AliasExport(void, glGetBufferParameteri64v, , (GLenum target, GLenum value, GLint64* data));
+AliasExport(void, glTexBuffer, ARB, (GLenum target, GLenum internalformat, GLuint buffer));
+AliasExport(void, glTexBuffer, EXT, (GLenum target, GLenum internalformat, GLuint buffer));
 // ARB wrapper
 #ifndef AMIGAOS4
 AliasExport(void, glGenBuffers, ARB, (GLsizei n, GLuint* buffers));
@@ -1371,6 +1531,10 @@ AliasExport(void, glBindBufferRange, ARB,
             (GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size));
 AliasExport(GLuint, glGetUniformBlockIndex, ARB, (GLuint program, const GLchar* name));
 AliasExport(void, glUniformBlockBinding, ARB, (GLuint program, GLuint blockIndex, GLuint binding));
+AliasExport(void, glGetActiveUniformBlockiv, ARB,
+            (GLuint program, GLuint uniformBlockIndex, GLenum pname, GLint* params));
+AliasExport(void, glGetActiveUniformBlockName, ARB,
+            (GLuint program, GLuint uniformBlockIndex, GLsizei bufSize, GLsizei* length, GLchar* uniformBlockName));
 #endif
 
 // Direct Access

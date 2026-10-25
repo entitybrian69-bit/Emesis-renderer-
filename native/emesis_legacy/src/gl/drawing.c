@@ -125,42 +125,43 @@ renderlist_t* arrays_to_renderlist(renderlist_t* list, GLenum mode, GLsizei skip
                 list->vert = copy_gl_pointer_tex(&glstate->vao->vertexattrib[ATT_VERTEX], 4, skip, count);
         }
         if (glstate->vao->vertexattrib[ATT_COLOR].enabled) {
+            vertexattrib_t* ca = &glstate->vao->vertexattrib[ATT_COLOR];
+            const void* ca_ptr = ca->pointer;
+            if (ca->size == GL_BGRA && ca->buffer) {
+                if (!ca->buffer->data) emesis_ensure_buffer_cpu_shadow(ca->buffer, GL_ARRAY_BUFFER, 1);
+                ca_ptr = (const char*)ca->buffer->data + (uintptr_t)ca->pointer;
+            }
             if (glstate->vao->shared_arrays) {
-                if (glstate->vao->vertexattrib[ATT_COLOR].size == GL_BGRA)
-                    glstate->vao->color.ptr =
-                        copy_gl_pointer_color_bgra(glstate->vao->vertexattrib[ATT_COLOR].pointer,
-                                                   glstate->vao->vertexattrib[ATT_COLOR].stride, 4, 0, count);
+                if (ca->size == GL_BGRA)
+                    glstate->vao->color.ptr = copy_gl_pointer_color_bgra(ca_ptr, ca->stride, 4, 0, count);
                 else
-                    glstate->vao->color.ptr =
-                        copy_gl_pointer_color(&glstate->vao->vertexattrib[ATT_COLOR], 4, 0, count);
+                    glstate->vao->color.ptr = copy_gl_pointer_color(ca, 4, 0, count);
                 list->color = glstate->vao->color.ptr + 4 * skip;
             } else {
-                if (glstate->vao->vertexattrib[ATT_COLOR].size == GL_BGRA)
-                    list->color =
-                        copy_gl_pointer_color_bgra(glstate->vao->vertexattrib[ATT_COLOR].pointer,
-                                                   glstate->vao->vertexattrib[ATT_COLOR].stride, 4, skip, count);
+                if (ca->size == GL_BGRA)
+                    list->color = copy_gl_pointer_color_bgra(ca_ptr, ca->stride, 4, skip, count);
                 else
-                    list->color = copy_gl_pointer_color(&glstate->vao->vertexattrib[ATT_COLOR], 4, skip, count);
+                    list->color = copy_gl_pointer_color(ca, 4, skip, count);
             }
         }
         if (glstate->vao->vertexattrib[ATT_SECONDARY].enabled /* && glstate->enable.color_array*/) {
+            vertexattrib_t* sa = &glstate->vao->vertexattrib[ATT_SECONDARY];
+            const void* sa_ptr = sa->pointer;
+            if (sa->size == GL_BGRA && sa->buffer) {
+                if (!sa->buffer->data) emesis_ensure_buffer_cpu_shadow(sa->buffer, GL_ARRAY_BUFFER, 1);
+                sa_ptr = (const char*)sa->buffer->data + (uintptr_t)sa->pointer;
+            }
             if (glstate->vao->shared_arrays) {
-                if (glstate->vao->vertexattrib[ATT_SECONDARY].size == GL_BGRA)
-                    glstate->vao->secondary.ptr =
-                        copy_gl_pointer_color_bgra(glstate->vao->vertexattrib[ATT_SECONDARY].pointer,
-                                                   glstate->vao->vertexattrib[ATT_SECONDARY].stride, 4, 0, count);
+                if (sa->size == GL_BGRA)
+                    glstate->vao->secondary.ptr = copy_gl_pointer_color_bgra(sa_ptr, sa->stride, 4, 0, count);
                 else
-                    glstate->vao->secondary.ptr = copy_gl_pointer(&glstate->vao->vertexattrib[ATT_SECONDARY], 4, 0,
-                                                                  count); // alpha chanel is always 0 for secondary...
+                    glstate->vao->secondary.ptr = copy_gl_pointer(sa, 4, 0, count);
                 list->secondary = glstate->vao->secondary.ptr + 4 * skip;
             } else {
-                if (glstate->vao->vertexattrib[ATT_SECONDARY].size == GL_BGRA)
-                    list->secondary =
-                        copy_gl_pointer_color_bgra(glstate->vao->vertexattrib[ATT_SECONDARY].pointer,
-                                                   glstate->vao->vertexattrib[ATT_SECONDARY].stride, 4, skip, count);
+                if (sa->size == GL_BGRA)
+                    list->secondary = copy_gl_pointer_color_bgra(sa_ptr, sa->stride, 4, skip, count);
                 else
-                    list->secondary = copy_gl_pointer(&glstate->vao->vertexattrib[ATT_SECONDARY], 4, skip,
-                                                      count); // alpha chanel is always 0 for secondary...
+                    list->secondary = copy_gl_pointer(sa, 4, skip, count);
             }
         }
         if (glstate->vao->vertexattrib[ATT_NORMAL].enabled) {
@@ -230,21 +231,29 @@ static renderlist_t* arrays_add_renderlist(renderlist_t* a, GLenum mode, GLsizei
             copy_gl_pointer_raw_noalloc(a->normal + a->len * 3, &glstate->vao->vertexattrib[ATT_NORMAL], 3, skip,
                                         count);
         if (a->color) {
-            if (glstate->vao->vertexattrib[ATT_COLOR].size == GL_BGRA)
-                copy_gl_pointer_color_bgra_noalloc(a->color + a->len * 4, glstate->vao->vertexattrib[ATT_COLOR].pointer,
-                                                   glstate->vao->vertexattrib[ATT_COLOR].stride, 4, skip, count);
-            else
-                copy_gl_pointer_color_noalloc(a->color + a->len * 4, &glstate->vao->vertexattrib[ATT_COLOR], 4, skip,
-                                              count);
+            vertexattrib_t* ca = &glstate->vao->vertexattrib[ATT_COLOR];
+            if (ca->size == GL_BGRA) {
+                const void* ca_ptr = ca->pointer;
+                if (ca->buffer) {
+                    if (!ca->buffer->data) emesis_ensure_buffer_cpu_shadow(ca->buffer, GL_ARRAY_BUFFER, 1);
+                    ca_ptr = (const char*)ca->buffer->data + (uintptr_t)ca->pointer;
+                }
+                copy_gl_pointer_color_bgra_noalloc(a->color + a->len * 4, ca_ptr, ca->stride, 4, skip, count);
+            } else
+                copy_gl_pointer_color_noalloc(a->color + a->len * 4, ca, 4, skip, count);
         }
-        if (a->secondary)
-            if (glstate->vao->vertexattrib[ATT_SECONDARY].size == GL_BGRA)
-                copy_gl_pointer_color_bgra_noalloc(a->secondary + a->len * 4,
-                                                   glstate->vao->vertexattrib[ATT_SECONDARY].pointer,
-                                                   glstate->vao->vertexattrib[ATT_SECONDARY].stride, 4, skip, count);
-            else
-                copy_gl_pointer_noalloc(a->secondary + a->len * 4, &glstate->vao->vertexattrib[ATT_SECONDARY], 4, skip,
-                                        count); // alpha chanel is always 0 for secondary...
+        if (a->secondary) {
+            vertexattrib_t* sa = &glstate->vao->vertexattrib[ATT_SECONDARY];
+            if (sa->size == GL_BGRA) {
+                const void* sa_ptr = sa->pointer;
+                if (sa->buffer) {
+                    if (!sa->buffer->data) emesis_ensure_buffer_cpu_shadow(sa->buffer, GL_ARRAY_BUFFER, 1);
+                    sa_ptr = (const char*)sa->buffer->data + (uintptr_t)sa->pointer;
+                }
+                copy_gl_pointer_color_bgra_noalloc(a->secondary + a->len * 4, sa_ptr, sa->stride, 4, skip, count);
+            } else
+                copy_gl_pointer_noalloc(a->secondary + a->len * 4, sa, 4, skip, count);
+        }
         if (a->fogcoord)
             copy_gl_pointer_raw_noalloc(a->fogcoord + a->len * 1, &glstate->vao->vertexattrib[ATT_FOGCOORD], 1, skip,
                                         count);
@@ -2035,9 +2044,10 @@ AliasExport(void, glDrawElementsIndirect, ARB, (GLenum mode, GLenum type, const 
 
 void APIENTRY_GL4ES gl4es_glMemoryBarrier(GLbitfield barriers) {
     LOAD_GLES3(glMemoryBarrier);
-    gles_glMemoryBarrier(barriers);
+    if (gles_glMemoryBarrier) gles_glMemoryBarrier(barriers);
 }
 AliasExport(void, glMemoryBarrier, , (GLbitfield barriers));
+AliasExport(void, glMemoryBarrier, EXT, (GLbitfield barriers));
 
 void internal_glMultiDrawElementsBaseVertex_gles32(GLenum mode, const GLsizei* counts, GLenum type,
                                                    const void* const* indices, GLsizei primcount,
@@ -2652,3 +2662,13 @@ AliasExport(void, glDrawElementsInstancedBaseVertex, ,
             (GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei primcount, GLint basevertex));
 AliasExport(void, glDrawElementsInstancedBaseVertex, ARB,
             (GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei primcount, GLint basevertex));
+AliasExport(void, glDrawElementsInstancedBaseVertex, EXT,
+            (GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei primcount, GLint basevertex));
+AliasExport(void, glDrawArraysInstanced, EXT, (GLenum mode, GLint first, GLsizei count, GLsizei primcount));
+AliasExport(void, glDrawElementsInstanced, EXT,
+            (GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei primcount));
+AliasExport(void, glDrawElementsBaseVertex, EXT,
+            (GLenum mode, GLsizei count, GLenum type, const void* indices, GLint basevertex));
+AliasExport(void, glDrawRangeElementsBaseVertex, EXT,
+            (GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void* indices,
+             GLint basevertex));

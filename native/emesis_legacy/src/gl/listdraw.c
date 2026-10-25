@@ -92,11 +92,11 @@ int list2VBO(renderlist_t* list)
         uintptr_t base = vbo_base;
         uintptr_t basebase = vbo_base;
         array2vbo_t *r = work+sorted[i];
-        if(i) for(int j=i-1; j<i; ++j) {
+        if(i) for(int j=0; j<i; ++j) {
             array2vbo_t *t = work+sorted[j];
-            if(r->real_base<t->real_base+t->real_size) {
-                base = r->vbo_base + (r->real_base - t->real_base);
-                basebase = r->vbo_basebase;
+            if(r->real_base >= t->real_base && r->real_base + r->real_size <= t->real_base + t->real_size) {
+                base = t->vbo_base + (r->real_base - t->real_base);
+                basebase = t->vbo_basebase;
                 break;
             }
         }
@@ -194,7 +194,7 @@ void listActiveVBO(renderlist_t* list, save_vbo_t* saved) {
         glstate->vao->vertexattrib[ATT_NORMAL].real_pointer = list->vbo_normal;
         glstate->vao->vertexattrib[ATT_NORMAL].buffer = NULL;
     }
-    for (int a=0; a<list->maxtex; ++a) {
+    for (int a=0; a<list->maxtex && (ATT_MULTITEXCOORD0+a)<NB_VA; ++a) {
         if(list->tex[a]) {
             saved[ATT_MULTITEXCOORD0+a].real_buffer = glstate->vao->vertexattrib[ATT_MULTITEXCOORD0+a].real_buffer;
             saved[ATT_MULTITEXCOORD0+a].real_pointer = glstate->vao->vertexattrib[ATT_MULTITEXCOORD0+a].real_pointer;
@@ -231,7 +231,7 @@ void listInactiveVBO(renderlist_t* list, save_vbo_t* saved) {
         glstate->vao->vertexattrib[ATT_NORMAL].real_pointer = saved[ATT_NORMAL].real_pointer;
         glstate->vao->vertexattrib[ATT_NORMAL].buffer = saved[ATT_NORMAL].buffer;
     }
-    for (int a=0; a<list->maxtex; ++a) {
+    for (int a=0; a<list->maxtex && (ATT_MULTITEXCOORD0+a)<NB_VA; ++a) {
         if(list->tex[a]) {
             glstate->vao->vertexattrib[ATT_MULTITEXCOORD0+a].real_buffer = saved[ATT_MULTITEXCOORD0+a].real_buffer;
             glstate->vao->vertexattrib[ATT_MULTITEXCOORD0+a].real_pointer = saved[ATT_MULTITEXCOORD0+a].real_pointer;
@@ -690,13 +690,18 @@ void draw_renderlist(renderlist_t *list) {
                 }
             }
         } else {
-            // texture loop for ES2+ version
-            for (int a=0; a<hardext.maxtex; a++) {
-                if(list->tex[a]) {
+            // texture loop for ES2+ version (bounded to hardware generic vertex attribs and skipping already-disabled TMUs)
+            int max_client_tmu = hardext.maxtex;
+            if (ATT_MULTITEXCOORD0 + max_client_tmu > hardext.maxvattrib)
+                max_client_tmu = hardext.maxvattrib - ATT_MULTITEXCOORD0;
+            if (ATT_MULTITEXCOORD0 + max_client_tmu > NB_VA)
+                max_client_tmu = NB_VA - ATT_MULTITEXCOORD0;
+            for (int a = 0; a < max_client_tmu; a++) {
+                if (list->tex[a]) {
                     TEXTURE(a);
                     fpe_glEnableClientState(GL_TEXTURE_COORD_ARRAY);
                     gles_glTexCoordPointer(4, GL_FLOAT, list->tex_stride[a], list->tex[a]);
-                } else {
+                } else if (glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + a].enabled) {
                     TEXTURE(a);
                     fpe_glDisableClientState(GL_TEXTURE_COORD_ARRAY);
                 }

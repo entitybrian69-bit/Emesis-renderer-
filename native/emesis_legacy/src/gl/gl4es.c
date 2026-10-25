@@ -109,11 +109,14 @@ int adjust_vertices(GLenum mode, int nb) {
 #define clone_gl_pointer(t, s, n)                                                                                      \
     do {                                                                                                               \
         glbuffer_t* _vbuf = EMESIS_CUR_ARRAY_BUF;                                                                      \
-        if (_vbuf) emesis_note_buffer_vao_ref(_vbuf, glstate->vao);                                                    \
+        if (_vbuf) {                                                                                                   \
+            emesis_note_buffer_vao_ref(_vbuf, glstate->vao);                                                           \
+            if ((s) == GL_BGRA || type == GL_DOUBLE) _vbuf->used_by_divisor = 1;                                       \
+        }                                                                                                              \
         t.size = s;                                                                                                    \
         t.type = type;                                                                                                 \
         t.stride = stride;                                                                                             \
-        t.pointer = (void*)((char*)pointer + (uintptr_t)((_vbuf) ? _vbuf->data : 0));                                  \
+        t.pointer = pointer;                                                                                           \
         t.real_buffer = (_vbuf) ? _vbuf->real_buffer : 0;                                                              \
         t.real_pointer = (_vbuf) ? pointer : 0;                                                                        \
         t.normalized = n;                                                                                              \
@@ -614,22 +617,28 @@ void APIENTRY_GL4ES gl4es_glArrayElement(GLint i) {
     if (p->enabled) {
         size = p->size;
         stride = p->stride;
+#define EMESIS_AE_BASE(va)                                                                                             \
+    (((va)->buffer ? (((va)->buffer->data ? 0 : (emesis_ensure_buffer_cpu_shadow((va)->buffer, GL_ARRAY_BUFFER, 1), 0)), \
+                      (uintptr_t)(va)->buffer->data + (uintptr_t)(va)->pointer)                                        \
+                   : (uintptr_t)(va)->pointer))
         // special fast case for easy stuff...
         if (p->type == GL_FLOAT) {
+            uintptr_t base = EMESIS_AE_BASE(p);
             if (stride)
-                v = (GLfloat*)(((uintptr_t)p->pointer) + i * stride);
+                v = (GLfloat*)(base + i * stride);
             else
-                v = ((GLfloat*)p->pointer) + i * size;
+                v = ((GLfloat*)base) + i * size;
             if (size == 3)
                 gl4es_glColor3fv(v);
             else
                 gl4es_glColor4fv(v);
         } else if (p->type == GL_UNSIGNED_BYTE) {
+            uintptr_t base = EMESIS_AE_BASE(p);
             GLubyte* b;
             if (stride)
-                b = (GLubyte*)(((uintptr_t)p->pointer) + i * stride);
+                b = (GLubyte*)(base + i * stride);
             else
-                b = ((GLubyte*)p->pointer) + i * size;
+                b = ((GLubyte*)base) + i * size;
             if (size == 3)
                 gl4es_glColor3ubv(b);
             else
@@ -662,12 +671,13 @@ void APIENTRY_GL4ES gl4es_glArrayElement(GLint i) {
     if (p->enabled) {
         // special fast case for easy stuff...
         if (p->type == GL_FLOAT) {
+            uintptr_t base = EMESIS_AE_BASE(p);
             size = p->size;
             stride = p->stride;
             if (stride)
-                v = (GLfloat*)(((uintptr_t)p->pointer) + i * stride);
+                v = (GLfloat*)(base + i * stride);
             else
-                v = ((GLfloat*)p->pointer) + i * size;
+                v = ((GLfloat*)base) + i * size;
         } else {
             v = gl_pointer_index(p, i);
         }
@@ -679,10 +689,11 @@ void APIENTRY_GL4ES gl4es_glArrayElement(GLint i) {
         stride = p->stride;
         // special fast case for easy stuff...
         if (p->type == GL_FLOAT) {
+            uintptr_t base = EMESIS_AE_BASE(p);
             if (stride)
-                v = (GLfloat*)(((uintptr_t)p->pointer) + i * stride);
+                v = (GLfloat*)(base + i * stride);
             else
-                v = ((GLfloat*)p->pointer) + i * size;
+                v = ((GLfloat*)base) + i * size;
         } else {
             v = gl_pointer_index(p, i);
         }
@@ -698,10 +709,11 @@ void APIENTRY_GL4ES gl4es_glArrayElement(GLint i) {
             stride = p->stride;
             // special fast case for easy stuff...
             if (p->type == GL_FLOAT) {
+                uintptr_t base = EMESIS_AE_BASE(p);
                 if (p->stride)
-                    v = (GLfloat*)(((uintptr_t)p->pointer) + i * p->stride);
+                    v = (GLfloat*)(base + i * p->stride);
                 else
-                    v = ((GLfloat*)p->pointer) + i * p->size;
+                    v = ((GLfloat*)base) + i * p->size;
             } else {
                 v = gl_pointer_index(p, i);
             }
@@ -715,13 +727,15 @@ void APIENTRY_GL4ES gl4es_glArrayElement(GLint i) {
     if (p->enabled) {
         // special fast case for easy stuff...
         if (p->type == GL_FLOAT) {
+            uintptr_t base = EMESIS_AE_BASE(p);
             if (p->stride)
-                v = (GLfloat*)(((uintptr_t)p->pointer) + i * p->stride);
+                v = (GLfloat*)(base + i * p->stride);
             else
-                v = ((GLfloat*)p->pointer) + i * p->size;
+                v = ((GLfloat*)base) + i * p->size;
         } else {
             v = gl_pointer_index(p, i);
         }
+#undef EMESIS_AE_BASE
         if (p->size == 4) {
             gl4es_glVertex4fv(v);
         } else if (p->size == 3) {

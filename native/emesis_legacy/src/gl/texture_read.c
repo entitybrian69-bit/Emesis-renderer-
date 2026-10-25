@@ -689,7 +689,7 @@ void APIENTRY_GL4ES gl4es_glCopyImageSubData(GLuint srcName, GLenum srcTarget, G
                     if (glstate) {
                         glstate->fbo.gles_read_fb = prevRead;
                         glstate->fbo.gles_draw_fb = prevDraw;
-                        glstate->fbo.gles_fb_synced = 1;
+                        glstate->fbo.gles_fb_synced = 3;
                     }
                     errorGL();
                     return;
@@ -703,7 +703,7 @@ void APIENTRY_GL4ES gl4es_glCopyImageSubData(GLuint srcName, GLenum srcTarget, G
                 if (glstate) {
                     glstate->fbo.gles_read_fb = prevRead;
                     glstate->fbo.gles_draw_fb = prevDraw;
-                    glstate->fbo.gles_fb_synced = 1;
+                    glstate->fbo.gles_fb_synced = 3;
                 }
             }
         }

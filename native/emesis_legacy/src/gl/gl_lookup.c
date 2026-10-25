@@ -1,3 +1,7 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <dlfcn.h>
 #include "gl4es.h"
 #include "attributes.h"
 #include "wrap/gl4es.h"
@@ -35,9 +39,65 @@ void gl4es_Stub(void* x, ...) {
 void APIENTRY_GL4ES gl4es_Stub(void* x) {}
 #endif
 
+void* APIENTRY_GL4ES gl4es_GetProcAddress(const char* name);
+
+static void* emesis_gl_lookup_self_handle(void) {
+    static void* cached = NULL;
+    if (!cached) {
+        Dl_info info;
+        if (dladdr((void*)&gl4es_GetProcAddress, &info) && info.dli_fname) {
+            cached = dlopen(info.dli_fname, RTLD_LAZY | RTLD_NOLOAD);
+        }
+    }
+    return cached;
+}
+
+void APIENTRY_GL4ES gl4es_glUniformMatrix2x3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void APIENTRY_GL4ES gl4es_glUniformMatrix3x2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void APIENTRY_GL4ES gl4es_glUniformMatrix2x4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void APIENTRY_GL4ES gl4es_glUniformMatrix4x2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void APIENTRY_GL4ES gl4es_glUniformMatrix3x4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void APIENTRY_GL4ES gl4es_glUniformMatrix4x3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void APIENTRY_GL4ES gl4es_glProgramUniformMatrix2x3fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void APIENTRY_GL4ES gl4es_glProgramUniformMatrix3x2fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void APIENTRY_GL4ES gl4es_glProgramUniformMatrix2x4fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void APIENTRY_GL4ES gl4es_glProgramUniformMatrix4x2fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void APIENTRY_GL4ES gl4es_glProgramUniformMatrix3x4fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void APIENTRY_GL4ES gl4es_glProgramUniformMatrix4x3fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+void APIENTRY_GL4ES gl4es_glGetBooleani_v(GLenum target, GLuint index, GLboolean* data);
+void APIENTRY_GL4ES gl4es_glBeginTransformFeedback(GLenum primitiveMode);
+void APIENTRY_GL4ES gl4es_glEndTransformFeedback(void);
+void APIENTRY_GL4ES gl4es_glTransformFeedbackVaryings(GLuint program, GLsizei count, const GLchar* const* varyings, GLenum bufferMode);
+void APIENTRY_GL4ES gl4es_glGetTransformFeedbackVarying(GLuint program, GLuint index, GLsizei bufSize, GLsizei* length, GLsizei* size, GLenum* type, GLchar* name);
+void APIENTRY_GL4ES gl4es_glBeginConditionalRender(GLuint id, GLenum mode);
+void APIENTRY_GL4ES gl4es_glEndConditionalRender(void);
+void APIENTRY_GL4ES gl4es_glVertexAttribI4bv(GLuint index, const GLbyte* v);
+void APIENTRY_GL4ES gl4es_glVertexAttribI4sv(GLuint index, const GLshort* v);
+void APIENTRY_GL4ES gl4es_glVertexAttribI4ubv(GLuint index, const GLubyte* v);
+void APIENTRY_GL4ES gl4es_glVertexAttribI4usv(GLuint index, const GLushort* v);
+void APIENTRY_GL4ES gl4es_glBindFragDataLocation(GLuint program, GLuint colorNumber, const GLchar* name);
+GLint APIENTRY_GL4ES gl4es_glGetFragDataLocation(GLuint program, const GLchar* name);
+void APIENTRY_GL4ES gl4es_glTexParameterIiv(GLenum target, GLenum pname, const GLint* params);
+void APIENTRY_GL4ES gl4es_glTexParameterIuiv(GLenum target, GLenum pname, const GLuint* params);
+void APIENTRY_GL4ES gl4es_glGetTexParameterIiv(GLenum target, GLenum pname, GLint* params);
+void APIENTRY_GL4ES gl4es_glGetTexParameterIuiv(GLenum target, GLenum pname, GLuint* params);
+void APIENTRY_GL4ES gl4es_glClearColorIi(GLint r, GLint g, GLint b, GLint a);
+void APIENTRY_GL4ES gl4es_glClearColorIui(GLuint r, GLuint g, GLuint b, GLuint a);
+void APIENTRY_GL4ES gl4es_glPrimitiveRestartIndex(GLuint index);
+void APIENTRY_GL4ES gl4es_glGetUniformIndices(GLuint program, GLsizei uniformCount, const GLchar* const* uniformNames, GLuint* uniformIndices);
+void APIENTRY_GL4ES gl4es_glGetActiveUniformsiv(GLuint program, GLsizei uniformCount, const GLuint* uniformIndices, GLenum pname, GLint* params);
+void APIENTRY_GL4ES gl4es_glGetActiveUniformName(GLuint program, GLuint uniformIndex, GLsizei bufSize, GLsizei* length, GLchar* uniformName);
+void APIENTRY_GL4ES gl4es_glGetActiveUniformBlockiv(GLuint program, GLuint uniformBlockIndex, GLenum pname, GLint* params);
+void APIENTRY_GL4ES gl4es_glGetActiveUniformBlockName(GLuint program, GLuint uniformBlockIndex, GLsizei bufSize, GLsizei* length, GLchar* uniformBlockName);
+void APIENTRY_GL4ES gl4es_glTexImage2DMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height, GLboolean fixedsamplelocations);
+void APIENTRY_GL4ES gl4es_glTexImage3DMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth, GLboolean fixedsamplelocations);
+void APIENTRY_GL4ES gl4es_glGetMultisamplefv(GLenum pname, GLuint index, GLfloat* val);
+void APIENTRY_GL4ES gl4es_glGetBufferParameteri64v(GLenum target, GLenum value, GLint64* data);
+void APIENTRY_GL4ES gl4es_glPolygonOffsetClamp(GLfloat factor, GLfloat units, GLfloat clamp);
+
 void* APIENTRY_GL4ES gl4es_GetProcAddress(const char* name) {
+    if (!name || !name[0]) return NULL;
     DBG(SHUT_LOGD("glGetProcAddress(\"%s\")", name);)
-    /*
     // generated gles wrappers
     #include "glesfuncs.inc"
 
@@ -47,7 +107,7 @@ void* APIENTRY_GL4ES gl4es_GetProcAddress(const char* name) {
     _EXT(glDeleteTextures);
     _EXT(glIsTexture);
     _EXT(glAreTexturesResident);
-    _EXT(glPrioritizeTextures);
+    STUB(glPrioritizeTexturesEXT);
 
     // GL_EXT_polygonoffset
     _EXT(glPolygonOffset);
@@ -494,7 +554,6 @@ void* APIENTRY_GL4ES gl4es_GetProcAddress(const char* name) {
         _EXT(glFogCoordfv);
         _EXT(glFogCoordPointer);
     }
-    */
     /*STUB(glEdgeFlagPointerEXT);
     STUB(glIndexPointerEXT);*/
 
@@ -1041,13 +1100,25 @@ void* APIENTRY_GL4ES gl4es_GetProcAddress(const char* name) {
     _EXT(glVertexAttribDivisor);
     _ARB(glVertexAttribDivisor);
 
-    // stub non-squared matrix access
-    STUB(glUniformMatrix2x3fv);
-    STUB(glUniformMatrix3x2fv);
-    STUB(glUniformMatrix2x4fv);
-    STUB(glUniformMatrix4x2fv);
-    STUB(glUniformMatrix3x4fv);
-    STUB(glUniformMatrix4x3fv);
+    // GL 2.1 non-squared matrix uniforms
+    _EX(glUniformMatrix2x3fv);
+    _EX(glUniformMatrix3x2fv);
+    _EX(glUniformMatrix2x4fv);
+    _EX(glUniformMatrix4x2fv);
+    _EX(glUniformMatrix3x4fv);
+    _EX(glUniformMatrix4x3fv);
+    _EX(glProgramUniformMatrix2x3fv);
+    _EX(glProgramUniformMatrix3x2fv);
+    _EX(glProgramUniformMatrix2x4fv);
+    _EX(glProgramUniformMatrix4x2fv);
+    _EX(glProgramUniformMatrix3x4fv);
+    _EX(glProgramUniformMatrix4x3fv);
+    _EXT(glProgramUniformMatrix2x3fv);
+    _EXT(glProgramUniformMatrix3x2fv);
+    _EXT(glProgramUniformMatrix2x4fv);
+    _EXT(glProgramUniformMatrix4x2fv);
+    _EXT(glProgramUniformMatrix3x4fv);
+    _EXT(glProgramUniformMatrix4x3fv);
 
     // TexStorage
     _EX(glTexStorage1D);
@@ -1104,16 +1175,69 @@ void* APIENTRY_GL4ES gl4es_GetProcAddress(const char* name) {
     _EX(glGetSamplerParameterIiv);
     _EX(glGetSamplerParameterIuiv);
 
-    // IPointer
-    //_EX(glVertexAttribIPointer);
+    // IPointer & GL 3.0 - 3.2 core + ARB/EXT
+    _EX(glVertexAttribIPointer);
+    _EXT(glVertexAttribIPointer);
+    _EX(glVertexAttribI4bv);
+    _EX(glVertexAttribI4sv);
+    _EX(glVertexAttribI4ubv);
+    _EX(glVertexAttribI4usv);
+    _EXT(glVertexAttribI4bv);
+    _EXT(glVertexAttribI4sv);
+    _EXT(glVertexAttribI4ubv);
+    _EXT(glVertexAttribI4usv);
+    _EX(glGetBooleani_v);
+    _EXT(glGetBooleani_v);
+    _EX(glBeginTransformFeedback);
+    _EXT(glBeginTransformFeedback);
+    _EX(glEndTransformFeedback);
+    _EXT(glEndTransformFeedback);
+    _EX(glTransformFeedbackVaryings);
+    _EXT(glTransformFeedbackVaryings);
+    _EX(glGetTransformFeedbackVarying);
+    _EXT(glGetTransformFeedbackVarying);
+    _EX(glBeginConditionalRender);
+    _EX(glEndConditionalRender);
+    _EX(glBindFragDataLocation);
+    _EXT(glBindFragDataLocation);
+    _EX(glGetFragDataLocation);
+    _EXT(glGetFragDataLocation);
+    _EX(glTexParameterIiv);
+    _EX(glTexParameterIuiv);
+    _EX(glGetTexParameterIiv);
+    _EX(glGetTexParameterIuiv);
+    _EXT(glTexParameterIiv);
+    _EXT(glTexParameterIuiv);
+    _EXT(glGetTexParameterIiv);
+    _EXT(glGetTexParameterIuiv);
+    _EXT(glClearColorIi);
+    _EXT(glClearColorIui);
+    _EX(glPrimitiveRestartIndex);
+    _EX(glGetUniformIndices);
+    _EX(glGetActiveUniformsiv);
+    _EX(glGetActiveUniformName);
+    _EX(glGetActiveUniformBlockiv);
+    _ARB(glGetActiveUniformBlockiv);
+    _EX(glGetActiveUniformBlockName);
+    _ARB(glGetActiveUniformBlockName);
+    _EX(glTexBuffer);
+    _ARB(glTexBuffer);
+    _EXT(glTexBuffer);
+    _EX(glTexImage2DMultisample);
+    _EX(glTexImage3DMultisample);
+    _EX(glGetMultisamplefv);
+    _EX(glGetBufferParameteri64v);
+    _EX(glPolygonOffsetClamp);
+    _EXT(glPolygonOffsetClamp);
+    _EXT(glMemoryBarrier);
+    _EXT(glBindImageTexture);
 
     DBG(SHUT_LOGD("NULL\n");)
-    void* proc = dlsym(RTLD_DEFAULT, (const char*)name);
+    void* self = emesis_gl_lookup_self_handle();
+    void* proc = self ? dlsym(self, name) : NULL;
     if (!proc) {
-        SHUT_LOGD("[WARNING] Failed to get OpenGL function: %s", (const char*)name);
+        DBG(SHUT_LOGD("[WARNING] Failed to get OpenGL function: %s", name));
         return NULL;
     }
     return proc;
-    // if (!globals4es.silentstub) SHUT_LOGD("GL4ES GetProcAddress: %s not found.\n", name);
-    // return NULL;
 }

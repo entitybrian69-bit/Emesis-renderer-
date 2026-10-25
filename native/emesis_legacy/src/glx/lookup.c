@@ -26,13 +26,18 @@ static void* emesis_legacy_self_handle(void) {
             cached = dlopen(info.dli_fname, RTLD_LAZY | RTLD_NOLOAD);
         }
     }
-    return cached ? cached : RTLD_DEFAULT;
+    return cached;
 }
 
 void* gl4es_glXGetProcAddress(const char* name) {
-    void* proc = dlsym(emesis_legacy_self_handle(), (const char*)name);
+    if (!name || !name[0]) return NULL;
+    void* self = emesis_legacy_self_handle();
+    void* proc = self ? dlsym(self, name) : NULL;
     if (!proc) {
-        DBG(SHUT_LOGD("[WARNING] Failed to get OpenGL function: %s", (const char*)name));
+        proc = gl4es_GetProcAddress(name);
+    }
+    if (!proc) {
+        DBG(SHUT_LOGD("[WARNING] Failed to get OpenGL function: %s", name));
         return NULL;
     }
     return proc;

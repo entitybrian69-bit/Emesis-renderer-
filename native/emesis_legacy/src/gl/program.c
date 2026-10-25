@@ -1017,17 +1017,52 @@ static void fill_program(program_t* glprogram) {
     if (glprogram->cache.cache && glprogram->cache.cap > 0) {
         memset(glprogram->cache.cache, 0, glprogram->cache.cap);
     }
-    // Initialize all sampler & image uniform cache slots to 0xff (-1) so initial glUniform1i(loc, 0) is never skipped
+    // Initialize all sampler & image uniform cache slots to 0xff (-1) so initial glUniform1i(loc, 0) is never skipped,
+    // and assign non-colliding high fallback units to non-2D samplers so GLES 3.x never raises GL_INVALID_OPERATION
+    // when an unused/unrecognized sampler3D or sampler2DShadow stays at unit 0 alongside sampler2D!
     if (glprogram->uniform) {
+        int max_unit = (hardext.maxteximage >= 16) ? hardext.maxteximage : 32;
+        if (max_unit > 32) max_unit = 32;
         uniform_t* m;
         khint_t k;
-        kh_foreach(glprogram->uniform, k, m,
-                   if ((m->type >= 0x8B5D && m->type <= 0x8B64) ||
-                       (m->type >= 0x8DC0 && m->type <= 0x8DDD) ||
-                       (m->type >= 0x900C && m->type <= 0x900F) ||
-                       (m->type >= 0x904C && m->type <= 0x906C) ||
-                       (m->type >= 0x9108 && m->type <= 0x910D))
-                       memset((char*)glprogram->cache.cache + m->cache_offs, 0xff, m->cache_size);)
+        kh_foreach(glprogram->uniform, k, m, {
+            if ((m->type >= 0x8B5D && m->type <= 0x8B64) ||
+                (m->type >= 0x8DC0 && m->type <= 0x8DDD) ||
+                (m->type >= 0x900C && m->type <= 0x900F) ||
+                (m->type >= 0x904C && m->type <= 0x906C) ||
+                (m->type >= 0x9108 && m->type <= 0x910D)) {
+                memset((char*)glprogram->cache.cache + m->cache_offs, 0xff, m->cache_size);
+                if (hardext.esversion >= 3 && m->type != GL_SAMPLER_2D &&
+                    !(m->type >= 0x904C && m->type <= 0x906C) && m->size >= 1 &&
+                    m->cache_size >= (int)(m->size * (int)sizeof(GLint))) {
+                    GLint fb_unit = max_unit - 1;
+                    if (m->type == 0x8B5F /* GL_SAMPLER_3D */)
+                        fb_unit = max_unit - 4;
+                    else if (m->type == 0x8B62 /* GL_SAMPLER_2D_SHADOW */)
+                        fb_unit = max_unit - 3;
+                    else if (m->type == GL_SAMPLER_CUBE || m->type == 0x8DC5 /* GL_SAMPLER_CUBE_SHADOW */)
+                        fb_unit = max_unit - 2;
+                    GLint* slot = (GLint*)((char*)glprogram->cache.cache + m->cache_offs);
+                    for (int si = 0; si < m->size; ++si) slot[si] = fb_unit;
+                    if (!m->pending_upload) {
+                        if (glprogram->pending_count >= glprogram->pending_cap) {
+                            int new_cap = glprogram->pending_cap ? (glprogram->pending_cap * 2) : 32;
+                            uniform_t** nl = (uniform_t**)realloc(glprogram->pending_list,
+                                                                  (size_t)new_cap * sizeof(uniform_t*));
+                            if (nl) {
+                                glprogram->pending_list = nl;
+                                glprogram->pending_cap = new_cap;
+                            }
+                        }
+                        if (glprogram->pending_count < glprogram->pending_cap) {
+                            glprogram->pending_list[glprogram->pending_count++] = m;
+                            m->pending_upload = 1;
+                            m->pending_elems = (uint16_t)m->size;
+                        }
+                    }
+                }
+            }
+        });
     }
 
     // Grab all Attrib
@@ -1885,3 +1920,114 @@ AliasExport(GLint, glGetUniformLocation, ARB, (GLhandleARB programObj, const GLc
 AliasExport(GLvoid, glGetActiveUniform, ARB,
             (GLhandleARB programObj, GLuint index, GLsizei maxLength, GLsizei* length, GLint* size, GLenum* type,
              GLcharARB* name));
+
+void APIENTRY_GL4ES gl4es_glBindFragDataLocation(GLuint program, GLuint colorNumber, const GLchar* name) {
+    glBindFragDataLocation(program, colorNumber, name);
+}
+AliasExport(void, glBindFragDataLocation, EXT, (GLuint program, GLuint colorNumber, const GLchar* name));
+
+typedef GLint(APIENTRY_GLES* glGetFragDataLocation_PTR)(GLuint, const GLchar*);
+typedef void(APIENTRY_GLES* glBeginTransformFeedback_PTR)(GLenum);
+typedef void(APIENTRY_GLES* glEndTransformFeedback_PTR)(void);
+typedef void(APIENTRY_GLES* glTransformFeedbackVaryings_PTR)(GLuint, GLsizei, const GLchar* const*, GLenum);
+typedef void(APIENTRY_GLES* glGetTransformFeedbackVarying_PTR)(GLuint, GLuint, GLsizei, GLsizei*, GLsizei*, GLenum*,
+                                                               GLchar*);
+
+GLint APIENTRY_GL4ES gl4es_glGetFragDataLocation(GLuint program, const GLchar* name) {
+    FLUSH_BEGINEND;
+    CHECK_PROGRAM(GLint, program)
+    if (!name || !name[0]) return -1;
+    if (hardext.esversion >= 3) {
+        LOAD_GLES3(glGetFragDataLocation);
+        if (gles_glGetFragDataLocation) {
+            errorGL();
+            GLint loc = gles_glGetFragDataLocation(glprogram->id, name);
+            if (loc >= 0) return loc;
+        }
+    }
+    if (strncmp(name, "gl_FragData[", 12) == 0 || strncmp(name, "_gl4es_FragData_", 16) == 0) {
+        const char* p = (name[0] == 'g') ? (name + 12) : (name + 16);
+        int idx = atoi(p);
+        noerrorShim();
+        return (idx >= 0 && idx < MAX_DRAW_BUFFERS) ? idx : -1;
+    }
+    noerrorShim();
+    return 0;
+}
+AliasExport(GLint, glGetFragDataLocation, , (GLuint program, const GLchar* name));
+AliasExport(GLint, glGetFragDataLocation, EXT, (GLuint program, const GLchar* name));
+
+void APIENTRY_GL4ES gl4es_glBeginTransformFeedback(GLenum primitiveMode) {
+    FLUSH_BEGINEND;
+    if (hardext.esversion >= 3) {
+        LOAD_GLES3(glBeginTransformFeedback);
+        if (gles_glBeginTransformFeedback) {
+            errorGL();
+            gles_glBeginTransformFeedback(primitiveMode);
+            return;
+        }
+    }
+    noerrorShim();
+}
+
+void APIENTRY_GL4ES gl4es_glEndTransformFeedback(void) {
+    FLUSH_BEGINEND;
+    if (hardext.esversion >= 3) {
+        LOAD_GLES3(glEndTransformFeedback);
+        if (gles_glEndTransformFeedback) {
+            errorGL();
+            gles_glEndTransformFeedback();
+            return;
+        }
+    }
+    noerrorShim();
+}
+
+void APIENTRY_GL4ES gl4es_glTransformFeedbackVaryings(GLuint program, GLsizei count, const GLchar* const* varyings,
+                                                      GLenum bufferMode) {
+    FLUSH_BEGINEND;
+    CHECK_PROGRAM(void, program)
+    if (hardext.esversion >= 3) {
+        LOAD_GLES3(glTransformFeedbackVaryings);
+        if (gles_glTransformFeedbackVaryings) {
+            errorGL();
+            gles_glTransformFeedbackVaryings(glprogram->id, count, varyings, bufferMode);
+            return;
+        }
+    }
+    noerrorShim();
+}
+
+void APIENTRY_GL4ES gl4es_glGetTransformFeedbackVarying(GLuint program, GLuint index, GLsizei bufSize, GLsizei* length,
+                                                        GLsizei* size, GLenum* type, GLchar* name) {
+    FLUSH_BEGINEND;
+    CHECK_PROGRAM(void, program)
+    if (hardext.esversion >= 3) {
+        LOAD_GLES3(glGetTransformFeedbackVarying);
+        if (gles_glGetTransformFeedbackVarying) {
+            errorGL();
+            gles_glGetTransformFeedbackVarying(glprogram->id, index, bufSize, length, size, type, name);
+            return;
+        }
+    }
+    if (length) *length = 0;
+    if (size) *size = 0;
+    if (type) *type = GL_NONE;
+    if (name && bufSize > 0) name[0] = '\0';
+    errorShim(GL_INVALID_VALUE);
+}
+
+AliasExport(void, glBeginTransformFeedback, , (GLenum primitiveMode));
+AliasExport(void, glBeginTransformFeedback, EXT, (GLenum primitiveMode));
+AliasExport_V(void, glEndTransformFeedback);
+AliasExport(void, glEndTransformFeedback, EXT, (void));
+AliasExport(void, glTransformFeedbackVaryings, ,
+            (GLuint program, GLsizei count, const GLchar* const* varyings, GLenum bufferMode));
+AliasExport(void, glTransformFeedbackVaryings, EXT,
+            (GLuint program, GLsizei count, const GLchar* const* varyings, GLenum bufferMode));
+AliasExport(void, glGetTransformFeedbackVarying, ,
+            (GLuint program, GLuint index, GLsizei bufSize, GLsizei* length, GLsizei* size, GLenum* type,
+             GLchar* name));
+AliasExport(void, glGetTransformFeedbackVarying, EXT,
+            (GLuint program, GLuint index, GLsizei bufSize, GLsizei* length, GLsizei* size, GLenum* type,
+             GLchar* name));

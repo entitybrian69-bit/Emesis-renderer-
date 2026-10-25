@@ -292,24 +292,19 @@ static size_t find_after_version_line(const std::string& glsl) {
 }
 
 std::string forceSupporterOutput(const std::string& glslCode) {
-    bool hasPrecisionFloat =
-        glslCode.find("precision ") != std::string::npos && glslCode.find("float;") != std::string::npos;
-    bool hasPrecisionInt =
-        glslCode.find("precision ") != std::string::npos && glslCode.find("int;") != std::string::npos;
-
     std::string result = glslCode;
-    std::string precisionFloat;
-    std::string precisionInt;
-
-    if (hasPrecisionFloat && hasPrecisionInt) {
+    {
+        /* Strip any existing float/int/sampler/image default precision lines so we emit clean highp defaults once */
         std::istringstream iss(result);
         std::string out;
-        out.reserve(result.size() + 64);
+        out.reserve(result.size() + 640);
         std::string line;
         bool first = true;
         while (std::getline(iss, line)) {
-            bool isPrecisionLine = (line.find("precision ") != std::string::npos) &&
-                                   (line.find("float;") != std::string::npos || line.find("int;") != std::string::npos);
+            size_t ws = 0;
+            while (ws < line.size() && (line[ws] == ' ' || line[ws] == '\t')) ++ws;
+            bool isPrecisionLine = (line.compare(ws, 10, "precision ") == 0) &&
+                                   (line.find(';') != std::string::npos);
             if (!isPrecisionLine) {
                 if (!first) out += '\n';
                 out += line;
@@ -317,15 +312,76 @@ std::string forceSupporterOutput(const std::string& glslCode) {
             }
         }
         result.swap(out);
-        precisionFloat = "precision highp float;\n";
-        precisionInt = "precision highp int;\n";
-    } else {
-        precisionFloat = hasPrecisionFloat ? "" : "precision highp float;\n";
-        precisionInt = hasPrecisionInt ? "" : "precision highp int;\n";
+    }
+
+    /* SPIRV-Cross emits explicit `uniform mediump sampler2D ...` / `lowp sampler2DShadow ...` on sampler/image uniforms,
+       which overrides `precision highp sampler*;` and quantizes 24-bit depth / HDR gbuffers to FP16/FP10 on ARM Mali! */
+    if (result.find("sampler") != std::string::npos || result.find("image") != std::string::npos) {
+        static const std::regex samplerPrecRx(
+            R"(\b(?:lowp|mediump)(\s+(?:[iu]?sampler|[iu]?image)\w*\b))",
+            std::regex::ECMAScript | std::regex::optimize);
+        result = std::regex_replace(result, samplerPrecRx, "highp$1");
+    }
+
+    const int ver = getGLSLVersion(result.c_str());
+    std::string precBlock =
+        "precision highp float;\n"
+        "precision highp int;\n"
+        "precision highp sampler2D;\n"
+        "precision highp sampler3D;\n"
+        "precision highp samplerCube;\n"
+        "precision highp sampler2DShadow;\n"
+        "precision highp samplerCubeShadow;\n"
+        "precision highp sampler2DArray;\n"
+        "precision highp sampler2DArrayShadow;\n"
+        "precision highp isampler2D;\n"
+        "precision highp isampler3D;\n"
+        "precision highp isamplerCube;\n"
+        "precision highp isampler2DArray;\n"
+        "precision highp usampler2D;\n"
+        "precision highp usampler3D;\n"
+        "precision highp usamplerCube;\n"
+        "precision highp usampler2DArray;\n";
+    if (ver >= 310) {
+        precBlock +=
+            "precision highp sampler2DMS;\n"
+            "precision highp isampler2DMS;\n"
+            "precision highp usampler2DMS;\n"
+            "precision highp image2D;\n"
+            "precision highp image3D;\n"
+            "precision highp imageCube;\n"
+            "precision highp image2DArray;\n"
+            "precision highp iimage2D;\n"
+            "precision highp iimage3D;\n"
+            "precision highp iimageCube;\n"
+            "precision highp iimage2DArray;\n"
+            "precision highp uimage2D;\n"
+            "precision highp uimage3D;\n"
+            "precision highp uimageCube;\n"
+            "precision highp uimage2DArray;\n";
+    }
+    if (ver >= 320) {
+        precBlock +=
+            "precision highp samplerBuffer;\n"
+            "precision highp isamplerBuffer;\n"
+            "precision highp usamplerBuffer;\n"
+            "precision highp imageBuffer;\n"
+            "precision highp iimageBuffer;\n"
+            "precision highp uimageBuffer;\n"
+            "precision highp sampler2DMSArray;\n"
+            "precision highp isampler2DMSArray;\n"
+            "precision highp usampler2DMSArray;\n"
+            "precision highp samplerCubeArray;\n"
+            "precision highp samplerCubeArrayShadow;\n"
+            "precision highp isamplerCubeArray;\n"
+            "precision highp usamplerCubeArray;\n"
+            "precision highp imageCubeArray;\n"
+            "precision highp iimageCubeArray;\n"
+            "precision highp uimageCubeArray;\n";
     }
 
     size_t insertionPos = find_insertion_point(result);
-    result.insert(insertionPos, precisionFloat + precisionInt);
+    result.insert(insertionPos, precBlock);
     return result;
 }
 
@@ -443,12 +499,72 @@ static std::string injectSafePowForMobileGPU(const std::string& glslCode) {
     }
     if (!replaced) return glslCode;
     static const char* kSafePowDefs =
-        "highp float _emesis_pow(highp float x, highp float y) { return pow(max(x, 1e-8), y); }\n"
-        "highp vec2 _emesis_pow(highp vec2 x, highp vec2 y) { return pow(max(x, vec2(1e-8)), y); }\n"
-        "highp vec3 _emesis_pow(highp vec3 x, highp vec3 y) { return pow(max(x, vec3(1e-8)), y); }\n"
-        "highp vec4 _emesis_pow(highp vec4 x, highp vec4 y) { return pow(max(x, vec4(1e-8)), y); }\n";
+        "highp float _emesis_pow(highp float x, highp float y) { return !(x > 0.0) ? ((y <= 0.0) ? 1.0 : 0.0) : pow(x, y); }\n"
+        "highp vec2 _emesis_pow(highp vec2 x, highp vec2 y) { return vec2(_emesis_pow(x.x, y.x), _emesis_pow(x.y, y.y)); }\n"
+        "highp vec3 _emesis_pow(highp vec3 x, highp vec3 y) { return vec3(_emesis_pow(x.x, y.x), _emesis_pow(x.y, y.y), _emesis_pow(x.z, y.z)); }\n"
+        "highp vec4 _emesis_pow(highp vec4 x, highp vec4 y) { return vec4(_emesis_pow(x.x, y.x), _emesis_pow(x.y, y.y), _emesis_pow(x.z, y.z), _emesis_pow(x.w, y.w)); }\n";
     size_t insertPos = find_insertion_point(out);
     out.insert(insertPos, kSafePowDefs);
+    return out;
+}
+
+static std::string injectSafeClampForMobileGPU(const std::string& glslCode) {
+    if (glslCode.find("clamp") == std::string::npos) return glslCode;
+    std::string out;
+    out.reserve(glslCode.size() + 1536);
+    const size_t n = glslCode.size();
+    size_t i = 0;
+    bool replaced = false;
+    while (i < n) {
+        size_t pos = glslCode.find("clamp", i);
+        if (pos == std::string::npos) {
+            out.append(glslCode, i, n - i);
+            break;
+        }
+        bool prev_ok = (pos == 0) ||
+                       (!std::isalnum((unsigned char)glslCode[pos - 1]) &&
+                        glslCode[pos - 1] != '_' && glslCode[pos - 1] != '.');
+        size_t p = pos + 5;
+        bool next_ident = (p < n) && (std::isalnum((unsigned char)glslCode[p]) || glslCode[p] == '_');
+        size_t lp = p;
+        if (prev_ok && !next_ident) {
+            while (lp < n && (glslCode[lp] == ' ' || glslCode[lp] == '\t')) ++lp;
+        }
+        if (prev_ok && !next_ident && lp < n && glslCode[lp] == '(') {
+            out.append(glslCode, i, pos - i);
+            out += "_emesis_clamp(";
+            i = lp + 1;
+            replaced = true;
+        } else {
+            out.append(glslCode, i, p - i);
+            i = p;
+        }
+    }
+    if (!replaced) return glslCode;
+    static const char* kSafeClampDefs =
+        "highp float _emesis_clamp(highp float x, highp float lo, highp float hi) { return isnan(x) ? lo : clamp(x, lo, hi); }\n"
+        "highp vec2 _emesis_clamp(highp vec2 x, highp vec2 lo, highp vec2 hi) { return vec2(_emesis_clamp(x.x, lo.x, hi.x), _emesis_clamp(x.y, lo.y, hi.y)); }\n"
+        "highp vec3 _emesis_clamp(highp vec3 x, highp vec3 lo, highp vec3 hi) { return vec3(_emesis_clamp(x.x, lo.x, hi.x), _emesis_clamp(x.y, lo.y, hi.y), _emesis_clamp(x.z, lo.z, hi.z)); }\n"
+        "highp vec4 _emesis_clamp(highp vec4 x, highp vec4 lo, highp vec4 hi) { return vec4(_emesis_clamp(x.x, lo.x, hi.x), _emesis_clamp(x.y, lo.y, hi.y), _emesis_clamp(x.z, lo.z, hi.z), _emesis_clamp(x.w, lo.w, hi.w)); }\n"
+        "highp vec2 _emesis_clamp(highp vec2 x, highp float lo, highp float hi) { return _emesis_clamp(x, vec2(lo), vec2(hi)); }\n"
+        "highp vec3 _emesis_clamp(highp vec3 x, highp float lo, highp float hi) { return _emesis_clamp(x, vec3(lo), vec3(hi)); }\n"
+        "highp vec4 _emesis_clamp(highp vec4 x, highp float lo, highp float hi) { return _emesis_clamp(x, vec4(lo), vec4(hi)); }\n"
+        "highp int _emesis_clamp(highp int x, highp int lo, highp int hi) { return clamp(x, lo, hi); }\n"
+        "highp ivec2 _emesis_clamp(highp ivec2 x, highp ivec2 lo, highp ivec2 hi) { return clamp(x, lo, hi); }\n"
+        "highp ivec3 _emesis_clamp(highp ivec3 x, highp ivec3 lo, highp ivec3 hi) { return clamp(x, lo, hi); }\n"
+        "highp ivec4 _emesis_clamp(highp ivec4 x, highp ivec4 lo, highp ivec4 hi) { return clamp(x, lo, hi); }\n"
+        "highp ivec2 _emesis_clamp(highp ivec2 x, highp int lo, highp int hi) { return clamp(x, lo, hi); }\n"
+        "highp ivec3 _emesis_clamp(highp ivec3 x, highp int lo, highp int hi) { return clamp(x, lo, hi); }\n"
+        "highp ivec4 _emesis_clamp(highp ivec4 x, highp int lo, highp int hi) { return clamp(x, lo, hi); }\n"
+        "highp uint _emesis_clamp(highp uint x, highp uint lo, highp uint hi) { return clamp(x, lo, hi); }\n"
+        "highp uvec2 _emesis_clamp(highp uvec2 x, highp uvec2 lo, highp uvec2 hi) { return clamp(x, lo, hi); }\n"
+        "highp uvec3 _emesis_clamp(highp uvec3 x, highp uvec3 lo, highp uvec3 hi) { return clamp(x, lo, hi); }\n"
+        "highp uvec4 _emesis_clamp(highp uvec4 x, highp uvec4 lo, highp uvec4 hi) { return clamp(x, lo, hi); }\n"
+        "highp uvec2 _emesis_clamp(highp uvec2 x, highp uint lo, highp uint hi) { return clamp(x, lo, hi); }\n"
+        "highp uvec3 _emesis_clamp(highp uvec3 x, highp uint lo, highp uint hi) { return clamp(x, lo, hi); }\n"
+        "highp uvec4 _emesis_clamp(highp uvec4 x, highp uint lo, highp uint hi) { return clamp(x, lo, hi); }\n";
+    size_t insertPos = find_insertion_point(out);
+    out.insert(insertPos, kSafeClampDefs);
     return out;
 }
 
@@ -922,6 +1038,7 @@ static std::string preprocess_glsl(const char* raw_glsl, GLenum shaderType, bool
     replace_all(ret, "mix(, currentDepth, decay2)", "mix(oldDepth, currentDepth, decay2)");
     replace_all(ret, "if (oldDepth != oldDepth)", "if (isnan(oldDepth))");
     replace_all(ret, "NewColor *= OldL / NewL;", "NewColor *= OldL / max(NewL, 1e-6);");
+    replace_all(ret, "/get_luma(repcol)", "/max(get_luma(repcol), 1e-6)");
     replace_all(ret, "const mat3 rotInverse = transpose(rot);",
                 "const mat3 rotInverse = mat3(rot[0][0], rot[1][0], rot[2][0], rot[0][1], rot[1][1], rot[2][1], "
                 "rot[0][2], rot[1][2], rot[2][2]);");
@@ -1195,6 +1312,7 @@ std::string GLSLtoGLSLES_2(const char* glsl_code, GLenum glsl_type, unsigned int
     essl = processOutColorLocations(essl);
     essl = forceSupporterOutput(essl);
     essl = injectSafePowForMobileGPU(essl);
+    essl = injectSafeClampForMobileGPU(essl);
 
     return_code = atomicCounterEmulated ? 1 : 0;
     return essl;

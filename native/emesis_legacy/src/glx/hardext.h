@@ -81,6 +81,8 @@ typedef struct _hardext {
     int blend_func_extended; // GL_EXT_blend_func_extended
     int floatlinear;         // GL_OES_texture_float_linear
     int halffloatlinear;     // GL_OES_texture_half_float_linear or core ES 3.0+
+    int texnorm16;           // GL_EXT_texture_norm16
+    int floatblend;          // GL_EXT_float_blend
 } hardext_t;
 
 EXPORT extern hardext_t hardext;

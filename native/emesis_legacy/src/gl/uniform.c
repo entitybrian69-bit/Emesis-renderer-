@@ -16,6 +16,14 @@
 #endif
 
 typedef void (APIENTRY_GLES *emesis_glUniform_uiv_pfn)(GLint location, GLsizei count, const GLuint *value);
+typedef void (APIENTRY_GLES *glUniformMatrix2x3fv_PTR)(GLint, GLsizei, GLboolean, const GLfloat*);
+typedef void (APIENTRY_GLES *glUniformMatrix3x2fv_PTR)(GLint, GLsizei, GLboolean, const GLfloat*);
+typedef void (APIENTRY_GLES *glUniformMatrix2x4fv_PTR)(GLint, GLsizei, GLboolean, const GLfloat*);
+typedef void (APIENTRY_GLES *glUniformMatrix4x2fv_PTR)(GLint, GLsizei, GLboolean, const GLfloat*);
+typedef void (APIENTRY_GLES *glUniformMatrix3x4fv_PTR)(GLint, GLsizei, GLboolean, const GLfloat*);
+typedef void (APIENTRY_GLES *glUniformMatrix4x3fv_PTR)(GLint, GLsizei, GLboolean, const GLfloat*);
+typedef void (APIENTRY_GLES *glGetUniformIndices_PTR)(GLuint, GLsizei, const GLchar* const*, GLuint*);
+typedef void (APIENTRY_GLES *glGetActiveUniformsiv_PTR)(GLuint, GLsizei, const GLuint*, GLenum, GLint*);
 static emesis_glUniform_uiv_pfn p_gles_glUniform1uiv = NULL;
 static emesis_glUniform_uiv_pfn p_gles_glUniform2uiv = NULL;
 static emesis_glUniform_uiv_pfn p_gles_glUniform3uiv = NULL;
@@ -300,6 +308,39 @@ void flush_pending_uniforms(program_t* glprogram) {
             if (gles_glUniformMatrix3fv) gles_glUniformMatrix3fv(m->id, count, GL_FALSE, (const GLfloat*)ptr);
         } else if (m->type == GL_FLOAT_MAT4) {
             if (gles_glUniformMatrix4fv) gles_glUniformMatrix4fv(m->id, count, GL_FALSE, (const GLfloat*)ptr);
+        } else if (m->type >= 0x8B65 && m->type <= 0x8B6A) {
+            switch (m->type) {
+            case 0x8B65: {
+                LOAD_GLES3(glUniformMatrix2x3fv);
+                if (gles_glUniformMatrix2x3fv) gles_glUniformMatrix2x3fv(m->id, count, GL_FALSE, (const GLfloat*)ptr);
+                break;
+            }
+            case 0x8B66: {
+                LOAD_GLES3(glUniformMatrix2x4fv);
+                if (gles_glUniformMatrix2x4fv) gles_glUniformMatrix2x4fv(m->id, count, GL_FALSE, (const GLfloat*)ptr);
+                break;
+            }
+            case 0x8B67: {
+                LOAD_GLES3(glUniformMatrix3x2fv);
+                if (gles_glUniformMatrix3x2fv) gles_glUniformMatrix3x2fv(m->id, count, GL_FALSE, (const GLfloat*)ptr);
+                break;
+            }
+            case 0x8B68: {
+                LOAD_GLES3(glUniformMatrix3x4fv);
+                if (gles_glUniformMatrix3x4fv) gles_glUniformMatrix3x4fv(m->id, count, GL_FALSE, (const GLfloat*)ptr);
+                break;
+            }
+            case 0x8B69: {
+                LOAD_GLES3(glUniformMatrix4x2fv);
+                if (gles_glUniformMatrix4x2fv) gles_glUniformMatrix4x2fv(m->id, count, GL_FALSE, (const GLfloat*)ptr);
+                break;
+            }
+            case 0x8B6A: {
+                LOAD_GLES3(glUniformMatrix4x3fv);
+                if (gles_glUniformMatrix4x3fv) gles_glUniformMatrix4x3fv(m->id, count, GL_FALSE, (const GLfloat*)ptr);
+                break;
+            }
+            }
         } else if (is_uniform_float(m->type)) {
             int sz = n_uniform(m->type);
             if (gles_glUniform1fv) {
@@ -1402,3 +1443,250 @@ AliasExport(void, glProgramUniformMatrix3fv, EXT,
             (GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value));
 AliasExport(void, glProgramUniformMatrix4fv, EXT,
             (GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value));
+
+static void GoUniformMatrixNonSquare(program_t* glprogram, GLint location, GLenum mat_type, int cols, int rows,
+                                     GLsizei count, GLboolean transpose, const GLfloat* value) {
+    if (!glprogram) {
+        errorShim(GL_INVALID_OPERATION);
+        return;
+    }
+    if (location == -1) {
+        noerrorShim();
+        return;
+    }
+    if (count < 0 || !value) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+    khint_t k = kh_get(uniformlist, glprogram->uniform, location);
+    if (k == kh_end(glprogram->uniform)) {
+        errorShim(GL_INVALID_OPERATION);
+        return;
+    }
+    uniform_t* m = kh_value(glprogram->uniform, k);
+    if (m->type != mat_type || count > m->size) {
+        errorShim(GL_INVALID_OPERATION);
+        return;
+    }
+    if (count == 0) {
+        noerrorShim();
+        return;
+    }
+    int elems = cols * rows;
+    const GLfloat* v = value;
+    GLfloat stack_tmp[96];
+    GLfloat* heap_tmp = NULL;
+    if (transpose) {
+        size_t total = (size_t)count * (size_t)elems;
+        GLfloat* dst = (total <= 96) ? stack_tmp : (heap_tmp = (GLfloat*)malloc(total * sizeof(GLfloat)));
+        if (!dst) {
+            errorShim(GL_OUT_OF_MEMORY);
+            return;
+        }
+        for (int n = 0; n < count; ++n) {
+            int base = n * elems;
+            for (int c = 0; c < cols; ++c) {
+                for (int r = 0; r < rows; ++r) {
+                    dst[base + c * rows + r] = value[base + r * cols + c];
+                }
+            }
+        }
+        v = dst;
+    }
+    if (!g_emesis_internal_uniform_upload) {
+        m->app_set = 1;
+    }
+    size_t rsize = sizeof(GLfloat) * (size_t)elems * (size_t)count;
+    if (memcmp((char*)glprogram->cache.cache + m->cache_offs, v, rsize) == 0) {
+        if (heap_tmp) free(heap_tmp);
+        noerrorShim();
+        return;
+    }
+    memcpy((char*)glprogram->cache.cache + m->cache_offs, v, rsize);
+    m->last_mod_gen = ++glprogram->uniform_gen;
+    if (glstate->gleshard->program != glprogram->id && !glprogram->last_comp) {
+        queue_pending_uniform(glprogram, m, count);
+        if (heap_tmp) free(heap_tmp);
+        noerrorShim();
+        return;
+    }
+    APPLY_PROGRAM(glprogram->id, glprogram);
+    if (m->pending_upload && count >= (int)m->pending_elems) {
+        m->pending_upload = 0;
+        m->pending_elems = 0;
+    }
+    switch (mat_type) {
+    case 0x8B65: {
+        LOAD_GLES3(glUniformMatrix2x3fv);
+        if (gles_glUniformMatrix2x3fv) gles_glUniformMatrix2x3fv(m->id, count, GL_FALSE, v);
+        break;
+    }
+    case 0x8B66: {
+        LOAD_GLES3(glUniformMatrix2x4fv);
+        if (gles_glUniformMatrix2x4fv) gles_glUniformMatrix2x4fv(m->id, count, GL_FALSE, v);
+        break;
+    }
+    case 0x8B67: {
+        LOAD_GLES3(glUniformMatrix3x2fv);
+        if (gles_glUniformMatrix3x2fv) gles_glUniformMatrix3x2fv(m->id, count, GL_FALSE, v);
+        break;
+    }
+    case 0x8B68: {
+        LOAD_GLES3(glUniformMatrix3x4fv);
+        if (gles_glUniformMatrix3x4fv) gles_glUniformMatrix3x4fv(m->id, count, GL_FALSE, v);
+        break;
+    }
+    case 0x8B69: {
+        LOAD_GLES3(glUniformMatrix4x2fv);
+        if (gles_glUniformMatrix4x2fv) gles_glUniformMatrix4x2fv(m->id, count, GL_FALSE, v);
+        break;
+    }
+    case 0x8B6A: {
+        LOAD_GLES3(glUniformMatrix4x3fv);
+        if (gles_glUniformMatrix4x3fv) gles_glUniformMatrix4x3fv(m->id, count, GL_FALSE, v);
+        break;
+    }
+    }
+    if (heap_tmp) free(heap_tmp);
+    errorGL();
+}
+
+#define DEF_NONSQUARE_MAT(NAME, ENUM_VAL, COLS, ROWS)                                                                  \
+    void APIENTRY_GL4ES gl4es_glUniformMatrix##NAME##fv(GLint location, GLsizei count, GLboolean transpose,            \
+                                                        const GLfloat* value) {                                        \
+        FLUSH_BEGINEND;                                                                                                \
+        GLuint program = glstate->glsl->program;                                                                       \
+        CHECK_PROGRAM(void, program);                                                                                  \
+        GoUniformMatrixNonSquare(glprogram, location, ENUM_VAL, COLS, ROWS, count, transpose, value);                  \
+    }                                                                                                                  \
+    void APIENTRY_GL4ES gl4es_glProgramUniformMatrix##NAME##fv(GLuint program, GLint location, GLsizei count,          \
+                                                               GLboolean transpose, const GLfloat* value) {            \
+        FLUSH_BEGINEND;                                                                                                \
+        CHECK_PROGRAM(void, program);                                                                                  \
+        GoUniformMatrixNonSquare(glprogram, location, ENUM_VAL, COLS, ROWS, count, transpose, value);                  \
+    }                                                                                                                  \
+    AliasExport(void, glUniformMatrix##NAME##fv, ,                                                                     \
+                (GLint location, GLsizei count, GLboolean transpose, const GLfloat* value));                           \
+    AliasExport(void, glProgramUniformMatrix##NAME##fv, ,                                                              \
+                (GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value));           \
+    AliasExport(void, glProgramUniformMatrix##NAME##fv, EXT,                                                           \
+                (GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value));
+
+DEF_NONSQUARE_MAT(2x3, 0x8B65, 2, 3)
+DEF_NONSQUARE_MAT(2x4, 0x8B66, 2, 4)
+DEF_NONSQUARE_MAT(3x2, 0x8B67, 3, 2)
+DEF_NONSQUARE_MAT(3x4, 0x8B68, 3, 4)
+DEF_NONSQUARE_MAT(4x2, 0x8B69, 4, 2)
+DEF_NONSQUARE_MAT(4x3, 0x8B6A, 4, 3)
+#undef DEF_NONSQUARE_MAT
+
+void APIENTRY_GL4ES gl4es_glGetUniformIndices(GLuint program, GLsizei uniformCount, const GLchar* const* uniformNames,
+                                              GLuint* uniformIndices) {
+    FLUSH_BEGINEND;
+    CHECK_PROGRAM(void, program);
+    if (uniformCount < 0 || (uniformCount > 0 && (!uniformNames || !uniformIndices))) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+    if (uniformCount == 0) {
+        noerrorShim();
+        return;
+    }
+    if (hardext.esversion >= 3) {
+        LOAD_GLES3(glGetUniformIndices);
+        if (gles_glGetUniformIndices) {
+            errorGL();
+            gles_glGetUniformIndices(glprogram->id, uniformCount, uniformNames, uniformIndices);
+            return;
+        }
+    }
+    for (GLsizei i = 0; i < uniformCount; ++i) {
+        GLuint found = GL_INVALID_INDEX;
+        const char* target = uniformNames[i];
+        if (target) {
+            uniform_t* m;
+            kh_foreach_value(glprogram->uniform, m, {
+                if (!m->builtin && m->name && strcmp(m->name, target) == 0) {
+                    found = (GLuint)m->internal_id;
+                    break;
+                }
+            });
+        }
+        uniformIndices[i] = found;
+    }
+    noerrorShim();
+}
+
+void APIENTRY_GL4ES gl4es_glGetActiveUniformsiv(GLuint program, GLsizei uniformCount, const GLuint* uniformIndices,
+                                                GLenum pname, GLint* params) {
+    FLUSH_BEGINEND;
+    CHECK_PROGRAM(void, program);
+    if (uniformCount < 0 || (uniformCount > 0 && (!uniformIndices || !params))) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+    if (uniformCount == 0) {
+        noerrorShim();
+        return;
+    }
+    if (hardext.esversion >= 3) {
+        LOAD_GLES3(glGetActiveUniformsiv);
+        if (gles_glGetActiveUniformsiv) {
+            errorGL();
+            gles_glGetActiveUniformsiv(glprogram->id, uniformCount, uniformIndices, pname, params);
+            return;
+        }
+    }
+    for (GLsizei i = 0; i < uniformCount; ++i) {
+        uniform_t* found = NULL;
+        uniform_t* m;
+        kh_foreach_value(glprogram->uniform, m, {
+            if ((GLuint)m->internal_id == uniformIndices[i]) {
+                found = m;
+                break;
+            }
+        });
+        if (!found) {
+            params[i] = -1;
+            continue;
+        }
+        switch (pname) {
+        case GL_UNIFORM_TYPE:
+            params[i] = (GLint)found->type;
+            break;
+        case GL_UNIFORM_SIZE:
+            params[i] = (GLint)found->size;
+            break;
+        case GL_UNIFORM_NAME_LENGTH:
+            params[i] = found->name ? (GLint)(strlen(found->name) + 1) : 0;
+            break;
+        case GL_UNIFORM_BLOCK_INDEX:
+            params[i] = -1;
+            break;
+        case GL_UNIFORM_OFFSET:
+        case GL_UNIFORM_ARRAY_STRIDE:
+        case GL_UNIFORM_MATRIX_STRIDE:
+        case GL_UNIFORM_IS_ROW_MAJOR:
+            params[i] = 0;
+            break;
+        default:
+            errorShim(GL_INVALID_ENUM);
+            return;
+        }
+    }
+    noerrorShim();
+}
+
+void APIENTRY_GL4ES gl4es_glGetActiveUniformName(GLuint program, GLuint uniformIndex, GLsizei bufSize, GLsizei* length,
+                                                 GLchar* uniformName) {
+    GLint dummy_size = 0;
+    GLenum dummy_type = 0;
+    gl4es_glGetActiveUniform(program, uniformIndex, bufSize, length, &dummy_size, &dummy_type, uniformName);
+}
+
+AliasExport(void, glGetUniformIndices, ,
+            (GLuint program, GLsizei uniformCount, const GLchar* const* uniformNames, GLuint* uniformIndices));
+AliasExport(void, glGetActiveUniformsiv, ,
+            (GLuint program, GLsizei uniformCount, const GLuint* uniformIndices, GLenum pname, GLint* params));
+AliasExport(void, glGetActiveUniformName, ,
+            (GLuint program, GLuint uniformIndex, GLsizei bufSize, GLsizei* length, GLchar* uniformName));

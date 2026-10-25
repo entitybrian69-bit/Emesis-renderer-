@@ -405,12 +405,12 @@ static void emesis_init_engine_once(void) {
         snprintf(full_path, sizeof(full_path), "%s/%s", g_self_dir, target_soname);
     }
 
-    /* Isolate backend symbols via RTLD_LOCAL so Modern and Legacy never collide! */
+    /* Export active backend symbols globally (RTLD_GLOBAL) so LWJGL 2 & LWJGL 3 direct dlsym lookups resolve all GL entry points */
     if (full_path[0]) {
-        g_engine_handle = dlopen(full_path, RTLD_LAZY | RTLD_LOCAL);
+        g_engine_handle = dlopen(full_path, RTLD_NOW | RTLD_GLOBAL);
     }
     if (!g_engine_handle) {
-        g_engine_handle = dlopen(target_soname, RTLD_LAZY | RTLD_LOCAL);
+        g_engine_handle = dlopen(target_soname, RTLD_NOW | RTLD_GLOBAL);
     }
 
     if (!g_engine_handle) {
@@ -418,7 +418,7 @@ static void emesis_init_engine_once(void) {
         return;
     }
 
-    EMESIS_LOGI("Emesis Renderer v1.2.2 (Made by Entitybrian) -> Selected [%s] for MC [%s] via [%s]",
+    EMESIS_LOGI("Emesis Renderer v1.2.3 (Made by Entitybrian) -> Selected [%s] for MC [%s] via [%s]",
                 target_soname, g_decision.detected_version, g_decision.detection_source);
 
     if (g_decision.engine == EMESIS_ENGINE_MODERN) {
@@ -818,7 +818,7 @@ __attribute__((visibility("default"))) void* glXGetProcAddressARB(const char* pr
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL
 Java_com_entitybrian_emesis_EmesisNative_getEngineVersion(JNIEnv* env, jclass cls) {
     (void)cls;
-    return (*env)->NewStringUTF(env, "Emesis Renderer v1.2.2 (Shader Accelerator) — Made by Entitybrian");
+    return (*env)->NewStringUTF(env, "Emesis Renderer v1.2.3 (Shader Accelerator) — Made by Entitybrian");
 }
 
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL

@@ -72,15 +72,36 @@ void APIENTRY_GL4ES gl4es_glTexImage3D(GLenum target, GLint level, GLint interna
     }
 
     int is_rt = (data == NULL && (!glstate || !glstate->vao || !glstate->vao->unpack));
-    internal_convert(&internalformat, &type, &format);
-    promote_es3_internalformat(&internalformat, &format, &type, is_rt);
-
-    if (is_rt && (internalformat == GL_RED || internalformat == GL_RGB))
+#ifdef __BIG_ENDIAN__
+    if (type == GL_UNSIGNED_INT_8_8_8_8) type = GL_UNSIGNED_BYTE;
+#else
+    if (type == GL_UNSIGNED_INT_8_8_8_8_REV) type = GL_UNSIGNED_BYTE;
+#endif
+    if (is_rt) {
+        if (format == GL_BGRA || format == GL_BGRA8_EXT) format = GL_RGBA;
+        else if (format == GL_BGR) format = GL_RGB;
+        promote_es3_internalformat(&internalformat, &format, &type, 1);
+        internal_convert((GLenum*)&internalformat, &type, &format);
         internal2format_type((GLenum*)&internalformat, &format, &type);
-
-    if (internalformat == GL_DEPTH32F_STENCIL8 && type == GL_FLOAT_32_UNSIGNED_INT_24_8_REV) {
-        internalformat = GL_DEPTH24_STENCIL8;
-        type = GL_UNSIGNED_INT_24_8;
+    } else {
+        switch (internalformat) {
+        case 1: internalformat = GL_LUMINANCE; break;
+        case 2: internalformat = GL_LUMINANCE_ALPHA; break;
+        case 3: internalformat = GL_RGB; break;
+        case 4: internalformat = GL_RGBA; break;
+        default: break;
+        }
+        promote_es3_internalformat(&internalformat, &format, &type, 0);
+        if (internalformat == GL_RED) {
+            GLenum tmp_type = type;
+            internal_convert((GLenum*)&internalformat, &tmp_type, NULL);
+        } else {
+            internal_convert((GLenum*)&internalformat, NULL, NULL);
+        }
+        if ((internalformat == GL_RGB8 || internalformat == GL_RGB) &&
+            (format == GL_RGBA || format == GL_BGRA || format == GL_BGRA8_EXT)) {
+            internalformat = (internalformat == GL_RGB8) ? GL_RGBA8 : GL_RGBA;
+        }
     }
 
     const GLuint itarget = what_target(target);
@@ -216,14 +237,31 @@ void APIENTRY_GL4ES gl4es_glTexImage3D(GLenum target, GLint level, GLint interna
     noerrorShim();
     glbuffer_t* unpack = glstate->vao ? glstate->vao->unpack : NULL;
     const GLvoid* upload_data = data;
+    GLvoid* conv_3d = NULL;
     if (unpack) {
         upload_data = (const char*)data + (uintptr_t)unpack->data;
         glstate->vao->unpack = NULL;
     }
+    if (upload_data && (format == GL_BGRA || format == GL_BGRA8_EXT || format == GL_BGR) && !hardext.bgra8888) {
+        GLenum dst_fmt = (format == GL_BGR) ? GL_RGB : GL_RGBA;
+        GLvoid* dst_buf = (GLvoid*)upload_data;
+        if (pixel_convert(upload_data, &dst_buf, width, height * depth, (format == GL_BGRA8_EXT) ? GL_BGRA : format,
+                          type, dst_fmt, GL_UNSIGNED_BYTE, 0, glstate->texture.unpack_align)) {
+            if (dst_buf != upload_data) conv_3d = dst_buf;
+            upload_data = dst_buf;
+            format = dst_fmt;
+            type = GL_UNSIGNED_BYTE;
+        }
+    }
+    bound->format = format;
+    bound->type = type;
+    bound->inter_format = format;
+    bound->inter_type = type;
     LOAD_GLES3(glTexImage3D);
     if (gles_glTexImage3D) {
         gles_glTexImage3D(target, level, internalformat, width, height, depth, border, format, type, upload_data);
     }
+    if (conv_3d) free(conv_3d);
     if (unpack) glstate->vao->unpack = unpack;
 
     if (glstate->bound_changed < glstate->texture.active + 1) glstate->bound_changed = glstate->texture.active + 1;
@@ -255,7 +293,13 @@ void APIENTRY_GL4ES gl4es_glTexSubImage3D(GLenum target, GLint level, GLint xoff
         DBG(SHUT_LOGD("LIBGL: glTexSubImage3D called with NULL data\n");)
         return;
     }
+#ifdef __BIG_ENDIAN__
+    if (type == GL_UNSIGNED_INT_8_8_8_8) type = GL_UNSIGNED_BYTE;
+#else
+    if (type == GL_UNSIGNED_INT_8_8_8_8_REV) type = GL_UNSIGNED_BYTE;
+#endif
     if (type == GL_HALF_FLOAT_OES) type = GL_HALF_FLOAT;
+    if (format == GL_BGRA8_EXT) format = GL_BGRA;
     int pixelSize = pixel_sizeof(format, type);
     if (pixelSize <= 0) {
         DBG(SHUT_LOGD("LIBGL: invalid pixel size (format/type) in glTexSubImage3D\n");)
@@ -312,6 +356,19 @@ void APIENTRY_GL4ES gl4es_glTexSubImage3D(GLenum target, GLint level, GLint xoff
         pixels_src = (const GLubyte*)temp_pixels;
     }
 
+    GLvoid* conv_sub3d = NULL;
+    if ((format == GL_BGRA || format == GL_BGR) && !hardext.bgra8888) {
+        GLenum dst_fmt = (format == GL_BGR) ? GL_RGB : GL_RGBA;
+        GLvoid* dst_buf = (GLvoid*)pixels_src;
+        if (pixel_convert(pixels_src, &dst_buf, width, height * depth, format, type, dst_fmt, GL_UNSIGNED_BYTE, 0,
+                          temp_pixels ? 1 : glstate->texture.unpack_align)) {
+            if (dst_buf != (const GLvoid*)pixels_src) conv_sub3d = dst_buf;
+            pixels_src = (const GLubyte*)dst_buf;
+            format = dst_fmt;
+            type = GL_UNSIGNED_BYTE;
+        }
+    }
+
     if (unpack) glstate->vao->unpack = NULL;
     LOAD_GLES3(glTexSubImage3D);
     if (gles_glTexSubImage3D) {
@@ -320,6 +377,7 @@ void APIENTRY_GL4ES gl4es_glTexSubImage3D(GLenum target, GLint level, GLint xoff
     }
     if (unpack) glstate->vao->unpack = unpack;
 
+    if (conv_sub3d) free(conv_sub3d);
     if (temp_pixels) free(temp_pixels);
 }
 

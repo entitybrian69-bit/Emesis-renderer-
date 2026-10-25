@@ -181,11 +181,12 @@ void APIENTRY_GL4ES gl4es_glVertexAttribPointer(GLuint index, GLint size, GLenum
     v->stride = stride;
     v->pointer = pointer;
     v->buffer = glstate->vao->vertex;
-    if( v->buffer ) {
+    if (v->buffer) {
         emesis_note_buffer_vao_ref(v->buffer, glstate->vao);
-		v->real_buffer = v->buffer->real_buffer;
-		v->real_pointer = pointer;
-	} else {
+        if (v->divisor > 0 || size == GL_BGRA || type == GL_DOUBLE) v->buffer->used_by_divisor = 1;
+        v->real_buffer = v->buffer->real_buffer;
+        v->real_pointer = pointer;
+    } else {
         v->real_buffer = 0;
         v->real_pointer = 0;
     }
@@ -213,11 +214,12 @@ void APIENTRY_GL4ES gl4es_glVertexAttribIPointer(GLuint index, GLint size, GLenu
     v->stride = stride;
     v->pointer = pointer;
     v->buffer = glstate->vao->vertex;
-    if( v->buffer ) {
+    if (v->buffer) {
         emesis_note_buffer_vao_ref(v->buffer, glstate->vao);
-		v->real_buffer = v->buffer->real_buffer;
-		v->real_pointer = pointer;
-	} else {
+        if (v->divisor > 0 || size == GL_BGRA || type == GL_DOUBLE) v->buffer->used_by_divisor = 1;
+        v->real_buffer = v->buffer->real_buffer;
+        v->real_pointer = pointer;
+    } else {
         v->real_buffer = 0;
         v->real_pointer = 0;
     }
@@ -337,6 +339,9 @@ void APIENTRY_GL4ES gl4es_glVertexAttribDivisor(GLuint index, GLuint divisor) {
         return;
     }
     glstate->vao->vertexattrib[index].divisor = divisor;
+    if (divisor > 0 && glstate->vao->vertexattrib[index].buffer) {
+        glstate->vao->vertexattrib[index].buffer->used_by_divisor = 1;
+    }
 }
 
 
@@ -791,3 +796,59 @@ AliasExport(GLvoid,glGetVertexAttribPointerv,ARB,(GLuint index, GLenum pname, GL
 // ============== GL_ARB_instanced_arrays =================
 AliasExport(void,glVertexAttribDivisor,,(GLuint index, GLuint divisor));
 AliasExport(void,glVertexAttribDivisor,ARB,(GLuint index, GLuint divisor));
+
+// ============== GL 3.0 / GL_EXT_gpu_shader4 integer vertex attribs =================
+void APIENTRY_GL4ES gl4es_glVertexAttribI4bv(GLuint index, const GLbyte* v) {
+    if (!v) return;
+    glVertexAttribI4i(index, (GLint)v[0], (GLint)v[1], (GLint)v[2], (GLint)v[3]);
+}
+void APIENTRY_GL4ES gl4es_glVertexAttribI4sv(GLuint index, const GLshort* v) {
+    if (!v) return;
+    glVertexAttribI4i(index, (GLint)v[0], (GLint)v[1], (GLint)v[2], (GLint)v[3]);
+}
+void APIENTRY_GL4ES gl4es_glVertexAttribI4ubv(GLuint index, const GLubyte* v) {
+    if (!v) return;
+    glVertexAttribI4ui(index, (GLuint)v[0], (GLuint)v[1], (GLuint)v[2], (GLuint)v[3]);
+}
+void APIENTRY_GL4ES gl4es_glVertexAttribI4usv(GLuint index, const GLushort* v) {
+    if (!v) return;
+    glVertexAttribI4ui(index, (GLuint)v[0], (GLuint)v[1], (GLuint)v[2], (GLuint)v[3]);
+}
+
+AliasExport(void, glVertexAttribI4bv, , (GLuint index, const GLbyte* v));
+AliasExport(void, glVertexAttribI4sv, , (GLuint index, const GLshort* v));
+AliasExport(void, glVertexAttribI4ubv, , (GLuint index, const GLubyte* v));
+AliasExport(void, glVertexAttribI4usv, , (GLuint index, const GLushort* v));
+AliasExport(void, glVertexAttribI4bv, EXT, (GLuint index, const GLbyte* v));
+AliasExport(void, glVertexAttribI4sv, EXT, (GLuint index, const GLshort* v));
+AliasExport(void, glVertexAttribI4ubv, EXT, (GLuint index, const GLubyte* v));
+AliasExport(void, glVertexAttribI4usv, EXT, (GLuint index, const GLushort* v));
+AliasExport(void, glVertexAttribIPointer, EXT,
+            (GLuint index, GLint size, GLenum type, GLsizei stride, const GLvoid* pointer));
+
+VISIBLE void glVertexAttribI1iEXT(GLuint index, GLint x) { glVertexAttribI1i(index, x); }
+VISIBLE void glVertexAttribI2iEXT(GLuint index, GLint x, GLint y) { glVertexAttribI2i(index, x, y); }
+VISIBLE void glVertexAttribI3iEXT(GLuint index, GLint x, GLint y, GLint z) { glVertexAttribI3i(index, x, y, z); }
+VISIBLE void glVertexAttribI4iEXT(GLuint index, GLint x, GLint y, GLint z, GLint w) {
+    glVertexAttribI4i(index, x, y, z, w);
+}
+VISIBLE void glVertexAttribI1uiEXT(GLuint index, GLuint x) { glVertexAttribI1ui(index, x); }
+VISIBLE void glVertexAttribI2uiEXT(GLuint index, GLuint x, GLuint y) { glVertexAttribI2ui(index, x, y); }
+VISIBLE void glVertexAttribI3uiEXT(GLuint index, GLuint x, GLuint y, GLuint z) { glVertexAttribI3ui(index, x, y, z); }
+VISIBLE void glVertexAttribI4uiEXT(GLuint index, GLuint x, GLuint y, GLuint z, GLuint w) {
+    glVertexAttribI4ui(index, x, y, z, w);
+}
+VISIBLE void glVertexAttribI1ivEXT(GLuint index, const GLint* v) { glVertexAttribI1iv(index, v); }
+VISIBLE void glVertexAttribI2ivEXT(GLuint index, const GLint* v) { glVertexAttribI2iv(index, v); }
+VISIBLE void glVertexAttribI3ivEXT(GLuint index, const GLint* v) { glVertexAttribI3iv(index, v); }
+VISIBLE void glVertexAttribI4ivEXT(GLuint index, const GLint* v) { glVertexAttribI4iv(index, v); }
+VISIBLE void glVertexAttribI1uivEXT(GLuint index, const GLuint* v) { glVertexAttribI1uiv(index, v); }
+VISIBLE void glVertexAttribI2uivEXT(GLuint index, const GLuint* v) { glVertexAttribI2uiv(index, v); }
+VISIBLE void glVertexAttribI3uivEXT(GLuint index, const GLuint* v) { glVertexAttribI3uiv(index, v); }
+VISIBLE void glVertexAttribI4uivEXT(GLuint index, const GLuint* v) { glVertexAttribI4uiv(index, v); }
+VISIBLE void glGetVertexAttribIivEXT(GLuint index, GLenum pname, GLint* params) {
+    glGetVertexAttribIiv(index, pname, params);
+}
+VISIBLE void glGetVertexAttribIuivEXT(GLuint index, GLenum pname, GLuint* params) {
+    glGetVertexAttribIuiv(index, pname, params);
+}

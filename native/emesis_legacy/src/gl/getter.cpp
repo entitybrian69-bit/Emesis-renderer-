@@ -167,7 +167,6 @@ extern "C"
                    "GL_ARB_explicit_uniform_location "
                    "GL_ARB_explicit_attrib_location "
                    //"GL_ARB_multi_bind "
-                   "GL_ARB_indirect_parameters "
                    "GL_ARB_draw_indirect "
                    "GL_ARB_multi_draw_indirect "
                    "GL_ARB_shader_texture_lod "
@@ -1542,4 +1541,99 @@ extern "C"
         }
     }
     AliasExport(void, glSampleMaski, , (GLuint maskNumber, GLbitfield mask));
+
+    void APIENTRY_GL4ES gl4es_glGetBooleani_v(GLenum target, GLuint index, GLboolean* data) {
+        if (!data) {
+            errorShim(GL_INVALID_VALUE);
+            return;
+        }
+        if (target == GL_COLOR_WRITEMASK) {
+            if (index >= MAX_DRAW_BUFFERS) {
+                errorShim(GL_INVALID_VALUE);
+                return;
+            }
+            typedef void (*glGetBooleani_v_fn)(GLenum, GLuint, GLboolean*);
+            static glGetBooleani_v_fn fn_get_booleani_v = NULL;
+            static int checked_get_booleani_v = 0;
+            if (!checked_get_booleani_v) {
+                checked_get_booleani_v = 1;
+                if (gles) fn_get_booleani_v = (glGetBooleani_v_fn)proc_address(gles, "glGetBooleani_v");
+            }
+            if (fn_get_booleani_v) {
+                errorGL();
+                fn_get_booleani_v(target, index, data);
+                return;
+            }
+            gl4es_glGetBooleanv(GL_COLOR_WRITEMASK, data);
+            return;
+        }
+        GLint tmp = 0;
+        gl4es_glGetIntegeri_v(target, index, &tmp);
+        *data = tmp ? GL_TRUE : GL_FALSE;
+    }
+    AliasExport(void, glGetBooleani_v, , (GLenum target, GLuint index, GLboolean* data));
+    AliasExport(void, glGetBooleani_v, EXT, (GLenum target, GLuint index, GLboolean* data));
+
+    void APIENTRY_GL4ES gl4es_glPrimitiveRestartIndex(GLuint index) {
+        if (hardext.esversion >= 3) {
+            LOAD_GLES(glEnable);
+            LOAD_GLES(glDisable);
+            if (index == 0xFFFFFFFFu || index == 0xFFFFu) {
+                if (gles_glEnable) gles_glEnable(0x8D69 /* GL_PRIMITIVE_RESTART_FIXED_INDEX */);
+            } else {
+                if (gles_glDisable) gles_glDisable(0x8D69 /* GL_PRIMITIVE_RESTART_FIXED_INDEX */);
+            }
+        }
+        noerrorShim();
+    }
+    AliasExport(void, glPrimitiveRestartIndex, , (GLuint index));
+    AliasExport(void, glPrimitiveRestartIndex, NV, (GLuint index));
+
+    void APIENTRY_GL4ES gl4es_glGetMultisamplefv(GLenum pname, GLuint index, GLfloat* val) {
+        if (!val) {
+            errorShim(GL_INVALID_VALUE);
+            return;
+        }
+        if (pname != 0x8E50 /* GL_SAMPLE_POSITION */) {
+            errorShim(GL_INVALID_ENUM);
+            return;
+        }
+        typedef void (*glGetMultisamplefv_fn)(GLenum, GLuint, GLfloat*);
+        static glGetMultisamplefv_fn fn_get_ms = NULL;
+        static int checked_get_ms = 0;
+        if (!checked_get_ms) {
+            checked_get_ms = 1;
+            if (gles) fn_get_ms = (glGetMultisamplefv_fn)proc_address(gles, "glGetMultisamplefv");
+        }
+        if (fn_get_ms) {
+            errorGL();
+            fn_get_ms(pname, index, val);
+            return;
+        }
+        val[0] = 0.5f;
+        val[1] = 0.5f;
+        noerrorShim();
+    }
+    AliasExport(void, glGetMultisamplefv, , (GLenum pname, GLuint index, GLfloat* val));
+
+    void APIENTRY_GL4ES gl4es_glPolygonOffsetClamp(GLfloat factor, GLfloat units, GLfloat clamp) {
+        typedef void (*glPolygonOffsetClamp_fn)(GLfloat, GLfloat, GLfloat);
+        static glPolygonOffsetClamp_fn fn_poc = NULL;
+        static int checked_poc = 0;
+        if (!checked_poc) {
+            checked_poc = 1;
+            if (gles) {
+                fn_poc = (glPolygonOffsetClamp_fn)proc_address(gles, "glPolygonOffsetClampEXT");
+                if (!fn_poc) fn_poc = (glPolygonOffsetClamp_fn)proc_address(gles, "glPolygonOffsetClamp");
+            }
+        }
+        if (fn_poc) {
+            errorGL();
+            fn_poc(factor, units, clamp);
+        } else {
+            gl4es_glPolygonOffset(factor, units);
+        }
+    }
+    AliasExport(void, glPolygonOffsetClamp, , (GLfloat factor, GLfloat units, GLfloat clamp));
+    AliasExport(void, glPolygonOffsetClamp, EXT, (GLfloat factor, GLfloat units, GLfloat clamp));
 }

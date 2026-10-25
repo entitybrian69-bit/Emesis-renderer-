@@ -344,3 +344,22 @@ AliasExport(void,glGetQueryiv,ARB,(GLenum target, GLenum pname, GLint* params));
 AliasExport(void,glGetQueryObjectiv,ARB,(GLuint id, GLenum pname, GLint* params));
 AliasExport(void,glGetQueryObjectuiv,ARB,(GLuint id, GLenum pname, GLuint* params));
 AliasExport(void,glQueryCounter,ARB,(GLuint id, GLenum target));
+
+void APIENTRY_GL4ES gl4es_glBeginConditionalRender(GLuint id, GLenum mode) {
+    (void)id;
+    (void)mode;
+    FLUSH_BEGINEND;
+    noerrorShim();
+}
+
+void APIENTRY_GL4ES gl4es_glEndConditionalRender(void) {
+    FLUSH_BEGINEND;
+    noerrorShim();
+}
+
+AliasExport(void, glBeginConditionalRender, , (GLuint id, GLenum mode));
+AliasExport(void, glBeginConditionalRender, NV, (GLuint id, GLenum mode));
+AliasExport(void, glBeginConditionalRender, NVX, (GLuint id));
+AliasExport_V(void, glEndConditionalRender);
+AliasExport(void, glEndConditionalRender, NV, (void));
+AliasExport(void, glEndConditionalRender, NVX, (void));

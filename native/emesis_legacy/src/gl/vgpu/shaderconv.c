@@ -1463,78 +1463,171 @@ static int find_out_var_name_for_location(const char* source, int location, char
  * @param source  The shader source as a string
  * @return The shader as a string, maybe at a different memory location
  */
-char* ReplaceGLFragData(char* source, int* sourceLength) {
-    if (!source) return source;
-    const char* first_fd = strstr(source, "gl_FragData[");
-    if (!first_fd) return source;
-
-    unsigned int plain_mask = 0;
-    unsigned int intcast_mask = 0;
-    for (const char* scan = first_fd; scan != NULL; scan = strstr(scan + 12, "gl_FragData[")) {
-        const char* p = scan + 12;
-        if (*p >= '0' && *p <= '9') {
-            int idx = *p - '0';
-            ++p;
-            if (*p >= '0' && *p <= '9') {
-                idx = idx * 10 + (*p - '0');
-                ++p;
-            }
-            if (*p == ']' && idx >= 0 && idx < 16) plain_mask |= (1u << idx);
-        } else if (strncmp(p, "int(", 4) == 0) {
-            p += 4;
-            int idx = (int)strtol(p, NULL, 10);
-            if (idx >= 0 && idx < 16) intcast_mask |= (1u << idx);
+static int has_real_es_version_token(const char* source) {
+    if (!source) return 0;
+    const char* v = strstr(source, "#version");
+    if (!v) return 0;
+    const char* eol = strchr(v, '\n');
+    if (!eol) eol = v + strlen(v);
+    for (const char* q = v + 8; q + 2 <= eol; ++q) {
+        if (q[0] == '/' && (q[1] == '/' || q[1] == '*')) break;
+        if (q[0] == 'e' && q[1] == 's' &&
+            !isalnum((unsigned char)q[-1]) && q[-1] != '_' &&
+            (q + 2 == eol || (!isalnum((unsigned char)q[2]) && q[2] != '_'))) {
+            return 1;
         }
     }
-    if ((plain_mask | intcast_mask) == 0) return source;
+    return 0;
+}
 
-    int esShader = doesShaderVersionContainsES(source);
+char* ReplaceGLFragData(char* source, int* sourceLength) {
+    if (!source) return source;
+    const char* first_fd = strstr(source, "gl_FragData");
+    if (!first_fd) return source;
+
+    int esShader = has_real_es_version_token(source);
     int glslVer = GetShaderVersion(source);
     int needExplicitLocExt = (!esShader && glslVer < 330);
-    int addedExplicitLocExt = 0;
 
+    char existingNames[16][64];
+    int hasExisting[16];
     for (int i = 0; i < 16; ++i) {
-        if (!((plain_mask | intcast_mask) & (1u << i))) continue;
-        char needle[40];
-        char* useFragData = NULL;
-        if (plain_mask & (1u << i)) {
-            sprintf(needle, "gl_FragData[%i]", i);
-            useFragData = strstr(source, needle);
-        }
-        if (useFragData == NULL && (intcast_mask & (1u << i))) {
-            sprintf(needle, "gl_FragData[int(%i.0)]", i);
-            useFragData = strstr(source, needle);
-        }
-        if (useFragData == NULL) continue;
+        existingNames[i][0] = '\0';
+        hasExisting[i] = find_out_var_name_for_location(source, i, existingNames[i], sizeof(existingNames[i]));
+    }
 
-        if (needExplicitLocExt && !addedExplicitLocExt &&
-            !strstr(source, "GL_ARB_explicit_attrib_location")) {
+    size_t src_len = strlen(source);
+    size_t out_cap = src_len + 1024;
+    char* out = (char*)malloc(out_cap);
+    if (!out) return source;
+    size_t out_len = 0;
+    unsigned int used_mask = 0;
+
+    const char* p = source;
+    while (*p) {
+        if (p[0] == '/' && p[1] == '/') {
+            const char* start = p;
+            p += 2;
+            while (*p && *p != '\n') ++p;
+            size_t chunk = (size_t)(p - start);
+            if (out_len + chunk + 64 >= out_cap) {
+                out_cap = (out_len + chunk + 1024) * 2;
+                char* nb = (char*)realloc(out, out_cap);
+                if (!nb) { free(out); return source; }
+                out = nb;
+            }
+            memcpy(out + out_len, start, chunk);
+            out_len += chunk;
+            continue;
+        }
+        if (p[0] == '/' && p[1] == '*') {
+            const char* start = p;
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) ++p;
+            if (*p) p += 2;
+            size_t chunk = (size_t)(p - start);
+            if (out_len + chunk + 64 >= out_cap) {
+                out_cap = (out_len + chunk + 1024) * 2;
+                char* nb = (char*)realloc(out, out_cap);
+                if (!nb) { free(out); return source; }
+                out = nb;
+            }
+            memcpy(out + out_len, start, chunk);
+            out_len += chunk;
+            continue;
+        }
+        if (strncmp(p, "gl_FragData", 11) == 0 &&
+            (p == source || (!isalnum((unsigned char)p[-1]) && p[-1] != '_'))) {
+            const char* q = p + 11;
+            while (*q == ' ' || *q == '\t') ++q;
+            if (*q == '[') {
+                const char* r = q + 1;
+                while (*r == ' ' || *r == '\t') ++r;
+                int idx = -1;
+                if (strncmp(r, "int", 3) == 0 || strncmp(r, "uint", 4) == 0) {
+                    const char* lp = strchr(r, '(');
+                    const char* rp = lp ? strchr(lp, ')') : NULL;
+                    if (lp && rp) {
+                        char* endp = NULL;
+                        long v = strtol(lp + 1, &endp, 10);
+                        if (endp > lp + 1 && v >= 0 && v < 16) {
+                            const char* after_rp = rp + 1;
+                            while (*after_rp == ' ' || *after_rp == '\t') ++after_rp;
+                            if (*after_rp == ']') {
+                                idx = (int)v;
+                                r = after_rp + 1;
+                            }
+                        }
+                    }
+                } else if (*r >= '0' && *r <= '9') {
+                    char* endp = NULL;
+                    long v = strtol(r, &endp, 10);
+                    if (endp > r && v >= 0 && v < 16) {
+                        while (*endp == 'u' || *endp == 'U' || *endp == ' ' || *endp == '\t') ++endp;
+                        if (*endp == ']') {
+                            idx = (int)v;
+                            r = endp + 1;
+                        }
+                    }
+                }
+                if (idx >= 0 && idx < 16) {
+                    char repl[64];
+                    if (hasExisting[idx]) {
+                        snprintf(repl, sizeof(repl), "%s", existingNames[idx]);
+                    } else {
+                        snprintf(repl, sizeof(repl), "vgpu_FragData%d", idx);
+                        used_mask |= (1u << idx);
+                    }
+                    size_t rlen = strlen(repl);
+                    if (out_len + rlen + 64 >= out_cap) {
+                        out_cap = (out_len + rlen + 1024) * 2;
+                        char* nb = (char*)realloc(out, out_cap);
+                        if (!nb) { free(out); return source; }
+                        out = nb;
+                    }
+                    memcpy(out + out_len, repl, rlen);
+                    out_len += rlen;
+                    p = r;
+                    continue;
+                }
+            }
+        }
+        if (out_len + 64 >= out_cap) {
+            out_cap = (out_len + 1024) * 2;
+            char* nb = (char*)realloc(out, out_cap);
+            if (!nb) { free(out); return source; }
+            out = nb;
+        }
+        out[out_len++] = *p++;
+    }
+    out[out_len] = '\0';
+
+    free(source);
+    source = out;
+    if (sourceLength) *sourceLength = (int)out_cap;
+
+    if (used_mask != 0) {
+        if (needExplicitLocExt && !strstr(source, "GL_ARB_explicit_attrib_location")) {
             int verEnd = FindPositionAfterVersion(source);
             int verIns = (source[verEnd] == '\n') ? (verEnd + 1) : verEnd;
             source = InplaceInsertByIndex(source, sourceLength, verIns,
                                           "#extension GL_ARB_explicit_attrib_location : enable\n");
-            addedExplicitLocExt = 1;
         }
-
-        char existingName[64] = {0};
-        int haveExisting = find_out_var_name_for_location(source, i, existingName, sizeof(existingName));
-
-        if (haveExisting) {
-            source = InplaceReplaceSimple(source, sourceLength, needle, existingName);
-        } else {
-            char replacement[32];
-            char replacementLine[120];
-            sprintf(replacement, "vgpu_FragData%i", i);
+        char declBlock[1536];
+        int dlen = 0;
+        for (int i = 0; i < 16; ++i) {
+            if (!(used_mask & (1u << i))) continue;
             if (esShader) {
-                sprintf(replacementLine, "layout(location = %i) out highp vec4 %s;\n", i, replacement);
+                dlen += snprintf(declBlock + dlen, sizeof(declBlock) - (size_t)dlen,
+                                 "layout(location = %d) out highp vec4 vgpu_FragData%d;\n", i, i);
             } else {
-                sprintf(replacementLine, "layout(location = %i) out vec4 %s;\n", i, replacement);
+                dlen += snprintf(declBlock + dlen, sizeof(declBlock) - (size_t)dlen,
+                                 "layout(location = %d) out vec4 vgpu_FragData%d;\n", i, i);
             }
-            source = InplaceReplaceSimple(source, sourceLength, needle, replacement);
-            int insertPoint = FindPositionAfterDirectives(source);
-            int insIdx = (source[insertPoint] == '\n') ? (insertPoint + 1) : insertPoint;
-            source = InplaceInsertByIndex(source, sourceLength, insIdx, replacementLine);
         }
+        int insertPoint = FindPositionAfterDirectives(source);
+        int insIdx = (source[insertPoint] == '\n') ? (insertPoint + 1) : insertPoint;
+        source = InplaceInsertByIndex(source, sourceLength, insIdx, declBlock);
     }
     return source;
 }
@@ -1546,7 +1639,7 @@ char* ReplaceGLFragData(char* source, int* sourceLength) {
  */
 char* ReplaceGLFragColor(char* source, int* sourceLength) {
     if (strstr(source, "gl_FragColor")) {
-        int esShader = doesShaderVersionContainsES(source);
+        int esShader = has_real_es_version_token(source);
         int glslVer = GetShaderVersion(source);
         if (!esShader && glslVer < 330 && !strstr(source, "GL_ARB_explicit_attrib_location")) {
             int verEnd = FindPositionAfterVersion(source);
@@ -1884,8 +1977,11 @@ int FindPositionAfterDirectives(char* source) {
                 }
             } else if (strncmp(h, "extension", 9) == 0 && isspace((unsigned char)h[9])) {
                 while (*h && *h != '\n') h++;
-                lastDirectiveEnd = (int)(h - source);
-                if (if_depth > 0) directive_in_if = 1;
+                if (if_depth == 0) {
+                    lastDirectiveEnd = (int)(h - source);
+                } else {
+                    directive_in_if = 1;
+                }
                 p = (*h == '\n') ? (h + 1) : h;
                 continue;
             }
@@ -1943,37 +2039,48 @@ char* ReplacePrecisionQualifiers(char* source, int* sourceLength, int isVertex) 
 
     int insertPoint = FindPositionAfterDirectives(source);
     source = InplaceInsertByIndex(source, sourceLength, insertPoint,
-                                  "\nprecision lowp sampler2D;\n"
-                                  "precision lowp sampler3D;\n"
-                                  "precision lowp sampler2DShadow;\n"
-                                  "precision lowp samplerCubeShadow;\n"
-                                  "precision lowp sampler2DArray;\n"
-                                  "precision lowp sampler2DArrayShadow;\n"
-                                  "precision lowp samplerCube;\n"
+                                  "\nprecision highp sampler2D;\n"
+                                  "precision highp sampler3D;\n"
+                                  "precision highp sampler2DShadow;\n"
+                                  "precision highp samplerCubeShadow;\n"
+                                  "precision highp sampler2DArray;\n"
+                                  "precision highp sampler2DArrayShadow;\n"
+                                  "precision highp samplerCube;\n"
+                                  "precision highp isampler2D;\n"
+                                  "precision highp isampler3D;\n"
+                                  "precision highp isamplerCube;\n"
+                                  "precision highp isampler2DArray;\n"
+                                  "precision highp usampler2D;\n"
+                                  "precision highp usampler3D;\n"
+                                  "precision highp usamplerCube;\n"
+                                  "precision highp usampler2DArray;\n"
                                   "#ifdef GL_EXT_texture_buffer\n"
-                                  "precision lowp samplerBuffer;\n"
-                                  "precision lowp imageBuffer;\n"
+                                  "precision highp samplerBuffer;\n"
+                                  "precision highp imageBuffer;\n"
                                   "#endif\n"
                                   "#ifdef GL_EXT_texture_cube_map_array\n"
-                                  "precision lowp imageCubeArray;\n"
-                                  "precision lowp samplerCubeArray;\n"
-                                  "precision lowp samplerCubeArrayShadow;\n"
+                                  "precision highp imageCubeArray;\n"
+                                  "precision highp samplerCubeArray;\n"
+                                  "precision highp samplerCubeArrayShadow;\n"
                                   "#endif\n"
                                   "#ifdef GL_OES_texture_storage_multisample_2d_array\n"
-                                  "precision lowp sampler2DMS;\n"
-                                  "precision lowp sampler2DMSArray;\n"
+                                  "precision highp sampler2DMS;\n"
+                                  "precision highp sampler2DMSArray;\n"
                                   "#endif\n");
 
     if (GetShaderVersion(source) > 300) {
         source = InplaceInsertByIndex(source, sourceLength, insertPoint,
-                                      "\nprecision lowp image2D;\n"
-                                      "precision lowp image2DArray;\n"
-                                      "precision lowp image3D;\n"
-                                      "precision lowp imageCube;\n");
+                                      "\nprecision highp image2D;\n"
+                                      "precision highp image2DArray;\n"
+                                      "precision highp image3D;\n"
+                                      "precision highp imageCube;\n"
+                                      "precision highp iimage2D;\n"
+                                      "precision highp uimage2D;\n");
     }
     int supportHighp = ((isVertex || hardext.highp) ? 1 : 0);
     source = InplaceInsertByIndex(source, sourceLength, insertPoint,
-                                  supportHighp ? "\nprecision highp float;\n" : "\nprecision mediump float;\n");
+                                  supportHighp ? "\nprecision highp float;\nprecision highp int;\n"
+                                               : "\nprecision mediump float;\nprecision highp int;\n");
 
     if (globals4es.vgpu_precision != 0) {
         char* target_precision;
