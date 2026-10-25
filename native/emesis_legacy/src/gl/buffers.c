@@ -330,13 +330,6 @@ void APIENTRY_GL4ES gl4es_glBufferData(GLenum target, GLsizeiptr size, const GLv
     } else if (target == GL_ARRAY_BUFFER && buff->real_buffer &&
                (buff->is_indirect || buff->used_by_divisor) && !buff->used_by_divisor0_draw) {
         defer_gpu_upload = 1;
-    } else if (size == 0 && data == NULL && buff->real_buffer &&
-               (usage == GL_STREAM_COPY || usage == GL_DYNAMIC_COPY)) {
-        /* Skip 0-byte invalidateBuffer kbase free/alloc churn; next upload orphans cleanly */
-        buff->size = 0;
-        buff->usage = usage;
-        noerrorShim();
-        return;
     }
 
     GLuint prev_real_buffer = buff->real_buffer;
@@ -348,23 +341,15 @@ void APIENTRY_GL4ES gl4es_glBufferData(GLenum target, GLsizeiptr size, const GLv
         buff->real_buffer = 0;
     }
     if (go_real && !defer_gpu_upload) {
-        int had_real = (buff->real_buffer != 0);
         if (!buff->real_buffer) {
             LOAD_GLES(glGenBuffers);
             gles_glGenBuffers(1, &buff->real_buffer);
-        }
-        if (had_real && buff->realloc_streak < 255) {
-            buff->realloc_streak++;
-        }
-        GLenum hw_usage = usage;
-        if (buff->realloc_streak >= 3 && usage == GL_STATIC_DRAW && size > 0 && size <= 524288) {
-            hw_usage = GL_STREAM_DRAW;
         }
         GLenum hw_target = is_cpu_emul_target ? GL_ARRAY_BUFFER : target;
         LOAD_GLES(glBufferData);
         LOAD_GLES(glBindBuffer);
         bindBuffer(hw_target, buff->real_buffer);
-        gles_glBufferData(hw_target, size, data, hw_usage);
+        gles_glBufferData(hw_target, size, data, usage);
         buff->gpu_dirty = 0;
         DBG(SHUT_LOGD(" => real VBO %d\n", buff->real_buffer);)
     } else if (defer_gpu_upload) {
@@ -397,15 +382,14 @@ void APIENTRY_GL4ES gl4es_glBufferData(GLenum target, GLsizeiptr size, const GLv
     buff->usage = usage;
     DBG(SHUT_LOGD("\t buff->data = %p (size=%zd, cap=%zd)\n", buff->data, size, buff->cap);)
     buff->access = GL_READ_WRITE;
-    // update binded VA
-    for (int i = 0; i < hardext.maxvattrib; ++i) {
-        vertexattrib_t* v = &glstate->vao->vertexattrib[i];
-        if (v->buffer == buff) {
-            v->real_buffer = v->buffer->real_buffer;
-            // do not update real_pointer, as it's the relative start in the buffer
-        }
-    }
+    // update binded VA only when real_buffer handle actually changed
     if (buff->real_buffer != prev_real_buffer) {
+        for (int i = 0; i < hardext.maxvattrib; ++i) {
+            vertexattrib_t* v = &glstate->vao->vertexattrib[i];
+            if (v->buffer == buff) {
+                v->real_buffer = v->buffer->real_buffer;
+            }
+        }
         if (glstate->defaultvao && glstate->defaultvao != glstate->vao) {
             for (int i = 0; i < hardext.maxvattrib; ++i) {
                 if (glstate->defaultvao->vertexattrib[i].buffer == buff) {

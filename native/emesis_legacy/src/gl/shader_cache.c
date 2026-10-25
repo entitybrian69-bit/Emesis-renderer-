@@ -7,6 +7,7 @@
 #include "init.h"
 #include "loader.h"
 #include "logs.h"
+#include "version.h"
 
 #include <dirent.h>
 #include <dlfcn.h>
@@ -19,8 +20,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define EMESIS_SC_SCHEMA_VERSION 0x454D53430001000BULL /* EMSC v1.11 */
-#define EMESIS_PC_SCHEMA_VERSION 0x454D50420001000BULL /* EMPB v1.11 */
+#define EMESIS_SC_SCHEMA_VERSION                                                                                       \
+    (0x454D534300020000ULL | ((uint64_t)(MAJOR & 0xFF) << 12) | ((uint64_t)(MINOR & 0x3F) << 6) |                      \
+     (uint64_t)(REVISION & 0x3F))
+#define EMESIS_PC_SCHEMA_VERSION                                                                                       \
+    (0x454D504200020000ULL | ((uint64_t)(MAJOR & 0xFF) << 12) | ((uint64_t)(MINOR & 0x3F) << 6) |                      \
+     (uint64_t)(REVISION & 0x3F))
 
 #define EMESIS_SC_MAGIC 0x43534D45U /* 'EMSC' */
 #define EMESIS_PC_MAGIC 0x42504D45U /* 'EMPB' */

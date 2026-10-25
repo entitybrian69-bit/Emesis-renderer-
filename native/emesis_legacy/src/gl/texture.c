@@ -2200,18 +2200,16 @@ void APIENTRY_GL4ES gl4es_glTexImage2D(GLenum target, GLint level, GLint interna
         int callgeneratemipmap = 0;
         if (!(globals4es.texstream && bound->streamed)) {
             if ((target != GL_TEXTURE_RECTANGLE_ARB) && (GL4ES_AUTOMIPMAP_PLACEHOLDER != 3) &&
-                (bound->mipmap_need || bound->mipmap_auto) && !(bound->npot && hardext.npot < 2) &&
-                (bound->max_level == -1) && !bound->binded_fbo &&
-                format != GL_DEPTH_COMPONENT && format != GL_DEPTH_STENCIL) {
+                bound->mipmap_auto && (pixels != NULL) && !(bound->npot && hardext.npot < 2) &&
+                !bound->binded_fbo && format != GL_DEPTH_COMPONENT && format != GL_DEPTH_STENCIL) {
                 if (hardext.esversion < 2)
                     gles_glTexParameteri(rtarget, GL_GENERATE_MIPMAP, GL_TRUE);
                 else
                     callgeneratemipmap = 1;
             } else {
-                // if(target!=GL_TEXTURE_RECTANGLE_ARB) gles_glTexParameteri( rtarget, GL_GENERATE_MIPMAP, GL_FALSE );
                 if ((itarget != ENABLED_CUBE_MAP && target != GL_TEXTURE_RECTANGLE_ARB) &&
-                    (bound->mipmap_need || GL4ES_AUTOMIPMAP_PLACEHOLDER == 3)) {
-                    // remove the need for mipmap...
+                    ((bound->npot && hardext.npot < 2) || GL4ES_AUTOMIPMAP_PLACEHOLDER == 3)) {
+                    // remove the need for mipmap only when hardware cannot mipmap this texture...
                     bound->mipmap_need = 0;
                     gl4es_glTexParameteri(rtarget, GL_TEXTURE_MIN_FILTER,
                                           bound->sampler.min_filter); // forcing min_filter to be recomputed
@@ -2258,8 +2256,8 @@ void APIENTRY_GL4ES gl4es_glTexImage2D(GLenum target, GLint level, GLint interna
                 gles_glTexImage2D(rtarget, level, internalformat, width, height, border, format, type, pixels);
                 DBG(CheckGLError(1);)
             }
-            // check if base_level is set... and calculate lower level mipmap
-            if (bound->base_level == level && !(bound->max_level == level && level == 0)) {
+            // check if base_level is set... and calculate lower level mipmap (ES 1.x/2.0 only; ES 3+ has native GL_TEXTURE_BASE_LEVEL)
+            if (hardext.esversion < 3 && bound->base_level == level && !(bound->max_level == level && level == 0)) {
                 int leveln = level, nw = width, nh = height, nww = nwidth, nhh = nheight;
                 int pot = (nh == nhh && nw == nww);
                 void* ndata = pixels;
@@ -2282,21 +2280,23 @@ void APIENTRY_GL4ES gl4es_glTexImage2D(GLenum target, GLint level, GLint interna
                 if (ndata != pixels) free(ndata);
             }
             if (GL4ES_AUTOMIPMAP_PLACEHOLDER == 5 && !level) bound->mipmap_done = 0;
-            // check if max_level is set... and calculate higher level mipmap
-            if (((bound->max_level == level && (level || bound->mipmap_need)) || (callgeneratemipmap && level == 0) ||
+            // check if max_level is set (ES 1.x/2.0 only) or GL_GENERATE_MIPMAP (mipmap_auto) is enabled...
+            if (((hardext.esversion < 3 && bound->max_level == level && (level || bound->mipmap_need)) ||
+                 (callgeneratemipmap && level == 0) ||
                  (GL4ES_AUTOMIPMAP_PLACEHOLDER == 5 && level && !bound->mipmap_done)) &&
                 !(bound->max_level == bound->base_level && bound->max_level == 0)) {
                 if (GL4ES_AUTOMIPMAP_PLACEHOLDER == 5 && level == 1) bound->mipmap_done = 1;
                 LOAD_GLES2_OR_OES(glGenerateMipmap);
                 if (callgeneratemipmap && level == 0 && hardext.esversion >= 2 && gles_glGenerateMipmap &&
-                    bound->base_level <= 0 && bound->max_level == -1 && nwidth == width && nheight == height) {
+                    bound->base_level <= 0 && (hardext.esversion >= 3 || bound->max_level == -1) &&
+                    nwidth == width && nheight == height) {
                     gles_glGenerateMipmap(rtarget);
                     bound->mipmap_done = 1;
                 } else {
                     int leveln = level, nw = nwidth, nh = nheight, nww = width, nhh = height;
                     int pot = (nh == nhh && nw == nww);
                     void* ndata = pixels;
-                    while (nw != 1 || nh != 1) {
+                    while ((nw != 1 || nh != 1) && (bound->max_level < 0 || leveln < bound->max_level)) {
                         if (pixels) {
                             GLvoid* out = ndata;
                             pixel_halfscale(ndata, &out, nww, nhh, format, type);
@@ -2313,6 +2313,7 @@ void APIENTRY_GL4ES gl4es_glTexImage2D(GLenum target, GLint level, GLint interna
                         if (!pot && pixels) gles_glTexSubImage2D(rtarget, leveln, 0, 0, nww, nhh, format, type, ndata);
                     }
                     if (ndata != pixels) free(ndata);
+                    bound->mipmap_done = 1;
                 }
             }
             /*if (bound && bound->mipmap_need && !bound->mipmap_auto && (GL4ES_AUTOMIPMAP_PLACEHOLDER!=3))
@@ -2549,7 +2550,7 @@ void old_glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffse
     }
 
     int callgeneratemipmap = 0;
-    if ((target != GL_TEXTURE_RECTANGLE_ARB) && (bound->mipmap_need || bound->mipmap_auto)) {
+    if ((target != GL_TEXTURE_RECTANGLE_ARB) && bound->mipmap_auto && (pixels != NULL) && !bound->binded_fbo) {
         if (hardext.esversion < 2) {
             // gles_glTexParameteri( rtarget, GL_GENERATE_MIPMAP, GL_TRUE );
         } else
@@ -2566,8 +2567,8 @@ void old_glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffse
         errorGL();
         gles_glTexSubImage2D(rtarget, level, xoffset, yoffset, width, height, format, type, pixels);
         DBG(CheckGLError(1);)
-        // check if base_level is set... and calculate lower level mipmap
-        if (bound->base_level == level && !(bound->max_level == level && level == 0)) {
+        // check if base_level is set... and calculate lower level mipmap (ES 1.x/2.0 only)
+        if (hardext.esversion < 3 && bound->base_level == level && !(bound->max_level == level && level == 0)) {
             int leveln = level, nw = width, nh = height, xx = xoffset, yy = yoffset;
             void* ndata = pixels;
             while (leveln) {
@@ -2586,15 +2587,15 @@ void old_glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffse
             }
             if (ndata != pixels) free(ndata);
         }
-        // check if max_level is set... and calculate higher level mipmap
+        // check if max_level is set (ES 1.x/2.0 only) or GL_GENERATE_MIPMAP (mipmap_auto) is enabled...
         int genmipmap = 0;
-        if (((bound->max_level == level) && (level || bound->mipmap_need))) genmipmap = 1;
-        if (callgeneratemipmap && ((level == 0) || (level == bound->max_level))) genmipmap = 1;
+        if (hardext.esversion < 3 && (bound->max_level == level) && (level || bound->mipmap_need)) genmipmap = 1;
+        if (callgeneratemipmap && (level == 0)) genmipmap = 1;
         if ((bound->max_level == bound->base_level) && (bound->base_level == 0)) genmipmap = 0;
         if (genmipmap && (GL4ES_AUTOMIPMAP_PLACEHOLDER != 3)) {
             int leveln = level, nw = width, nh = height, xx = xoffset, yy = yoffset;
             void* ndata = pixels;
-            while (nw != 1 || nh != 1) {
+            while ((nw != 1 || nh != 1) && (bound->max_level < 0 || leveln < bound->max_level)) {
                 if (pixels) {
                     GLvoid* out = ndata;
                     pixel_halfscale(ndata, &out, nw, nh, format, type);

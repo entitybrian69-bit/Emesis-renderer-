@@ -550,12 +550,67 @@ static void replace_ident_token(std::string& str, const char* from, const char* 
     }
 }
 
+static void replace_noncall_ident_token(std::string& str, const char* from, const char* to) {
+    const size_t flen = std::strlen(from);
+    const size_t tlen = std::strlen(to);
+    size_t pos = str.find(from);
+    if (pos == std::string::npos) return;
+
+    while (pos != std::string::npos) {
+        bool prev_ok = (pos == 0) || (!std::isalnum((unsigned char)str[pos - 1]) && str[pos - 1] != '_');
+        bool next_ok = (pos + flen >= str.size()) ||
+                       (!std::isalnum((unsigned char)str[pos + flen]) && str[pos + flen] != '_');
+        if (prev_ok && next_ok) {
+            size_t k = pos + flen;
+            while (k < str.size() && (str[k] == ' ' || str[k] == '\t')) k++;
+            bool is_call = (k < str.size() && str[k] == '(');
+            if (!is_call) {
+                str.replace(pos, flen, to, tlen);
+                pos = str.find(from, pos + tlen);
+                continue;
+            }
+        }
+        pos = str.find(from, pos + flen);
+    }
+}
+
 /* Shim legacy GLSL 110/120/130 & GL_EXT_gpu_shader4 constructs used across < 1.17 OptiFine/ShadersMod packs */
 static void shim_legacy_pre117_glsl(std::string& glsl) {
     if (glsl.find("GL_EXT_gpu_shader4") != std::string::npos) {
         static const std::regex extGpu4Rx(R"(^[ \t]*#[ \t]*extension[ \t]+GL_EXT_gpu_shader4[^\r\n]*)",
                                           std::regex::ECMAScript | std::regex::multiline | std::regex::optimize);
         glsl = std::regex_replace(glsl, extGpu4Rx, "// shimmed GL_EXT_gpu_shader4");
+    }
+    if (glsl.find("noperspective") != std::string::npos) {
+        if (glsl.find("GL_NV_shader_noperspective_interpolation") != std::string::npos) {
+            static const std::regex extNoPerspRx(
+                R"(^[ \t]*#[ \t]*extension[ \t]+GL_NV_shader_noperspective_interpolation[^\r\n]*)",
+                std::regex::ECMAScript | std::regex::multiline | std::regex::optimize);
+            glsl = std::regex_replace(glsl, extNoPerspRx, "// shimmed GL_NV_shader_noperspective_interpolation");
+        }
+        replace_ident_token(glsl, "noperspective", " ");
+    }
+    if (glsl.find("texture_query_lod") != std::string::npos) {
+        static const std::regex extQueryLodRx(
+            R"(^[ \t]*#[ \t]*extension[ \t]+GL_(?:ARB|EXT)_texture_query_lod[^\r\n]*)",
+            std::regex::ECMAScript | std::regex::multiline | std::regex::optimize);
+        glsl = std::regex_replace(glsl, extQueryLodRx, "// shimmed texture_query_lod");
+    }
+    if (glsl.find("texture") != std::string::npos) {
+        static const std::regex texVarDeclRx(
+            R"(\b(?:sampler\w*|isampler\w*|usampler\w*|vec[234]|ivec[234]|uvec[234]|float|int)\s+texture\b)",
+            std::regex::ECMAScript | std::regex::optimize);
+        if (std::regex_search(glsl, texVarDeclRx)) {
+            replace_noncall_ident_token(glsl, "texture", "vgpu_texture");
+        }
+    }
+    if (glsl.find("sample") != std::string::npos) {
+        static const std::regex sampleVarRx(
+            R"(\b(?:float|int|uint|bool|vec[234]|ivec[234]|uvec[234]|mat[234]|sampler\w*)\s+sample\b)",
+            std::regex::ECMAScript | std::regex::optimize);
+        if (std::regex_search(glsl, sampleVarRx)) {
+            replace_ident_token(glsl, "sample", "vgpu_Sample");
+        }
     }
     if (glsl.find("unsigned") != std::string::npos) {
         static const std::regex unsignedIntRx(R"(\bunsigned\s+int\b)",
@@ -650,13 +705,17 @@ bool process_non_opaque_atomic_to_ssbo(std::string& source) {
 }
 
 static void inject_textureQueryLod(std::string& glsl) {
-    if (glsl.find("textureQueryLod") == std::string::npos) return;
+    if (glsl.find("textureQueryLod") == std::string::npos &&
+        glsl.find("textureQueryLOD") == std::string::npos) {
+        return;
+    }
     static const std::regex defRegex(R"(vec2\s+mg_textureQueryLod\s*\()",
                                      std::regex::ECMAScript | std::regex::optimize);
     if (std::regex_search(glsl, defRegex)) return;
 
     static const char* textureQueryLodImpl =
         "\n#define textureQueryLod mg_textureQueryLod\n"
+        "#define textureQueryLOD mg_textureQueryLod\n"
         "vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {\n"
         "    vec2 texSizeF = vec2(textureSize(tex, 0));\n"
         "    vec2 dFdx_uv = dFdx(uv * texSizeF);\n"
@@ -714,13 +773,41 @@ vec4 GI_TemporalFilter() {
 #define xstr(s) str(s)
 #define str(s) #s
 
+static bool has_macro_definition(const std::string& glsl, const char* macro) {
+    const size_t mlen = std::strlen(macro);
+    size_t pos = glsl.find(macro);
+    while (pos != std::string::npos) {
+        if (pos + mlen <= glsl.size() &&
+            (pos + mlen == glsl.size() || (!std::isalnum((unsigned char)glsl[pos + mlen]) && glsl[pos + mlen] != '_')) &&
+            pos > 0 && (!std::isalnum((unsigned char)glsl[pos - 1]) && glsl[pos - 1] != '_')) {
+            size_t ls = glsl.rfind('\n', pos);
+            ls = (ls == std::string::npos) ? 0 : (ls + 1);
+            size_t p = ls;
+            while (p < pos && (glsl[p] == ' ' || glsl[p] == '\t')) p++;
+            if (p < pos && glsl[p] == '#') {
+                p++;
+                while (p < pos && (glsl[p] == ' ' || glsl[p] == '\t')) p++;
+                if (p + 6 <= pos && glsl.compare(p, 6, "define") == 0 &&
+                    (glsl[p + 6] == ' ' || glsl[p + 6] == '\t')) {
+                    size_t q = p + 6;
+                    while (q < pos && (glsl[q] == ' ' || glsl[q] == '\t')) q++;
+                    if (q == pos) return true;
+                }
+            }
+        }
+        pos = glsl.find(macro, pos + mlen);
+    }
+    return false;
+}
+
 static void inject_ngg_macro_definition(std::string& glslCode) {
     static const char* macro_definitions =
         "#define NGG_NGG\n"
         "#define NGG_NGG_VERSION " xstr(MAJOR) xstr(MINOR) xstr(REVISION) "\n";
     size_t insertionPos = find_insertion_point(glslCode);
     glslCode.insert(insertionPos, macro_definitions);
-    if (glslCode.find("MC_RENDER_STAGE_") != std::string::npos) {
+    if (glslCode.find("MC_RENDER_STAGE_") != std::string::npos &&
+        !has_macro_definition(glslCode, "MC_RENDER_STAGE_NONE")) {
         static const char* stage_fallbacks =
             "#ifndef MC_RENDER_STAGE_NONE\n"
             "#define MC_RENDER_STAGE_NONE 0\n"
@@ -750,18 +837,24 @@ static void inject_ngg_macro_definition(std::string& glslCode) {
             "#endif\n";
         glslCode.insert(find_insertion_point(glslCode), stage_fallbacks);
     }
-    if (glslCode.find("MC_RENDER_QUALITY") != std::string::npos ||
-        glslCode.find("MC_SHADOW_QUALITY") != std::string::npos) {
-        static const char* quality_fallbacks =
+    if (glslCode.find("MC_RENDER_QUALITY") != std::string::npos &&
+        !has_macro_definition(glslCode, "MC_RENDER_QUALITY")) {
+        static const char* rq_fallback =
             "#ifndef MC_RENDER_QUALITY\n"
             "#define MC_RENDER_QUALITY 1.0\n"
-            "#endif\n"
+            "#endif\n";
+        glslCode.insert(find_insertion_point(glslCode), rq_fallback);
+    }
+    if (glslCode.find("MC_SHADOW_QUALITY") != std::string::npos &&
+        !has_macro_definition(glslCode, "MC_SHADOW_QUALITY")) {
+        static const char* sq_fallback =
             "#ifndef MC_SHADOW_QUALITY\n"
             "#define MC_SHADOW_QUALITY 1.0\n"
             "#endif\n";
-        glslCode.insert(find_insertion_point(glslCode), quality_fallbacks);
+        glslCode.insert(find_insertion_point(glslCode), sq_fallback);
     }
-    if (glslCode.find("MC_VERSION") != std::string::npos) {
+    if (glslCode.find("MC_VERSION") != std::string::npos &&
+        !has_macro_definition(glslCode, "MC_VERSION")) {
         static const char* version_fallback =
             "#ifndef MC_VERSION\n"
             "#define MC_VERSION 11605\n"
@@ -947,17 +1040,20 @@ static std::string spirv_to_essl(const std::vector<unsigned int>& spirv, GLenum 
     size_t count = 0;
     bool drop_dead_vgpu_fragcolor = false;
     if (shader_type == GL_VERTEX_SHADER) {
-        if (!keep_vertex_in_locations &&
-            spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_STAGE_INPUT, &list, &count) ==
-                SPVC_SUCCESS) {
+        if (spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_STAGE_INPUT, &list, &count) ==
+            SPVC_SUCCESS) {
             for (size_t i = 0; i < count; ++i) {
-                spvc_compiler_unset_decoration(compiler_glsl, list[i].id, SpvDecorationLocation);
+                if (!keep_vertex_in_locations) {
+                    spvc_compiler_unset_decoration(compiler_glsl, list[i].id, SpvDecorationLocation);
+                }
+                spvc_compiler_unset_decoration(compiler_glsl, list[i].id, SpvDecorationNoPerspective);
             }
         }
         if (spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_STAGE_OUTPUT, &list, &count) ==
             SPVC_SUCCESS) {
             for (size_t i = 0; i < count; ++i) {
                 spvc_compiler_unset_decoration(compiler_glsl, list[i].id, SpvDecorationLocation);
+                spvc_compiler_unset_decoration(compiler_glsl, list[i].id, SpvDecorationNoPerspective);
             }
         }
     } else if (shader_type == GL_FRAGMENT_SHADER) {
@@ -965,6 +1061,7 @@ static std::string spirv_to_essl(const std::vector<unsigned int>& spirv, GLenum 
             SPVC_SUCCESS) {
             for (size_t i = 0; i < count; ++i) {
                 spvc_compiler_unset_decoration(compiler_glsl, list[i].id, SpvDecorationLocation);
+                spvc_compiler_unset_decoration(compiler_glsl, list[i].id, SpvDecorationNoPerspective);
             }
         }
         spvc_set active_vars = nullptr;

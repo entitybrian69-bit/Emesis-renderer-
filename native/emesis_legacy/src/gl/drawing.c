@@ -637,7 +637,6 @@ static void draw_quads_arrays_fast(GLint first, GLsizei count, int instancecount
             if (glstate->raster.bm_drawing) bitmap_flush();
             glbuffer_t* prev_elem = glstate->vao->elements;
             GLuint prev_want = glstate->bind_buffer.want_index;
-            GLuint prev_idx = glstate->bind_buffer.index;
             glstate->vao->elements = &glstate->quad_ibo_u16;
 
             realize_textures(1);
@@ -656,7 +655,6 @@ static void draw_quads_arrays_fast(GLint first, GLsizei count, int instancecount
 
             free_scratch(&scratch);
             glstate->vao->elements = prev_elem;
-            bindBuffer(GL_ELEMENT_ARRAY_BUFFER, prev_elem ? prev_elem->real_buffer : prev_idx);
             glstate->bind_buffer.want_index = prev_want;
             return;
         }
@@ -669,24 +667,20 @@ static void draw_quads_arrays_fast(GLint first, GLsizei count, int instancecount
         if (max_vert <= 65536 && ensure_gpu_quad_ibo_u16(needed_quads)) {
             glbuffer_t* prev_elem = glstate->vao->elements;
             GLuint prev_want = glstate->bind_buffer.want_index;
-            GLuint prev_idx = glstate->bind_buffer.index;
             glstate->vao->elements = &glstate->quad_ibo_u16;
             const GLushort* sptr = (const GLushort*)glstate->quad_ibo_u16.data + (q0 * 6);
             glDrawElementsCommon(GL_TRIANGLES, 0, idx_count, (GLuint)max_vert, sptr, NULL, instancecount);
             glstate->vao->elements = prev_elem;
-            bindBuffer(GL_ELEMENT_ARRAY_BUFFER, prev_elem ? prev_elem->real_buffer : prev_idx);
             glstate->bind_buffer.want_index = prev_want;
             return;
         }
         if (max_vert > 65536 && ensure_gpu_quad_ibo_u32(needed_quads)) {
             glbuffer_t* prev_elem = glstate->vao->elements;
             GLuint prev_want = glstate->bind_buffer.want_index;
-            GLuint prev_idx = glstate->bind_buffer.index;
             glstate->vao->elements = &glstate->quad_ibo_u32;
             const GLuint* iptr = (const GLuint*)glstate->quad_ibo_u32.data + (q0 * 6);
             glDrawElementsCommon(GL_TRIANGLES, 0, idx_count, (GLuint)max_vert, NULL, iptr, instancecount);
             glstate->vao->elements = prev_elem;
-            bindBuffer(GL_ELEMENT_ARRAY_BUFFER, prev_elem ? prev_elem->real_buffer : prev_idx);
             glstate->bind_buffer.want_index = prev_want;
             return;
         }
@@ -1101,7 +1095,6 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArrays(GLenum mode, const GLint* firsts, co
                         if (glstate->raster.bm_drawing) bitmap_flush();
                         glbuffer_t* prev_elem = glstate->vao->elements;
                         GLuint prev_want = glstate->bind_buffer.want_index;
-                        GLuint prev_idx = glstate->bind_buffer.index;
                         glstate->vao->elements = &glstate->quad_ibo_u16;
 
                         realize_textures(1);
@@ -1122,7 +1115,6 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArrays(GLenum mode, const GLint* firsts, co
 
                         free_scratch(&scratch);
                         glstate->vao->elements = prev_elem;
-                        bindBuffer(GL_ELEMENT_ARRAY_BUFFER, prev_elem ? prev_elem->real_buffer : prev_idx);
                         glstate->bind_buffer.want_index = prev_want;
                         if (rfirst != stack_rfirst) free(rfirst);
                         if (rnquads != stack_rnquads) free(rnquads);
@@ -1145,7 +1137,6 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArrays(GLenum mode, const GLint* firsts, co
 
                     glbuffer_t* prev_elem = glstate->vao->elements;
                     GLuint prev_want = glstate->bind_buffer.want_index;
-                    GLuint prev_idx = glstate->bind_buffer.index;
                     glstate->vao->elements = qibo;
 
                     realize_textures(1);
@@ -1188,7 +1179,6 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArrays(GLenum mode, const GLint* firsts, co
 
                     free_scratch(&scratch);
                     glstate->vao->elements = prev_elem;
-                    bindBuffer(GL_ELEMENT_ARRAY_BUFFER, prev_elem ? prev_elem->real_buffer : prev_idx);
                     glstate->bind_buffer.want_index = prev_want;
                     if (rfirst != stack_rfirst) free(rfirst);
                     if (rnquads != stack_rnquads) free(rnquads);
@@ -1797,7 +1787,6 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArraysIndirect(GLenum mode, const void* ind
 
                     glbuffer_t* prev_elem = glstate->vao->elements;
                     GLuint prev_want = glstate->bind_buffer.want_index;
-                    GLuint prev_idx = glstate->bind_buffer.index;
                     GLuint prev_inst_id = glstate->instanceID;
                     glstate->vao->elements = qibo;
 
@@ -1837,7 +1826,6 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArraysIndirect(GLenum mode, const void* ind
                     free_scratch(&scratch);
                     glstate->instanceID = prev_inst_id;
                     glstate->vao->elements = prev_elem;
-                    bindBuffer(GL_ELEMENT_ARRAY_BUFFER, prev_elem ? prev_elem->real_buffer : prev_idx);
                     glstate->bind_buffer.want_index = prev_want;
                     if (runs != stack_runs) free(runs);
                     errorGL();

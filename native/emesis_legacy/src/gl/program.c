@@ -3,6 +3,7 @@
 #endif
 #include "program.h"
 
+#include <ctype.h>
 #include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
@@ -886,13 +887,15 @@ static void fill_program(program_t* glprogram) {
                     }
                     gluniform = kh_value(uniforms, k) = malloc(sizeof(uniform_t));
                     memset(gluniform, 0, sizeof(uniform_t));
+                    gluniform->twin_loc = -1;
                     if (j) {
                         gluniform->name = malloc(strlen(name) + 1 + 12);
                         sprintf(gluniform->name, "%s[%d]", name, j);
                     } else
                         gluniform->name = strdup(name);
                     gluniform->id = elem_id;
-                    if (glprogram->uniform_by_name && gluniform->name) {
+                    int is_ufix = (gluniform->name && strncmp(gluniform->name, "_emesis_ufix_", 13) == 0) ? 1 : 0;
+                    if (!is_ufix && glprogram->uniform_by_name && gluniform->name) {
                         int nret = 0;
                         khint_t nk = kh_put(uniformnamelist, glprogram->uniform_by_name, gluniform->name, &nret);
                         kh_value(glprogram->uniform_by_name, nk) = elem_id;
@@ -902,8 +905,8 @@ static void fill_program(program_t* glprogram) {
                     gluniform->cache_offs = uniform_cache + j * uniformsize(type);
                     gluniform->cache_size = uniformsize(type) * (size - j);
                     gluniform->builtin = builtin_CheckUniform(glprogram, name, elem_id, size - j);
-                    /* Hide internal _gl4es_* builtins and secondary array elements from app reflection */
-                    if (j == 0 && !gluniform->builtin && gluniform->name &&
+                    /* Hide internal _gl4es_* builtins, _emesis_ufix_* twins, and secondary array elements from app reflection */
+                    if (j == 0 && !is_ufix && !gluniform->builtin && gluniform->name &&
                         strncmp(gluniform->name, "_gl4es_", 7) != 0) {
                         gluniform->internal_id = (GLuint)(glprogram->num_uniform++);
                         gluniform->sm_source_id = emesis_sm_classify_source(gluniform->name);
@@ -961,6 +964,51 @@ static void fill_program(program_t* glprogram) {
         DBG(else SHUT_LOGD("LIBGL: Warning, getting Uniform #%d info failed with %s\n", i, PrintEnum(e2)))
     }
     free(name);
+    /* Pair _emesis_ufix_<name> cross-stage uniform twins (or expose directly if the primary stage optimized <name> out) */
+    if (glprogram->uniform && glprogram->uniform_by_name) {
+        uniform_t* m;
+        khint_t k;
+        kh_foreach(glprogram->uniform, k, m, {
+            if (m && m->name && strncmp(m->name, "_emesis_ufix_", 13) == 0) {
+                const char* orig = m->name + 13;
+                khint_t ko = kh_get(uniformnamelist, glprogram->uniform_by_name, orig);
+                if (ko != kh_end(glprogram->uniform_by_name)) {
+                    GLint prim_loc = kh_value(glprogram->uniform_by_name, ko);
+                    khint_t kp = kh_get(uniformlist, glprogram->uniform, prim_loc);
+                    if (kp != kh_end(glprogram->uniform)) {
+                        uniform_t* prim = kh_value(glprogram->uniform, kp);
+                        if (prim && prim != m) {
+                            prim->twin_loc = m->id;
+                        }
+                    }
+                } else {
+                    memmove(m->name, orig, strlen(orig) + 1);
+                    int nret = 0;
+                    khint_t nk = kh_put(uniformnamelist, glprogram->uniform_by_name, m->name, &nret);
+                    kh_value(glprogram->uniform_by_name, nk) = m->id;
+                    if (!strchr(m->name, '[') && !m->builtin && strncmp(m->name, "_gl4es_", 7) != 0) {
+                        m->internal_id = (GLuint)(glprogram->num_uniform++);
+                        m->sm_source_id = emesis_sm_classify_source(m->name);
+                        m->sm_custom_id = emesis_sm_classify_custom(m->name, m->type);
+                        if (m->sm_custom_id != 0) {
+                            if (glprogram->custom_uniform_count >= custom_cap) {
+                                int ncap = custom_cap ? (custom_cap * 2) : 8;
+                                uniform_t** nc = (uniform_t**)realloc(glprogram->custom_uniforms,
+                                                                      (size_t)ncap * sizeof(uniform_t*));
+                                if (nc) {
+                                    glprogram->custom_uniforms = nc;
+                                    custom_cap = ncap;
+                                }
+                            }
+                            if (glprogram->custom_uniform_count < custom_cap) {
+                                glprogram->custom_uniforms[glprogram->custom_uniform_count++] = m;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
     // reset uniform cache
     if (glprogram->cache.cap < uniform_cache) {
         glprogram->cache.cap = uniform_cache;
@@ -1260,6 +1308,173 @@ static char* serialize_attrib_bindings(program_t* glprogram) {
     return buf;
 }
 
+typedef struct {
+    char type[16];
+    char name[64];
+} parsed_stage_uniform_t;
+
+static int is_scalar_or_vec_glsl_type(const char* t) {
+    return strcmp(t, "float") == 0 || strcmp(t, "vec2") == 0 || strcmp(t, "vec3") == 0 || strcmp(t, "vec4") == 0 ||
+           strcmp(t, "int") == 0 || strcmp(t, "ivec2") == 0 || strcmp(t, "ivec3") == 0 || strcmp(t, "ivec4") == 0 ||
+           strcmp(t, "uint") == 0 || strcmp(t, "uvec2") == 0 || strcmp(t, "uvec3") == 0 || strcmp(t, "uvec4") == 0 ||
+           strcmp(t, "bool") == 0 || strcmp(t, "bvec2") == 0 || strcmp(t, "bvec3") == 0 || strcmp(t, "bvec4") == 0;
+}
+
+static int is_precision_kw(const char* t) {
+    return strcmp(t, "highp") == 0 || strcmp(t, "mediump") == 0 || strcmp(t, "lowp") == 0;
+}
+
+static int extract_stage_scalar_vec_uniforms(const char* src, parsed_stage_uniform_t* out, int max_out) {
+    if (!src || !out || max_out <= 0) return 0;
+    int count = 0;
+    int brace_depth = 0;
+    const char* p = src;
+    while (*p && count < max_out) {
+        if (p[0] == '/' && p[1] == '/') {
+            while (*p && *p != '\n') p++;
+            continue;
+        }
+        if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) p++;
+            if (*p) p += 2;
+            continue;
+        }
+        if (*p == '#') {
+            while (*p && *p != '\n') {
+                if (*p == '\\' && p[1] == '\n') { p += 2; continue; }
+                p++;
+            }
+            continue;
+        }
+        if (*p == '{') { brace_depth++; p++; continue; }
+        if (*p == '}') { if (brace_depth > 0) brace_depth--; p++; continue; }
+        if (brace_depth == 0 &&
+            (p == src || (!isalnum((unsigned char)p[-1]) && p[-1] != '_')) &&
+            strncmp(p, "uniform", 7) == 0 && isspace((unsigned char)p[7])) {
+            const char* q = p + 7;
+            char tok[64];
+            for (;;) {
+                while (*q && isspace((unsigned char)*q)) q++;
+                size_t ti = 0;
+                while (isalnum((unsigned char)*q) || *q == '_') {
+                    if (ti + 1 < sizeof(tok)) tok[ti++] = *q;
+                    q++;
+                }
+                tok[ti] = '\0';
+                if (ti == 0 || !is_precision_kw(tok)) break;
+            }
+            if (is_scalar_or_vec_glsl_type(tok)) {
+                char type_buf[16];
+                strncpy(type_buf, tok, sizeof(type_buf) - 1);
+                type_buf[sizeof(type_buf) - 1] = '\0';
+                while (*q && *q != ';' && *q != '{' && count < max_out) {
+                    while (*q && isspace((unsigned char)*q)) q++;
+                    size_t ni = 0;
+                    char name_buf[64];
+                    while (isalnum((unsigned char)*q) || *q == '_') {
+                        if (ni + 1 < sizeof(name_buf)) name_buf[ni++] = *q;
+                        q++;
+                    }
+                    name_buf[ni] = '\0';
+                    if (ni > 0 && is_precision_kw(name_buf)) continue;
+                    while (*q && isspace((unsigned char)*q)) q++;
+                    if (ni > 0 && (*q == ';' || *q == ',' || *q == '=')) {
+                        strcpy(out[count].type, type_buf);
+                        strcpy(out[count].name, name_buf);
+                        count++;
+                    }
+                    while (*q && *q != ',' && *q != ';' && *q != '{') q++;
+                    if (*q == ',') q++;
+                }
+                p = (*q == ';') ? (q + 1) : q;
+                continue;
+            }
+        }
+        p++;
+    }
+    return count;
+}
+
+static char* replace_ident_outside_directives(const char* src, const char* ident, const char* repl) {
+    size_t slen = strlen(src);
+    size_t ilen = strlen(ident);
+    size_t rlen = strlen(repl);
+    size_t cap = slen + 256;
+    char* out = (char*)malloc(cap);
+    if (!out) return NULL;
+    size_t pos = 0;
+    const char* p = src;
+    while (*p) {
+        if (p[0] == '/' && p[1] == '/') {
+            const char* s = p;
+            while (*p && *p != '\n') p++;
+            size_t n = (size_t)(p - s);
+            if (pos + n + 2 > cap) { cap = (pos + n + 2) * 2; out = (char*)realloc(out, cap); if (!out) return NULL; }
+            memcpy(out + pos, s, n); pos += n;
+            continue;
+        }
+        if (p[0] == '/' && p[1] == '*') {
+            const char* s = p;
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) p++;
+            if (*p) p += 2;
+            size_t n = (size_t)(p - s);
+            if (pos + n + 2 > cap) { cap = (pos + n + 2) * 2; out = (char*)realloc(out, cap); if (!out) return NULL; }
+            memcpy(out + pos, s, n); pos += n;
+            continue;
+        }
+        if (*p == '#') {
+            const char* s = p;
+            while (*p && *p != '\n') p++;
+            size_t n = (size_t)(p - s);
+            if (pos + n + 2 > cap) { cap = (pos + n + 2) * 2; out = (char*)realloc(out, cap); if (!out) return NULL; }
+            memcpy(out + pos, s, n); pos += n;
+            continue;
+        }
+        if ((p == src || (!isalnum((unsigned char)p[-1]) && p[-1] != '_' && p[-1] != '.')) &&
+            strncmp(p, ident, ilen) == 0 &&
+            (!isalnum((unsigned char)p[ilen]) && p[ilen] != '_')) {
+            if (pos + rlen + 2 > cap) { cap = (pos + rlen + 2) * 2; out = (char*)realloc(out, cap); if (!out) return NULL; }
+            memcpy(out + pos, repl, rlen);
+            pos += rlen;
+            p += ilen;
+            continue;
+        }
+        if (pos + 2 > cap) { cap *= 2; out = (char*)realloc(out, cap); if (!out) return NULL; }
+        out[pos++] = *p++;
+    }
+    out[pos] = '\0';
+    return out;
+}
+
+static char* build_patched_frag_for_uniform_mismatch(const char* vs_essl, const char* fs_essl) {
+    if (!vs_essl || !fs_essl) return NULL;
+    parsed_stage_uniform_t vs_u[128];
+    parsed_stage_uniform_t fs_u[128];
+    int n_vs = extract_stage_scalar_vec_uniforms(vs_essl, vs_u, 128);
+    if (n_vs <= 0) return NULL;
+    int n_fs = extract_stage_scalar_vec_uniforms(fs_essl, fs_u, 128);
+    if (n_fs <= 0) return NULL;
+
+    char* cur = NULL;
+    for (int i = 0; i < n_fs; ++i) {
+        for (int j = 0; j < n_vs; ++j) {
+            if (strcmp(fs_u[i].name, vs_u[j].name) == 0 && strcmp(fs_u[i].type, vs_u[j].type) != 0) {
+                char ufix_name[80];
+                snprintf(ufix_name, sizeof(ufix_name), "_emesis_ufix_%s", fs_u[i].name);
+                char* next = replace_ident_outside_directives(cur ? cur : fs_essl, fs_u[i].name, ufix_name);
+                if (next) {
+                    if (cur) free(cur);
+                    cur = next;
+                }
+                break;
+            }
+        }
+    }
+    return cur;
+}
+
 void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
     DBG(SHUT_LOGD("glLinkProgram(%d)\n", program))
     FLUSH_BEGINEND;
@@ -1350,6 +1565,10 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
                               ? glprogram->last_comp->converted
                               : (glprogram->last_comp ? glprogram->last_comp->source : NULL);
 
+    char* ufix_patched_fs = (!glprogram->last_comp && vs_essl && fs_essl)
+                                ? build_patched_frag_for_uniform_mismatch(vs_essl, fs_essl)
+                                : NULL;
+
     if (glprogram->vert_essl_copy) {
         free(glprogram->vert_essl_copy);
         glprogram->vert_essl_copy = NULL;
@@ -1359,10 +1578,14 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
         glprogram->frag_essl_copy = NULL;
     }
     if (vs_essl) glprogram->vert_essl_copy = strdup(vs_essl);
-    if (fs_essl) glprogram->frag_essl_copy = strdup(fs_essl);
+    if (ufix_patched_fs) {
+        glprogram->frag_essl_copy = strdup(ufix_patched_fs);
+    } else if (fs_essl) {
+        glprogram->frag_essl_copy = strdup(fs_essl);
+    }
 
     /* Fast path: load pre-linked native GPU program binary from RAM/disk cache (.ep1) */
-    if (!glprogram->frag_data_changed &&
+    if (!glprogram->frag_data_changed && !ufix_patched_fs &&
         emesis_program_cache_try_load(glprogram->id, vs_essl, fs_essl, cs_essl, caller_attrib_sig)) {
         free(caller_attrib_sig);
         glprogram->linked = 1;
@@ -1387,6 +1610,38 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
     if (gles_glLinkProgram) {
         LOAD_GLES(glGetError);
         LOAD_GLES2(glGetProgramiv);
+        GLuint tmp_ufix_fs = 0;
+        if (ufix_patched_fs && glprogram->last_frag && gles_glAttachShader) {
+            LOAD_GLES2(glCreateShader);
+            LOAD_GLES2(glShaderSource);
+            LOAD_GLES2(glCompileShader);
+            LOAD_GLES2(glGetShaderiv);
+            LOAD_GLES2(glDetachShader);
+            LOAD_GLES2(glDeleteShader);
+            if (gles_glCreateShader && gles_glShaderSource && gles_glCompileShader &&
+                gles_glGetShaderiv && gles_glDetachShader && gles_glDeleteShader) {
+                tmp_ufix_fs = gles_glCreateShader(GL_FRAGMENT_SHADER);
+                if (tmp_ufix_fs) {
+                    const GLchar* psrc = ufix_patched_fs;
+                    gles_glShaderSource(tmp_ufix_fs, 1, &psrc, NULL);
+                    gles_glCompileShader(tmp_ufix_fs);
+                    GLint ok = 0;
+                    gles_glGetShaderiv(tmp_ufix_fs, GL_COMPILE_STATUS, &ok);
+                    if (ok == GL_TRUE) {
+                        gles_glDetachShader(glprogram->id, glprogram->last_frag->id);
+                        gles_glAttachShader(glprogram->id, tmp_ufix_fs);
+                    } else {
+                        gles_glDeleteShader(tmp_ufix_fs);
+                        tmp_ufix_fs = 0;
+                    }
+                    while (gles_glGetError() != GL_NO_ERROR) {}
+                }
+            }
+        }
+        if (ufix_patched_fs) {
+            free(ufix_patched_fs);
+            ufix_patched_fs = NULL;
+        }
         if (hardext.esversion >= 3 && hardext.prgbinary && hardext.prgbin_n > 0 && !glprogram->frag_data_changed) {
             typedef void(APIENTRY_GLES* glProgramParameteri_fn)(GLuint, GLenum, GLint);
             static glProgramParameteri_fn fn_prog_param = NULL;
@@ -1405,6 +1660,16 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
         }
         gles_glLinkProgram(glprogram->id);
         GLenum err = gles_glGetError();
+        if (tmp_ufix_fs) {
+            LOAD_GLES2(glDetachShader);
+            LOAD_GLES2(glDeleteShader);
+            if (gles_glDetachShader && gles_glAttachShader && glprogram->last_frag) {
+                gles_glDetachShader(glprogram->id, tmp_ufix_fs);
+                gles_glAttachShader(glprogram->id, glprogram->last_frag->id);
+            }
+            if (gles_glDeleteShader) gles_glDeleteShader(tmp_ufix_fs);
+            while (gles_glGetError() != GL_NO_ERROR) {}
+        }
         gles_glGetProgramiv(glprogram->id, GL_LINK_STATUS, &glprogram->linked);
 
         if (glprogram->linked && hardext.prgbinary && hardext.prgbin_n > 0 && !glprogram->frag_data_changed) {
@@ -1435,6 +1700,7 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
             return;
         }
     } else {
+        if (ufix_patched_fs) free(ufix_patched_fs);
         free(caller_attrib_sig);
         noerrorShim();
     }
@@ -1461,19 +1727,9 @@ void APIENTRY_GL4ES gl4es_glValidateProgram(GLuint program) {
     CHECK_PROGRAM(void, program)
     FLUSH_BEGINEND;
     noerrorShim();
-
-    LOAD_GLES2(glValidateProgram);
-    if (gles_glValidateProgram) {
-        LOAD_GLES(glGetError);
-        LOAD_GLES2(glGetProgramiv);
-        gles_glValidateProgram(glprogram->id);
-        GLenum err = gles_glGetError();
-        gles_glGetProgramiv(glprogram->id, GL_VALIDATE_STATUS, (GLint*)&glprogram->valid_result);
-        errorShim(err);
-        // TODO: grab all Uniform and Attrib of the program
-    } else {
-        noerrorShim();
-    }
+    /* Uniforms and sampler units are uploaded lazily at draw time, so calling gles_glValidateProgram
+       mid-setup (before samplers are flushed) falsely trips sampler-type conflict validation on Mali. */
+    glprogram->valid_result = glprogram->linked ? GL_TRUE : GL_FALSE;
     glprogram->validated = 1;
 }
 

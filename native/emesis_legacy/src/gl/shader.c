@@ -178,9 +178,9 @@ void APIENTRY_GL4ES gl4es_glCompileShader(GLuint shader) {
     CHECK_SHADER(void, shader)
 
     glshader->compiled = 1;
-    /* Defer GLES driver AST/IR compilation for all valid shaders until glLinkProgram
-       misses the .ep1 program binary cache; compile failed-translation shaders immediately for error logs */
-    if (!glshader->converted) {
+    /* Defer GLES driver AST/IR compilation only when native program binaries (.ep1) are active;
+       otherwise compile immediately so GL_COMPILE_STATUS / glGetShaderInfoLog reflect true driver state */
+    if (!glshader->converted || !hardext.prgbinary || hardext.prgbin_n == 0) {
         ensure_shader_gles_compiled(glshader);
     } else {
         noerrorShim();

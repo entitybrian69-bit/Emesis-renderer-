@@ -403,7 +403,8 @@ void APIENTRY_GL4ES gl4es_glTexParameterfv(GLenum target, GLenum pname, const GL
             if (texture) {
                 texture->max_level = param;
                 if (hardext.esversion >= 3) {
-                    gles_glTexParameterfv(rtarget, pname, params);
+                    LOAD_GLES(glTexParameteri);
+                    gles_glTexParameteri(rtarget, pname, param);
                     errorGL();
                 }
             }
@@ -412,7 +413,8 @@ void APIENTRY_GL4ES gl4es_glTexParameterfv(GLenum target, GLenum pname, const GL
             if (texture) {
                 texture->base_level = param;
                 if (hardext.esversion >= 3) {
-                    gles_glTexParameterfv(rtarget, pname, params);
+                    LOAD_GLES(glTexParameteri);
+                    gles_glTexParameteri(rtarget, pname, param);
                     errorGL();
                 }
             }
@@ -1132,7 +1134,9 @@ void realize_textures(int drawing) {
                         ? 1
                         : 0;
             if (tex->mipmap_need && !tex->mipmap_done) {
-                if (!tex->mipmap_auto) {
+                if (!tex->mipmap_auto && !tex->binded_fbo &&
+                    tex->format != GL_DEPTH_COMPONENT && tex->format != GL_DEPTH_STENCIL &&
+                    !(tex->max_level == 0 && tex->base_level <= 0)) {
                     LOAD_GLES2_OR_OES(glGenerateMipmap);
                     if (gles_glGenerateMipmap) {
                         if (glstate->gleshard->active != i) {

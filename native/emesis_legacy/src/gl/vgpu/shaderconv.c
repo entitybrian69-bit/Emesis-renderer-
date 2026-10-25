@@ -561,21 +561,14 @@ char* ConvertShaderVgpu(struct shader_s* shader_source) {
     // printf("ADDING EXTENSIONS\n");
     source = InsertExtensions(source, &sourceLength);
 
-    // printf("REPLACING mod OPERATORS");
-    //  No support for % operator, so we replace it
-    source = ReplaceModOperator(source, &sourceLength);
-
-    // printf("COERCING INT TO FLOATS");
-    //  Hey we don't want to deal with implicit type stuff
-    source = CoerceIntToFloat(source, &sourceLength);
-
-    // printf("FIXING ARRAY ACCESS");
-    //  Avoid any weird type trying to be an index for an array
-    source = ForceIntegerArrayAccess(source, &sourceLength);
-
-    // printf("WRAPPING FUNCTION");
-    //  Since everything is a float, we need to overload WAY TOO MANY functions
-    source = WrapIvecFunctions(source, &sourceLength);
+    if (sourceLength <= 24576) {
+        // Guard O(N^2) fallback rewrites so large unsupported optional mod shaders (e.g. dh_*, clrwl_*)
+        // fail cleanly in milliseconds instead of stalling mobile CPUs for 60s.
+        source = ReplaceModOperator(source, &sourceLength);
+        source = CoerceIntToFloat(source, &sourceLength);
+        source = ForceIntegerArrayAccess(source, &sourceLength);
+        source = WrapIvecFunctions(source, &sourceLength);
+    }
 
     // printf("REMOVING DUBIOUS DEFINES");
     source = InplaceReplaceSimple(source, &sourceLength, "#define texture texture2D\n", "");
@@ -1896,8 +1889,27 @@ int FindPositionAfterDirectives(char* source) {
                 p = (*h == '\n') ? (h + 1) : h;
                 continue;
             }
+            while (*p && *p != '\n') p++;
+            if (*p == '\n') p++;
+            continue;
         }
-        while (*p && *p != '\n') p++;
+        /* Never advance past a '{' (struct/function/main scope): top-level declarations cannot go inside '{...}' */
+        while (*p && *p != '\n') {
+            if (p[0] == '/' && p[1] == '/') {
+                while (*p && *p != '\n') p++;
+                break;
+            }
+            if (p[0] == '/' && p[1] == '*') {
+                p += 2;
+                while (*p && !(p[0] == '*' && p[1] == '/')) p++;
+                if (*p) p += 2;
+                continue;
+            }
+            if (*p == '{') {
+                return lastDirectiveEnd;
+            }
+            p++;
+        }
         if (*p == '\n') p++;
     }
     return lastDirectiveEnd;

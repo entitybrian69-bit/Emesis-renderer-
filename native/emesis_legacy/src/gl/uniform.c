@@ -355,7 +355,33 @@ void GoUniformfv(program_t* glprogram, GLint location, int size, int count, cons
         return;
     }
     m = kh_value(glprogram->uniform, k);
-    if (size != n_uniform(m->type) || !is_uniform_float(m->type) || count > m->size) {
+    if (!is_uniform_float(m->type)) {
+        if (!is_sampler_or_image_uniform(m->type) && is_uniform_int(m->type) &&
+            size == n_uniform(m->type) && count <= m->size) {
+            if (count == 0) {
+                noerrorShim();
+                return;
+            }
+            int total = size * count;
+            GLint stack_i[64];
+            GLint* ibuf = (total <= 64) ? stack_i : (GLint*)malloc((size_t)total * sizeof(GLint));
+            if (!ibuf) {
+                errorShim(GL_OUT_OF_MEMORY);
+                return;
+            }
+            int is_bool = (m->type == GL_BOOL || m->type == GL_BOOL_VEC2 ||
+                           m->type == GL_BOOL_VEC3 || m->type == GL_BOOL_VEC4);
+            for (int idx = 0; idx < total; ++idx) {
+                ibuf[idx] = is_bool ? ((value[idx] != 0.0f) ? 1 : 0) : (GLint)value[idx];
+            }
+            GoUniformiv(glprogram, location, size, count, ibuf);
+            if (ibuf != stack_i) free(ibuf);
+            return;
+        }
+        errorShim(GL_INVALID_OPERATION);
+        return;
+    }
+    if (size != n_uniform(m->type) || count > m->size) {
         errorShim(GL_INVALID_OPERATION);
         return;
     }
@@ -368,6 +394,9 @@ void GoUniformfv(program_t* glprogram, GLint location, int size, int count, cons
         if (m->sm_source_id) {
             emesis_sm_observe_float(m->sm_source_id, size, count, value);
         }
+    }
+    if (m->twin_loc != -1) {
+        GoUniformfv(glprogram, m->twin_loc, size, count, value);
     }
     // ok, check the value in the cache BEFORE switching active GLES program
     int rsize = sizeof(GLfloat) * size * count;
@@ -502,7 +531,32 @@ void GoUniformiv(program_t* glprogram, GLint location, int size, int count, cons
         GoUniformuiv(glprogram, location, size, count, (const GLuint*)value);
         return;
     }
-    if (size != n_uniform(m->type) || !is_uniform_int(m->type) || count > m->size) {
+    if (!is_uniform_int(m->type)) {
+        if ((m->type == GL_FLOAT || m->type == GL_FLOAT_VEC2 ||
+             m->type == GL_FLOAT_VEC3 || m->type == GL_FLOAT_VEC4) &&
+            size == n_uniform(m->type) && count <= m->size) {
+            if (count == 0) {
+                noerrorShim();
+                return;
+            }
+            int total = size * count;
+            GLfloat stack_f[64];
+            GLfloat* fbuf = (total <= 64) ? stack_f : (GLfloat*)malloc((size_t)total * sizeof(GLfloat));
+            if (!fbuf) {
+                errorShim(GL_OUT_OF_MEMORY);
+                return;
+            }
+            for (int idx = 0; idx < total; ++idx) {
+                fbuf[idx] = (GLfloat)value[idx];
+            }
+            GoUniformfv(glprogram, location, size, count, fbuf);
+            if (fbuf != stack_f) free(fbuf);
+            return;
+        }
+        errorShim(GL_INVALID_OPERATION);
+        return;
+    }
+    if (size != n_uniform(m->type) || count > m->size) {
         errorShim(GL_INVALID_OPERATION);
         return;
     }
@@ -515,6 +569,9 @@ void GoUniformiv(program_t* glprogram, GLint location, int size, int count, cons
         if (m->sm_source_id) {
             emesis_sm_observe_int(m->sm_source_id, size, count, value);
         }
+    }
+    if (m->twin_loc != -1) {
+        GoUniformiv(glprogram, m->twin_loc, size, count, value);
     }
     // ok, check the value in the cache BEFORE switching active GLES program
     int rsize = sizeof(GLint) * size * count;

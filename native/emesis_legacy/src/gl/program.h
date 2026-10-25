@@ -111,6 +111,7 @@ typedef struct {
     GLuint id;          // glsl id of the uniform
     GLenum type;        // type of the uniform (GL_VERTEX or GL_FRAGMENT)
     GLint size;
+    GLint twin_loc;     // paired _emesis_ufix_* uniform location when VS/FS types differed (-1 if none)
     char* name; // original source of the uniform
     int builtin;
     uintptr_t cache_offs;

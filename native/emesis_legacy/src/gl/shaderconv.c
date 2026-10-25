@@ -506,19 +506,24 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
     const char* compat_fogCoord = "varying float _gl4es_FogFragCoord;\n";
     const char* compat_texCoordArr = "varying vec4 _gl4es_TexCoord[%d];\n";
     const char* compat_texCoordAlt = "varying vec4 _gl4es_TexCoord_%d;\n";
-    const char* compat_ftransform = "\nvec4 ftransform() {\n return gl_ModelViewProjectionMatrix * gl_Vertex;\n}\n";
+    const char* compat_ftransform = "\nvec4 _gl4es_ftransform() {\n return _gl4es_ModelViewProjectionMatrix * _gl4es_Vertex;\n}\n";
 
     //  builtin attribs
+    int need_ftransform = 0;
     if (isVertex) {
 #ifndef __APPLE__
-        if (doInsertDefinitions && strstr(Tmp, "ftransform(")) {
-            Tmp = InplaceInsert(GetLine(Tmp, headline), compat_ftransform, Tmp, &tmpsize);
+        if (strstr(Tmp, "ftransform(")) {
+            need_ftransform = doInsertDefinitions ? 1 : 0;
+            Tmp = InplaceReplace(Tmp, &tmpsize, "ftransform", "_gl4es_ftransform");
         }
 #endif
         int n = sizeof(builtin_attrib) / sizeof(builtin_attrib_t);
         for (int i = 0; i < n; i++) {
-            if (strstr(Tmp, builtin_attrib[i].glname)) {
-                Tmp = InplaceReplace(Tmp, &tmpsize, builtin_attrib[i].glname, builtin_attrib[i].name);
+            int force_vertex = (need_ftransform && strcmp(builtin_attrib[i].glname, "gl_Vertex") == 0);
+            if (force_vertex || strstr(Tmp, builtin_attrib[i].glname)) {
+                if (strstr(Tmp, builtin_attrib[i].glname)) {
+                    Tmp = InplaceReplace(Tmp, &tmpsize, builtin_attrib[i].glname, builtin_attrib[i].name);
+                }
                 if (doInsertDefinitions) {
                     char def[100];
                     sprintf(def, "attribute %s %s;\n", builtin_attrib[i].type, builtin_attrib[i].name);
@@ -724,17 +729,20 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
                 }
             }
 
-            if (has_tex_matrix || strstr(Tmp, "gl_ModelView") || strstr(Tmp, "gl_Projection") ||
+            if (need_ftransform || has_tex_matrix || strstr(Tmp, "gl_ModelView") || strstr(Tmp, "gl_Projection") ||
                 strstr(Tmp, "gl_NormalMatrix")) {
                 int n = sizeof(builtin_matrix) / sizeof(builtin_matrix_t);
                 for (int i = 0; i < n; i++) {
                     if (!has_tex_matrix && strncmp(builtin_matrix[i].glname, "gl_TextureMatrix", 16) == 0) {
                         continue;
                     }
-                    if (strstr(Tmp, builtin_matrix[i].glname)) {
+                    int force_mvp = (need_ftransform && strcmp(builtin_matrix[i].glname, "gl_ModelViewProjectionMatrix") == 0);
+                    if (force_mvp || strstr(Tmp, builtin_matrix[i].glname)) {
                         // ok, this matrix is used
                         // replace gl_name by _gl4es_ one
-                        Tmp = InplaceReplace(Tmp, &tmpsize, builtin_matrix[i].glname, builtin_matrix[i].name);
+                        if (strstr(Tmp, builtin_matrix[i].glname)) {
+                            Tmp = InplaceReplace(Tmp, &tmpsize, builtin_matrix[i].glname, builtin_matrix[i].name);
+                        }
                         // insert a declaration of it
                         char def[100];
                         int ishighp = (isVertex || hardext.highp) ? 1 : 0;
@@ -761,6 +769,10 @@ char* ConvertShaderBuiltInVariableOnly(const char* pEntry, int isVertex, shaderc
                         }
                     }
                 }
+            }
+            if (need_ftransform) {
+                Tmp = InplaceInsert(GetLine(Tmp, headline), compat_ftransform, Tmp, &tmpsize);
+                headline += CountLine(compat_ftransform);
             }
         }
     }
@@ -1237,14 +1249,18 @@ char* ConvertShader(const char* pEntry, int isVertex, shaderconv_need_t* need, i
     int texture3D = (strstr(pBuffer, "texture3D")) ? 1 : 0;
     const char* GLESUseTexture3D = "#extension GL_OES_texture_3D : enable\nprecision lowp sampler3D;\n";
     if (texture3D) {
-        Tmp = InplaceInsert(GetLine(Tmp, 1), GLESUseTexture3D, Tmp, &tmpsize);
+        if (versionHeader == 0) {
+            Tmp = InplaceInsert(GetLine(Tmp, 1), GLESUseTexture3D, Tmp, &tmpsize);
+        } else {
+            Tmp = InplaceInsert(GetLine(Tmp, headline - 1), "precision lowp sampler3D;\n", Tmp, &tmpsize);
+        }
         headline++;
     }
     // check if gl_FragDepth is used
     int fragdepth = (strstr(pBuffer, "gl_FragDepth")) ? 1 : 0;
     const char* GLESUseFragDepth = "#extension GL_EXT_frag_depth : enable\n";
     const char* GLESFakeFragDepth = "mediump float fakeFragDepth = 0.0;\n";
-    if (fragdepth) {
+    if (fragdepth && versionHeader == 0) {
         /* If #extension is used, it should be placed before the second line of the header. */
         if (hardext.fragdepth)
             Tmp = InplaceInsert(GetLine(Tmp, 1), GLESUseFragDepth, Tmp, &tmpsize);
@@ -1255,7 +1271,7 @@ char* ConvertShader(const char* pEntry, int isVertex, shaderconv_need_t* need, i
     // check if the shader uses 3D textures
     int threed_texture = (strstr(pBuffer, "sampler3D")) ? 1 : 0;
     const char* GLESUse3DTexture = "#extension GL_OES_texture_3D : enable\n";
-    if (threed_texture) {
+    if (threed_texture && versionHeader == 0) {
         Tmp = InplaceInsert(GetLine(Tmp, 1), GLESUse3DTexture, Tmp,
                             &tmpsize); // no fallback possible if device does not support 3D textures
     }
@@ -1270,7 +1286,7 @@ char* ConvertShader(const char* pEntry, int isVertex, shaderconv_need_t* need, i
                                      "float fwidth(float p) {return abs(dFdx(p))+abs(dFdy(p));}\nvec2 fwidth(vec2 p) "
                                      "{return abs(dFdx(p))+abs(dFdy(p));}\n"
                                      "vec3 fwidth(vec3 p) {return abs(dFdx(p))+abs(dFdy(p));}\n";
-    if (derivatives) {
+    if (derivatives && versionHeader == 0) {
         /* If #extension is used, it should be placed before the second line of the header. */
         if (hardext.derivatives)
             Tmp = InplaceInsert(GetLine(Tmp, 1), GLESUseDerivative, Tmp, &tmpsize);
@@ -1279,11 +1295,11 @@ char* ConvertShader(const char* pEntry, int isVertex, shaderconv_need_t* need, i
         headline++;
     }
     // check if draw_buffers may be used (no fallback here :( )
-    if (hardext.maxdrawbuffers > 1 && strstr(pBuffer, "gl_FragData[")) {
+    if (versionHeader == 0 && hardext.maxdrawbuffers > 1 && strstr(pBuffer, "gl_FragData[")) {
         Tmp = InplaceInsert(GetLine(Tmp, 1), useEXTDrawBuffers, Tmp, &tmpsize);
     }
-    // if some functions are used, add some int/float alternative
-    if (!fpeShader && !globals4es.nointovlhack) {
+    // if some functions are used, add some int/float alternative (ES 2.0 / GLSL 120 only; ESSL 3.x has native int overloads)
+    if (versionHeader < 2 && !fpeShader && !globals4es.nointovlhack) {
         if (strstr(Tmp, "pow(") || strstr(Tmp, "pow (")) {
             Tmp = InplaceInsert(GetLine(Tmp, headline), HackAltPow, Tmp, &tmpsize);
         }
@@ -1300,59 +1316,68 @@ char* ConvertShader(const char* pEntry, int isVertex, shaderconv_need_t* need, i
             Tmp = InplaceInsert(GetLine(Tmp, headline), HackAltMod, Tmp, &tmpsize);
         }
     }
-    if (!isVertex && hardext.shaderlod &&
+    if (versionHeader == 0 && !isVertex && hardext.shaderlod &&
         (FindString(Tmp, "texture2DLod") || FindString(Tmp, "texture2DProjLod") || FindString(Tmp, "textureCubeLod") ||
          FindString(Tmp, "texture2DGradARB") || FindString(Tmp, "texture2DProjGradARB") ||
          FindString(Tmp, "textureCubeGradARB"))) {
         const char* GLESUseShaderLod = "#extension GL_EXT_shader_texture_lod : enable\n";
         Tmp = InplaceInsert(GetLine(Tmp, 1), GLESUseShaderLod, Tmp, &tmpsize);
     }
-    if (!isVertex && (FindString(Tmp, "texture2DLod"))) {
-        if (hardext.shaderlod) {
-            Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DLod", "texture2DLodEXT");
-        } else {
-            Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DLod", "_gl4es_texture2DLod");
-            Tmp = InplaceInsert(GetLine(Tmp, headline), texture2DLodAlt, Tmp, &tmpsize);
+    if (versionHeader >= 2) {
+        if (FindString(Tmp, "texture2DLod")) Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DLod", "textureLod");
+        if (FindString(Tmp, "texture2DProjLod")) Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DProjLod", "textureProjLod");
+        if (FindString(Tmp, "textureCubeLod")) Tmp = InplaceReplace(Tmp, &tmpsize, "textureCubeLod", "textureLod");
+        if (FindString(Tmp, "texture2DGradARB")) Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DGradARB", "textureGrad");
+        if (FindString(Tmp, "texture2DProjGradARB")) Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DProjGradARB", "textureProjGrad");
+        if (FindString(Tmp, "textureCubeGradARB")) Tmp = InplaceReplace(Tmp, &tmpsize, "textureCubeGradARB", "textureGrad");
+    } else {
+        if (!isVertex && (FindString(Tmp, "texture2DLod"))) {
+            if (hardext.shaderlod) {
+                Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DLod", "texture2DLodEXT");
+            } else {
+                Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DLod", "_gl4es_texture2DLod");
+                Tmp = InplaceInsert(GetLine(Tmp, headline), texture2DLodAlt, Tmp, &tmpsize);
+            }
         }
-    }
-    if (!isVertex && (FindString(Tmp, "texture2DProjLod"))) {
-        if (hardext.shaderlod) {
-            Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DProjLod", "texture2DProjLodEXT");
-        } else {
-            Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DProjLod", "_gl4es_texture2DProjLod");
-            Tmp = InplaceInsert(GetLine(Tmp, headline), texture2DProjLodAlt, Tmp, &tmpsize);
+        if (!isVertex && (FindString(Tmp, "texture2DProjLod"))) {
+            if (hardext.shaderlod) {
+                Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DProjLod", "texture2DProjLodEXT");
+            } else {
+                Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DProjLod", "_gl4es_texture2DProjLod");
+                Tmp = InplaceInsert(GetLine(Tmp, headline), texture2DProjLodAlt, Tmp, &tmpsize);
+            }
         }
-    }
-    if (!isVertex && (FindString(Tmp, "textureCubeLod"))) {
-        if (hardext.shaderlod) {
-            if (!hardext.cubelod) Tmp = InplaceReplace(Tmp, &tmpsize, "textureCubeLod", "textureCubeLodEXT");
-        } else {
-            Tmp = InplaceReplace(Tmp, &tmpsize, "textureCubeLod", "_gl4es_textureCubeLod");
-            Tmp = InplaceInsert(GetLine(Tmp, headline), textureCubeLodAlt, Tmp, &tmpsize);
+        if (!isVertex && (FindString(Tmp, "textureCubeLod"))) {
+            if (hardext.shaderlod) {
+                if (!hardext.cubelod) Tmp = InplaceReplace(Tmp, &tmpsize, "textureCubeLod", "textureCubeLodEXT");
+            } else {
+                Tmp = InplaceReplace(Tmp, &tmpsize, "textureCubeLod", "_gl4es_textureCubeLod");
+                Tmp = InplaceInsert(GetLine(Tmp, headline), textureCubeLodAlt, Tmp, &tmpsize);
+            }
         }
-    }
-    if (!isVertex && (FindString(Tmp, "texture2DGradARB"))) {
-        if (hardext.shaderlod) {
-            Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DGradARB", "texture2DGradEXT");
-        } else {
-            Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DGradARB", "_gl4es_texture2DGrad");
-            Tmp = InplaceInsert(GetLine(Tmp, headline), texture2DGradAlt, Tmp, &tmpsize);
+        if (!isVertex && (FindString(Tmp, "texture2DGradARB"))) {
+            if (hardext.shaderlod) {
+                Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DGradARB", "texture2DGradEXT");
+            } else {
+                Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DGradARB", "_gl4es_texture2DGrad");
+                Tmp = InplaceInsert(GetLine(Tmp, headline), texture2DGradAlt, Tmp, &tmpsize);
+            }
         }
-    }
-    if (!isVertex && (FindString(Tmp, "texture2DProjGradARB"))) {
-        if (hardext.shaderlod) {
-            Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DProjGradARB", "texture2DProjGradEXT");
-        } else {
-            Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DProjGradARB", "_gl4es_texture2DProjGrad");
-            Tmp = InplaceInsert(GetLine(Tmp, headline), texture2DProjGradAlt, Tmp, &tmpsize);
+        if (!isVertex && (FindString(Tmp, "texture2DProjGradARB"))) {
+            if (hardext.shaderlod) {
+                Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DProjGradARB", "texture2DProjGradEXT");
+            } else {
+                Tmp = InplaceReplace(Tmp, &tmpsize, "texture2DProjGradARB", "_gl4es_texture2DProjGrad");
+                Tmp = InplaceInsert(GetLine(Tmp, headline), texture2DProjGradAlt, Tmp, &tmpsize);
+            }
         }
-    }
-    if (!isVertex && (FindString(Tmp, "textureCubeGradARB"))) {
-        if (hardext.shaderlod) {
-            if (!hardext.cubelod) Tmp = InplaceReplace(Tmp, &tmpsize, "textureCubeGradARB", "textureCubeGradEXT");
-        } else {
-            Tmp = InplaceReplace(Tmp, &tmpsize, "textureCubeGradARB", "_gl4es_textureCubeGrad");
-            Tmp = InplaceInsert(GetLine(Tmp, headline), textureCubeGradAlt, Tmp, &tmpsize);
+        if (!isVertex && (FindString(Tmp, "textureCubeGradARB"))) {
+            if (hardext.shaderlod) {
+                if (!hardext.cubelod) Tmp = InplaceReplace(Tmp, &tmpsize, "textureCubeGradARB", "textureCubeGradEXT");
+            } else {
+                Tmp = InplaceReplace(Tmp, &tmpsize, "textureCubeGradARB", "_gl4es_textureCubeGrad");
+                Tmp = InplaceInsert(GetLine(Tmp, headline), textureCubeGradAlt, Tmp, &tmpsize);
+            }
         }
     }
     // now check to remove trailling "f" after float, as it's not supported too
@@ -1414,7 +1439,9 @@ char* ConvertShader(const char* pEntry, int isVertex, shaderconv_need_t* need, i
         }
         newptr++;
     }
-    Tmp = InplaceReplace(Tmp, &tmpsize, "gl_FragDepth", (hardext.fragdepth) ? "gl_FragDepthEXT" : "fakeFragDepth");
+    if (versionHeader == 0) {
+        Tmp = InplaceReplace(Tmp, &tmpsize, "gl_FragDepth", (hardext.fragdepth) ? "gl_FragDepthEXT" : "fakeFragDepth");
+    }
 
     // builtin attribs
     if (isVertex) {
@@ -1567,9 +1594,10 @@ char* ConvertShader(const char* pEntry, int isVertex, shaderconv_need_t* need, i
 
     // builtin matrices work
     {
-        if (strstr(Tmp, "transpose(") || strstr(Tmp, "transpose ") || strstr(Tmp, "transpose\t")) {
+        if (versionHeader < 2 &&
+            (strstr(Tmp, "transpose(") || strstr(Tmp, "transpose ") || strstr(Tmp, "transpose\t"))) {
             Tmp = InplaceInsert(GetLine(Tmp, headline), gl4es_transpose, Tmp, &tmpsize);
-            InplaceReplace(Tmp, &tmpsize, "transpose", "gl4es_transpose");
+            Tmp = InplaceReplace(Tmp, &tmpsize, "transpose", "gl4es_transpose");
             // don't increment headline count, as all variying and attributes should be created before
         }
         // check for builtin matrix uniform...
