@@ -226,6 +226,8 @@ void APIENTRY_GL4ES gl4es_glBindTexture(GLenum target, GLuint texture) {
         case GL_TEXTURE_BUFFER:
             if (glstate->bound_changed < glstate->texture.active + 1)
                 glstate->bound_changed = glstate->texture.active + 1;
+            if ((unsigned)glstate->texture.active < 32u)
+                glstate->bound_dirty_mask |= (1u << (unsigned)glstate->texture.active);
             if (glstate->fpe_state && glstate->fpe_bound_changed < glstate->texture.active + 1)
                 glstate->fpe_bound_changed = glstate->texture.active + 1;
             break;
@@ -543,7 +545,10 @@ void APIENTRY_GL4ES gl4es_glDeleteTextures(GLsizei n, const GLuint* textures) {
                         found = 1;
                     }
                     if (found) {
-                        glstate->bound_changed = a + 1;
+                        if (glstate->bound_changed < a + 1)
+                            glstate->bound_changed = a + 1;
+                        if ((unsigned)a < 32u)
+                            glstate->bound_dirty_mask |= (1u << (unsigned)a);
                         if (glstate->fpe_state && glstate->fpe_bound_changed < a + 1)
                             glstate->fpe_bound_changed = a + 1;
                     }
@@ -896,6 +901,7 @@ void realize_bound(int TMU, GLenum target) {
             glstate->actual_tex2d[TMU] = t;
             if (hardext.esversion < 2) gles_glEnable(GL_TEXTURE_STREAM_IMG);
             if (glstate->bound_changed < TMU + 1) glstate->bound_changed = TMU + 1;
+            if ((unsigned)TMU < 32u) glstate->bound_dirty_mask |= (1u << (unsigned)TMU);
         } else
 #endif
             if (glstate->actual_tex2d[TMU] != t) {
@@ -903,6 +909,7 @@ void realize_bound(int TMU, GLenum target) {
             gles_glBindTexture(GL_TEXTURE_2D, t);
             glstate->actual_tex2d[TMU] = t;
             if (glstate->bound_changed < TMU + 1) glstate->bound_changed = TMU + 1;
+            if ((unsigned)TMU < 32u) glstate->bound_dirty_mask |= (1u << (unsigned)TMU);
         }
         break;
     }
@@ -1024,6 +1031,11 @@ void realize_1texture(GLenum target, int wantedTMU, gltexture_t* tex, glsampler_
 }
 
 void realize_textures(int drawing) {
+    uint32_t mask = glstate->bound_dirty_mask;
+    if (!mask) {
+        glstate->bound_changed = 0;
+        return;
+    }
     LOAD_GLES(glEnable);
     LOAD_GLES(glDisable);
     LOAD_GLES(glBindTexture);
@@ -1039,7 +1051,9 @@ void realize_textures(int drawing) {
                   "glsate->actual_tex2d[0]=%u\n",
                   drawing, glstate->bound_changed, glstate->enable.texture[0], glstate->actual_tex2d[0]);)
 #endif
-    for (int i = 0; i < glstate->bound_changed; i++) {
+    while (mask) {
+        int i = __builtin_ctz(mask);
+        mask &= (mask - 1u);
         // get highest priority texture unit
         int tmp = glstate->enable.texture[i];
         int tgt = ENABLED_TEX2D; // default to TEX2D
@@ -1115,16 +1129,28 @@ void realize_textures(int drawing) {
                         : 0;
             if (tex->mipmap_need && !tex->mipmap_done) {
                 if (!tex->mipmap_auto) {
-                    // should check if glGenerateMipmap exist, and fall back to no mipmap if not
                     LOAD_GLES2_OR_OES(glGenerateMipmap);
-                    gles_glGenerateMipmap(GL_TEXTURE_2D);
+                    if (gles_glGenerateMipmap) {
+                        if (glstate->gleshard->active != i) {
+                            glstate->gleshard->active = i;
+                            gles_glActiveTexture(GL_TEXTURE0 + i);
+                        }
+                        if (tgt != ENABLED_CUBE_MAP && tgt != ENABLED_TEX3D && glstate->actual_tex2d[i] != t) {
+                            gles_glBindTexture(GL_TEXTURE_2D, t);
+                            glstate->actual_tex2d[i] = t;
+                        }
+                        gles_glGenerateMipmap(target);
+                    }
                 }
                 tex->mipmap_done = 1;
             }
         }
         realize_1texture(target, i, tex, glstate->samplers.sampler[i]);
     }
-    glstate->bound_changed = 0;
+    if (drawing) {
+        glstate->bound_dirty_mask = 0;
+        glstate->bound_changed = 0;
+    }
 }
 
 // Direct wrapper

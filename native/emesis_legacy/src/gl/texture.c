@@ -2286,26 +2286,33 @@ void APIENTRY_GL4ES gl4es_glTexImage2D(GLenum target, GLint level, GLint interna
                  (GL4ES_AUTOMIPMAP_PLACEHOLDER == 5 && level && !bound->mipmap_done)) &&
                 !(bound->max_level == bound->base_level && bound->max_level == 0)) {
                 if (GL4ES_AUTOMIPMAP_PLACEHOLDER == 5 && level == 1) bound->mipmap_done = 1;
-                int leveln = level, nw = nwidth, nh = nheight, nww = width, nhh = height;
-                int pot = (nh == nhh && nw == nww);
-                void* ndata = pixels;
-                while (nw != 1 || nh != 1) {
-                    if (pixels) {
-                        GLvoid* out = ndata;
-                        pixel_halfscale(ndata, &out, nww, nhh, format, type);
-                        if (out != ndata && ndata != pixels) free(ndata);
-                        ndata = out;
+                LOAD_GLES2_OR_OES(glGenerateMipmap);
+                if (callgeneratemipmap && level == 0 && hardext.esversion >= 2 && gles_glGenerateMipmap &&
+                    bound->base_level <= 0 && bound->max_level == -1 && nwidth == width && nheight == height) {
+                    gles_glGenerateMipmap(rtarget);
+                    bound->mipmap_done = 1;
+                } else {
+                    int leveln = level, nw = nwidth, nh = nheight, nww = width, nhh = height;
+                    int pot = (nh == nhh && nw == nww);
+                    void* ndata = pixels;
+                    while (nw != 1 || nh != 1) {
+                        if (pixels) {
+                            GLvoid* out = ndata;
+                            pixel_halfscale(ndata, &out, nww, nhh, format, type);
+                            if (out != ndata && ndata != pixels) free(ndata);
+                            ndata = out;
+                        }
+                        nw = nlevel(nw, 1);
+                        nh = nlevel(nh, 1);
+                        nww = nlevel(nww, 1);
+                        nhh = nlevel(nhh, 1);
+                        ++leveln;
+                        gles_glTexImage2D(rtarget, leveln, internalformat, nw, nh, border, format, type,
+                                          (pot) ? ndata : NULL);
+                        if (!pot && pixels) gles_glTexSubImage2D(rtarget, leveln, 0, 0, nww, nhh, format, type, ndata);
                     }
-                    nw = nlevel(nw, 1);
-                    nh = nlevel(nh, 1);
-                    nww = nlevel(nww, 1);
-                    nhh = nlevel(nhh, 1);
-                    ++leveln;
-                    gles_glTexImage2D(rtarget, leveln, internalformat, nw, nh, border, format, type,
-                                      (pot) ? ndata : NULL);
-                    if (!pot && pixels) gles_glTexSubImage2D(rtarget, leveln, 0, 0, nww, nhh, format, type, ndata);
+                    if (ndata != pixels) free(ndata);
                 }
-                if (ndata != pixels) free(ndata);
             }
             /*if (bound && bound->mipmap_need && !bound->mipmap_auto && (GL4ES_AUTOMIPMAP_PLACEHOLDER!=3))
                 gles_glTexParameteri( rtarget, GL_GENERATE_MIPMAP, GL_FALSE );*/
@@ -2313,6 +2320,9 @@ void APIENTRY_GL4ES gl4es_glTexImage2D(GLenum target, GLint level, GLint interna
             if (pixels)
                 gl4es_glTexSubImage2D(rtarget, level, 0, 0, width, height, format, type,
                                       pixels); // (should never happens) updload the 1st data...
+        }
+        if (level > 0) {
+            bound->mipmap_done = 1;
         }
         if (bound->mipmap_need && !bound->mipmap_done) {
             if (bound->mipmap_auto) bound->mipmap_done = 1;
@@ -2338,6 +2348,8 @@ void APIENTRY_GL4ES gl4es_glTexImage2D(GLenum target, GLint level, GLint interna
     }
     // update max bound to be sure "sampler" is applied
     if (glstate->bound_changed < glstate->texture.active + 1) glstate->bound_changed = glstate->texture.active + 1;
+    if ((unsigned)glstate->texture.active < 32u)
+        glstate->bound_dirty_mask |= (1u << (unsigned)glstate->texture.active);
 }
 
 static size_t pad_to(size_t v, GLint align) {

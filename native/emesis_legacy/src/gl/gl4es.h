@@ -208,6 +208,13 @@ extern "C"
     // custom functions
     void APIENTRY_GL4ES glPushCall(void* call);
 
+    // Draw indirect / MultiDrawIndirect (GL_ARB_draw_indirect + GL_ARB_multi_draw_indirect)
+    void APIENTRY_GL4ES gl4es_glDrawArraysIndirect(GLenum mode, const void* indirect);
+    void APIENTRY_GL4ES gl4es_glMultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride);
+    void APIENTRY_GL4ES gl4es_glDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect);
+    void APIENTRY_GL4ES gl4es_glMultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride);
+    void APIENTRY_GL4ES gl4es_glDrawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei primcount, GLint basevertex);
+
     // Indexed draw buffers (GLES 3.2 / OES / EXT_draw_buffers_indexed)
     void APIENTRY_GL4ES gl4es_glEnablei(GLenum target, GLuint index);
     void APIENTRY_GL4ES gl4es_glDisablei(GLenum target, GLuint index);

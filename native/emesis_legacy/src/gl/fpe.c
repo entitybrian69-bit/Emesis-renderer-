@@ -1281,14 +1281,30 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
             program = glprogram->id;
         } else if (glstate->fpe_state->plane ||
                    (glstate->fpe_state->alphatest && glstate->fpe_state->alphafunc != FPE_ALWAYS)) {
-            fpe_state_t state;
-            fpe_ReleventState(&state, glstate->fpe_state, 0);
-            if (!fpe_IsEmpty(&state)) {
-                DBG(DBGLOGD("GLSL program %d need customization => ", program);)
-                if (!glprogram->fpe_cache) glprogram->fpe_cache = fpe_NewCache();
-                glprogram = fpe_CustomShader(glprogram, &state); // fetch from cache if exist or create it
+            uint32_t custom_key =
+                (uint32_t)glstate->fpe_state->plane |
+                (((glstate->fpe_state->alphatest && glstate->fpe_state->alphafunc != FPE_ALWAYS)
+                      ? (1u | ((uint32_t)glstate->fpe_state->alphafunc << 1))
+                      : 0u)
+                 << 8);
+            if (glprogram->last_custom_valid && glprogram->last_custom_key == custom_key &&
+                glprogram->last_custom_prog) {
+                glprogram = (program_t*)glprogram->last_custom_prog;
                 program = glprogram->id;
-                DBG(DBGLOGD("%d\n", program);)
+            } else {
+                fpe_state_t state;
+                fpe_ReleventState(&state, glstate->fpe_state, 0);
+                if (!fpe_IsEmpty(&state)) {
+                    DBG(DBGLOGD("GLSL program %d need customization => ", program);)
+                    if (!glprogram->fpe_cache) glprogram->fpe_cache = fpe_NewCache();
+                    program_t* custom_prog = fpe_CustomShader(glprogram, &state);
+                    glprogram->last_custom_key = custom_key;
+                    glprogram->last_custom_prog = custom_prog;
+                    glprogram->last_custom_valid = 1;
+                    glprogram = custom_prog;
+                    program = glprogram->id;
+                    DBG(DBGLOGD("%d\n", program);)
+                }
             }
         }
         program_t* father_prog = glstate->glsl->glprogram;
@@ -1654,9 +1670,10 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
                 enabled = 0;
             }
             // enable / disable Array if needed
-            if (v->enabled != enabled || (v->enabled && w->divisor)) {
+            int hw_enabled = (w->divisor) ? 0 : enabled;
+            if (v->enabled != hw_enabled) {
                 dirty = 1;
-                v->enabled = (w->divisor) ? 0 : enabled;
+                v->enabled = hw_enabled;
                 DBG(DBGLOGD("VertexAttribArray[%d]:%s, divisor=%d\n", i, (enabled) ? "Enable" : "Disable", w->divisor);)
                 if (v->enabled) {
                     glstate->gleshard->enabled_va_mask |= (1u << (unsigned)i);
@@ -1692,6 +1709,9 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
                     }
                 } else {
                     // client-array / GL_BGRA / GL_DOUBLE path
+                    if (w->buffer && !w->buffer->data) {
+                        emesis_ensure_buffer_cpu_shadow(w->buffer, GL_ARRAY_BUFFER, 1);
+                    }
                     void* ptr = (void*)((uintptr_t)w->pointer + ((w->buffer) ? (uintptr_t)w->buffer->data : 0));
                     if (dirty || v->size != w->size || v->type != w->type || v->normalized != w->normalized ||
                         v->integer != w->integer || v->stride != w->stride || v->buffer != w->buffer ||
@@ -1760,6 +1780,9 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
                 char* current = (char*)glstate->vavalue[i];
                 GLfloat tmp[4] = {0.0f, 0.0f, 0.0f, 1.0f};
                 if (w->divisor && w->enabled) {
+                    if (w->buffer && !w->buffer->data) {
+                        emesis_ensure_buffer_cpu_shadow(w->buffer, GL_ARRAY_BUFFER, 1);
+                    }
                     current = (char*)((uintptr_t)w->pointer + ((w->buffer) ? (uintptr_t)w->buffer->data : 0));
                     int stride = w->stride;
                     if (!stride) stride = gl_sizeof(w->type) * w->size;

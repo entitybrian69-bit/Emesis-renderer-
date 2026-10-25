@@ -182,6 +182,7 @@ void APIENTRY_GL4ES gl4es_glVertexAttribPointer(GLuint index, GLint size, GLenum
     v->pointer = pointer;
     v->buffer = glstate->vao->vertex;
     if( v->buffer ) {
+        emesis_note_buffer_vao_ref(v->buffer, glstate->vao);
 		v->real_buffer = v->buffer->real_buffer;
 		v->real_pointer = pointer;
 	} else {
@@ -213,6 +214,7 @@ void APIENTRY_GL4ES gl4es_glVertexAttribIPointer(GLuint index, GLint size, GLenu
     v->pointer = pointer;
     v->buffer = glstate->vao->vertex;
     if( v->buffer ) {
+        emesis_note_buffer_vao_ref(v->buffer, glstate->vao);
 		v->real_buffer = v->buffer->real_buffer;
 		v->real_pointer = pointer;
 	} else {

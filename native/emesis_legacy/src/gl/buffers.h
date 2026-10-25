@@ -28,6 +28,8 @@ typedef struct {
     GLintptr mapped_offset;
     int mapping_flags;
     GLvoid* original_data;
+    GLuint single_vao_id;
+    uint32_t vao_ref_hint;
 
 } glbuffer_t;
 
@@ -238,6 +240,8 @@ typedef struct {
 
 void VaoSharedClear(glvao_t* vao);
 void VaoInit(glvao_t* vao);
+void emesis_note_buffer_vao_ref(glbuffer_t* buff, glvao_t* vao);
+void emesis_ensure_buffer_cpu_shadow(glbuffer_t* buff, GLenum target, int need_read);
 
 KHASH_MAP_DECLARE_INT(glvao, glvao_t*);
 

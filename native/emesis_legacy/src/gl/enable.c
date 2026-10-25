@@ -15,6 +15,8 @@ static void gl_changetex(int n)
 {
     if(glstate->bound_changed < n+1)
         glstate->bound_changed = n+1;
+    if ((unsigned)n < 32u)
+        glstate->bound_dirty_mask |= (1u << (unsigned)n);
 }
 
 static void fpe_changeplane(int n, bool enable)

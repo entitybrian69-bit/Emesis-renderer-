@@ -776,6 +776,9 @@ static void clear_program(program_t* glprogram) {
         kh_del(attribloclist, attribloc, 1);
     }
     // clear any child FPE programs before freeing parent uniform_t objects (m->parent_uniform)
+    glprogram->last_custom_prog = NULL;
+    glprogram->last_custom_key = 0;
+    glprogram->last_custom_valid = 0;
     if (glprogram->fpe_cache) {
         fpe_disposeCache((fpe_cache_t*)glprogram->fpe_cache, 1);
         glprogram->fpe_cache = NULL;

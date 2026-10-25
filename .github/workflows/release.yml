@@ -16,7 +16,7 @@ jobs:
       - name: Verify Universal Plugin APK with Official Android SDK Build-Tools
         run: |
           set -euo pipefail
-          APK="EmesisRenderer-Universal-v1.1.2.apk"
+          APK="EmesisRenderer-Universal-v1.2.0.apk"
           test -f "${APK}"
           ls -lh "${APK}"
           sha256sum "${APK}"
@@ -27,71 +27,47 @@ jobs:
           "${BT_DIR}/apksigner" verify --verbose --print-certs --min-sdk-version 21 --max-sdk-version 34 "${APK}"
           "${BT_DIR}/aapt2" dump badging "${APK}" | head -n 35
 
-      - name: Create or Update GitHub Release v1.1.2
+      - name: Create or Update GitHub Release v1.2.0
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 - << 'PY'
           import hashlib, pathlib, textwrap
 
-          apk = pathlib.Path("EmesisRenderer-Universal-v1.1.2.apk")
+          apk = pathlib.Path("EmesisRenderer-Universal-v1.2.0.apk")
           sha256 = hashlib.sha256(apk.read_bytes()).hexdigest()
 
           notes = textwrap.dedent(f"""\
           <div align="center">
             <img src="https://raw.githubusercontent.com/entitybrian69-bit/Emesis-renderer-/arena/fac24748-emesis-renderer/assets/emesis_logo.png" alt="Emesis Renderer — Made by Entitybrian" width="240" />
 
-            # Emesis Renderer v1.1.2 — Android Package Installer Fix, App Drawer Icon & `<1.17` Shader Accelerator
+            # Emesis Renderer v1.2.0 — High-FPS `<1.17` MultiDrawIndirect & Zero-Stutter Shader Accelerator
             ### **Made by Entitybrian**
           </div>
 
-          **Emesis Renderer v1.1.2** is a universal all-in-one Android Minecraft: Java Edition launcher renderer plugin APK created by **Entitybrian**, compatible across **all variants of Pojav** and 32-bit / 64-bit Android devices, with full `< 1.17` Shader Acceleration (`1.6.4` – `1.7.10` – `1.8.9` – `1.12.2` – `1.16.5`) and `> 1.16.5` Modern Core rendering (`1.17` – `1.21.x`, `26.x+`).
-
-          ---
-
-          ### What's Fixed in v1.1.2
-          - **Fixed Android 13 / 14 / 15 `"App not installed as package appears to be invalid"` Error:**
-            - Resolved signing-certificate conflict with earlier `v1.0.x` test installs by migrating to clean conflict-free package ID `com.entitybrian.emesis.renderer` signed permanently with the tracked release keystore (plus an in-app 1-tap cleanup button if old `v1.0` is still present on the device).
-            - Linked against official **Android 14 SDK (`compileSdkVersion 34`, `compileSdkVersionCodename "14"`)** and compiled DEX bytecode with **Google R8/D8 (`min-api 21`)**, removing the preview `"R"` codename and legacy `dx` translator artifacts.
-          - **Restored Home Screen / App Drawer Icon & Installer `"Open"` Button:**
-            - Fixed `AndroidManifest.xml` launcher intent category (`android.intent.category.LAUNCHER`) so **Emesis Renderer** appears immediately in your Android App Drawer and enables the **Open** button right inside Android's **App installed** dialog.
-          - **Enhanced Custom Pojav Fork SAF Discovery + Sodium/Iris `< 1.17` Shader Acceleration:**
-            - Includes one-tap Android 11–16 Scoped Storage `FolderProvider` `custom_env.txt` installer across Official PojavLauncher, Debug / Custom Forks, Amethyst, and MojoLauncher, plus full Sodium `0.2.0` + Iris `1.4.5` + OptiFine / Angelica / Oculus support on Minecraft `<= 1.16.5`.
-
-          ---
-
-          ### Core Features
-          - **Automatic All-Versions Rendering:**
-            - **Minecraft `> 1.16.5`** *(1.17 – 1.21.x, 26.x+)* — **Emesis Modern Core** (`libemesis_modern.so`, OpenGL 3.2+ Core Profile over OpenGL ES 3.x)
-            - **Minecraft `<= 1.16.5`** *(Classic, Beta, 1.6.4, 1.7.10, 1.8.9, 1.12.2, 1.16.5)* — **Emesis Compatibility Core** (`libemesis_legacy.so`, High-Throughput GLES 3.2/3.1/3.0 + SPIR-V ESSL Shader Accelerator with persistent `.ec1`/`.ep1` shader & GPU binary cache, 16-MRT FBO state-diffing, GPU `GL_QUADS` IBO, and hardware PCF shadows)
-          - **Universal Android Architecture Support (Including 32-bit Devices):**
-            - `armeabi-v7a` (32-bit ARM), `arm64-v8a` (64-bit ARM), `x86` (32-bit Intel/AMD), `x86_64` (64-bit Intel/AMD)
-          - **Compatible With All Variants of Pojav:**
-            - **Plugin V2 (`fclPlugin_V2`):** ZalithLauncher 2, FoldCraftLauncher (V2)
-            - **Plugin V1 (`pgwRendererPlugin` / `zalithRendererPlugin` / `fclPlugin`):** Pojav Glow Worm (PGW / PojavZH), PojavLauncher Beta / Zink, Pojav Firefly, ZalithLauncher 1
-            - **Scoped Storage SAF `custom_env.txt` Installer:** Official PojavLauncher, PojavLauncher Debug / Custom Forks, Amethyst, MojoLauncher, SolCraftLauncher, QuestCraft
+          **Emesis Renderer v1.2.0** is a universal all-in-one Android Minecraft: Java Edition launcher renderer plugin APK created by **Entitybrian**, compatible across **all variants of Pojav** and 32-bit / 64-bit Android devices, with full `< 1.17` Shader Acceleration (`1.6.4` – `1.7.10` – `1.8.9` – `1.12.2` – `1.16.5`) and `> 1.16.5` Modern Core rendering (`1.17` – `1.21.x`, `26.x+`).
 
           ---
 
           ### Package Details
-          - **Asset:** `EmesisRenderer-Universal-v1.1.2.apk`
-          - **Application ID:** `com.entitybrian.emesis.renderer` (`versionName "1.1.2"`, `versionCode 112`, `compileSdkVersion 34`, `minSdkVersion 21`, `targetSdkVersion 34`, signed v1 + v2 + v3)
+          - **Asset:** `EmesisRenderer-Universal-v1.2.0.apk`
+          - **Application ID:** `com.entitybrian.emesis.renderer` (`versionName "1.2.0"`, `versionCode 120`, `compileSdkVersion 34`, `minSdkVersion 21`, `targetSdkVersion 34`, signed v1 + v2 + v3)
           - **SHA-256:** `{sha256}`
           """)
 
           pathlib.Path("/tmp/release_notes.md").write_text(notes, encoding="utf-8")
           PY
 
-          if gh release view v1.1.2 >/dev/null 2>&1; then
-            gh release edit v1.1.2 \
-              --title "Emesis Renderer v1.1.2 — Made by Entitybrian" \
+          if gh release view v1.2.0 >/dev/null 2>&1; then
+            gh release edit v1.2.0 \
+              --title "Emesis Renderer v1.2.0 — Made by Entitybrian" \
               --notes-file /tmp/release_notes.md \
               --latest
-            gh release upload v1.1.2 EmesisRenderer-Universal-v1.1.2.apk --clobber
+            gh release upload v1.2.0 EmesisRenderer-Universal-v1.2.0.apk --clobber
           else
-            gh release create v1.1.2 EmesisRenderer-Universal-v1.1.2.apk \
+            gh release create v1.2.0 EmesisRenderer-Universal-v1.2.0.apk \
               --target "${GITHUB_SHA}" \
-              --title "Emesis Renderer v1.1.2 — Made by Entitybrian" \
+              --title "Emesis Renderer v1.2.0 — Made by Entitybrian" \
               --notes-file /tmp/release_notes.md \
               --latest
           fi

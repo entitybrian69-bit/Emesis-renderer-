@@ -636,6 +636,18 @@ void emesis_sm_apply_program_custom_uniforms(void* glprogram_ptr) {
 
     sm_ensure_init();
     if (glprogram->synced_sm_gen == g_sm.gen) return;
+    int any_unset = 0;
+    for (int i = 0; i < glprogram->custom_uniform_count; ++i) {
+        uniform_t* m = glprogram->custom_uniforms[i];
+        if (m && !m->app_set) {
+            any_unset = 1;
+            break;
+        }
+    }
+    if (!any_unset) {
+        glprogram->synced_sm_gen = g_sm.gen;
+        return;
+    }
     if (g_sm.derived_gen != g_sm.gen) {
         sm_recompute_derived();
     }

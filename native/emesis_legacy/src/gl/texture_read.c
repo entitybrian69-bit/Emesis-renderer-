@@ -137,11 +137,13 @@ static GLuint bind_cached_copy_blit_fbo(GLenum fb_target, GLuint tex_glname, GLe
             if (out_complete) *out_complete = 0;
             return 0;
         }
-    } else if (slot->attach) {
         gles_glBindFramebuffer(fb_target, slot->fbo);
-        gles_glFramebufferTexture2D(fb_target, slot->attach, slot->target ? slot->target : GL_TEXTURE_2D, 0, 0);
+    } else {
+        gles_glBindFramebuffer(fb_target, slot->fbo);
+        if (slot->attach && slot->attach != attach) {
+            gles_glFramebufferTexture2D(fb_target, slot->attach, slot->target ? slot->target : GL_TEXTURE_2D, 0, 0);
+        }
     }
-    gles_glBindFramebuffer(fb_target, slot->fbo);
     gles_glFramebufferTexture2D(fb_target, attach, tex_target, tex_glname, level);
     if (hardext.esversion >= 3) {
         LOAD_GLES2(glDrawBuffers);

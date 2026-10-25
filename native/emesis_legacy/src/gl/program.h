@@ -291,6 +291,9 @@ typedef struct {
     GLint samplersCube[MAX_TEX_UNITS];
     // that will be an fpe_cache_t*
     void* fpe_cache;
+    void* last_custom_prog;
+    uint32_t last_custom_key;
+    uint8_t last_custom_valid;
 
     uniform_declarations_list_t declarations;
     int frag_data_changed;

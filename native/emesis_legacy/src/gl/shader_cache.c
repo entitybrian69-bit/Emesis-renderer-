@@ -57,7 +57,8 @@ static emesis_hash128_t g_driver_fp = {0, 0};
 static int g_driver_fp_ready = 0;
 static mem_shader_entry_t g_mem_shaders[EMESIS_MEM_SHADER_SLOTS];
 static mem_progbin_entry_t g_mem_progbins[EMESIS_MEM_PROGBIN_SLOTS];
-static volatile int g_compiler_mem_dirty = 0;
+static volatile uint32_t g_compiler_dirty_count = 0;
+static volatile uint32_t g_quiet_clears_since_compile = 0;
 
 static inline uint64_t mix64(uint64_t z) {
     z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -780,12 +781,13 @@ void emesis_program_cache_store(GLuint gl_program_id,
 }
 
 void emesis_note_shader_compiler_activity(void) {
-    g_compiler_mem_dirty = 1;
+    ++g_compiler_dirty_count;
+    g_quiet_clears_since_compile = 0;
 }
 
-void emesis_maybe_reclaim_compiler_memory(void) {
-    if (!g_compiler_mem_dirty) return;
-    g_compiler_mem_dirty = 0;
+static void emesis_do_reclaim_compiler_memory(void) {
+    g_compiler_dirty_count = 0;
+    g_quiet_clears_since_compile = 0;
 
     /* 1. Release native GLES driver's shader compiler AST/IR pools (e.g. libGLES_mali.so) */
     if (hardext.esversion > 1) {
@@ -795,12 +797,10 @@ void emesis_maybe_reclaim_compiler_memory(void) {
         }
     }
 
-    /* 2. Trim duplicate RAM cache entries once backed by disk .ec1 files */
+    /* 2. Trim any program-binary RAM entries once backed by disk (keep g_mem_shaders hot so
+     * mid-game FPE alpha-test shader specializations never stall on synchronous disk reads) */
     pthread_mutex_lock(&g_cache_mutex);
     if (g_disk_enabled) {
-        for (size_t i = 0; i < EMESIS_MEM_SHADER_SLOTS; ++i) {
-            free_mem_entry(&g_mem_shaders[i]);
-        }
         for (size_t i = 0; i < EMESIS_MEM_PROGBIN_SLOTS; ++i) {
             if (g_mem_progbins[i].binary) {
                 free(g_mem_progbins[i].binary);
@@ -812,7 +812,7 @@ void emesis_maybe_reclaim_compiler_memory(void) {
     }
     pthread_mutex_unlock(&g_cache_mutex);
 
-    /* 3. Return freed allocator pages to the OS kernel immediately (Bionic M_PURGE / glibc malloc_trim) */
+    /* 3. Return freed allocator pages to the OS kernel after bulk shaderpack compile settles */
     {
 #ifdef __ANDROID__
         typedef int (*mallopt_fn)(int, int);
@@ -837,4 +837,18 @@ void emesis_maybe_reclaim_compiler_memory(void) {
             (void)fn_mtrim(0);
         }
     }
+}
+
+void emesis_force_reclaim_compiler_memory(void) {
+    if (!g_compiler_dirty_count) return;
+    emesis_do_reclaim_compiler_memory();
+}
+
+void emesis_maybe_reclaim_compiler_memory(void) {
+    /* Only run heavy driver compiler teardown + M_PURGE after a bulk shaderpack compile batch
+     * (>= 16 shaders) followed by >= 120 quiet glClear calls with zero new compiles, avoiding
+     * mid-frame stutters on lazy FPE / entity shader variants. */
+    if (g_compiler_dirty_count < 16u) return;
+    if (++g_quiet_clears_since_compile < 120u) return;
+    emesis_do_reclaim_compiler_memory();
 }

@@ -45,9 +45,6 @@ NATIVE_FUNCTION_END_NO_RETURN(void, glWaitSync, sync, flags, timeout)
 NATIVE_FUNCTION_HEAD(void, glGetSynciv, GLsync sync, GLenum pname, GLsizei bufSize, GLsizei* length, GLint* values)
 NATIVE_FUNCTION_END_NO_RETURN(void, glGetSynciv, sync, pname, bufSize, length, values)
 
-NATIVE_FUNCTION_HEAD(void, glDrawArraysIndirect, GLenum mode, const void* indirect)
-NATIVE_FUNCTION_END_NO_RETURN(void, glDrawArraysIndirect, mode, indirect)
-
 extern "C" VISIBLE void glBindFragDataLocationIndexed(GLuint program, GLuint colorNumber, GLuint index, const char* name) {
     LOAD_GLES3(glBindFragDataLocationIndexedEXT);
     if (gles_glBindFragDataLocationIndexedEXT) {

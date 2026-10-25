@@ -248,6 +248,11 @@ void APIENTRY_GL4ES gl4es_glBindFramebuffer(GLenum target, GLuint framebuffer) {
     }
 
     if (target == GL_FRAMEBUFFER) {
+        if (!glstate->fbo.internal && glstate->fbo.current_fb == fb &&
+            glstate->fbo.fbo_read == fb && glstate->fbo.fbo_draw == fb) {
+            noerrorShim();
+            return;
+        }
         glstate->fbo.fbo_read = fb;
         glstate->fbo.fbo_draw = fb;
         glstate->fbo.internal = 0;
@@ -1192,25 +1197,21 @@ GLboolean APIENTRY_GL4ES gl4es_glIsRenderbuffer(GLuint renderbuffer) {
 void APIENTRY_GL4ES gl4es_glGenerateMipmap(GLenum target) {
     DBG(SHUT_LOGD("glGenerateMipmap(%s)\n", PrintEnum(target));)
     LOAD_GLES2_OR_OES(glGenerateMipmap);
-    LOAD_GLES(glBindTexture);
 
     const GLuint rtarget = map_tex_target(target);
-    // Set active texture unit
-    realize_active();
-    // Get bound texture for this target
     const GLuint itarget = what_target(target);
     gltexture_t* bound = glstate->texture.bound[glstate->texture.active][itarget];
-    if (!bound) {
+    if (!bound || !bound->glname) {
         noerrorShim();
         return;
     }
-    // Bind the texture to the target
-    gles_glBindTexture(rtarget, bound->glname);
+    realize_active();
+    realize_bound(glstate->texture.active, target);
 
     errorGL();
-    if (GL4ES_AUTOMIPMAP_PLACEHOLDER != 3) {
+    if (GL4ES_AUTOMIPMAP_PLACEHOLDER != 3 && gles_glGenerateMipmap) {
         gles_glGenerateMipmap(rtarget);
-        bound->mipmap_auto = 1;
+        bound->mipmap_done = 1;
     }
 }
 

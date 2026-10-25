@@ -1165,7 +1165,7 @@ void APIENTRY_GL4ES gl4es_glShaderBinary(GLsizei count, const GLuint* shaders, G
 
 void APIENTRY_GL4ES gl4es_glReleaseShaderCompiler(void) {
     emesis_note_shader_compiler_activity();
-    emesis_maybe_reclaim_compiler_memory();
+    emesis_force_reclaim_compiler_memory();
     LOAD_GLES2(glReleaseShaderCompiler);
     if (gles_glReleaseShaderCompiler) {
         gles_glReleaseShaderCompiler();

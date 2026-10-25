@@ -65,6 +65,7 @@ extern "C"
         GLuint* actual_tex2d;  // store the texture actually bounded TEX2D unit, because it's shared... (TODO: all
                                // binding and not only TEX2D)
         int bound_changed;     // 0 if not changed or max TMU if changed...
+        uint32_t bound_dirty_mask; // bitmask of TMUs (0..31) needing realize_textures()
         int fpe_bound_changed; // same but for fpe
 #ifdef TEXSTREAM
         int bound_stream[MAX_TEX * TEXTURE_IMAGE_MAGNIFICATION]; // should be shared too

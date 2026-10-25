@@ -227,6 +227,8 @@ void APIENTRY_GL4ES gl4es_glTexImage3D(GLenum target, GLint level, GLint interna
     if (unpack) glstate->vao->unpack = unpack;
 
     if (glstate->bound_changed < glstate->texture.active + 1) glstate->bound_changed = glstate->texture.active + 1;
+    if ((unsigned)glstate->texture.active < 32u)
+        glstate->bound_dirty_mask |= (1u << (unsigned)glstate->texture.active);
 }
 void APIENTRY_GL4ES gl4es_glTexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset,
                                           GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type,

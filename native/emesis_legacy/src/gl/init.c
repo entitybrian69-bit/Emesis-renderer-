@@ -307,6 +307,7 @@ void initialize_gl4es() {
     }
 
     GetHardwareExtensions(gl4es_notest);
+    init_internal_glDrawElementsBaseVertex();
 
 #if !defined(NO_LOADER) && !defined(NO_GBM)
     if (globals4es.usegbm) LoadGBMFunctions();
@@ -407,7 +408,12 @@ void initialize_gl4es() {
     env(LIBGL_NOLUMALPHA, globals4es.nolumalpha, "GL_LUMINANCE_ALPHA hardware support disabled");
     env(LIBGL_BLENDHACK, globals4es.blendhack, "Change Blend GL_SRC_ALPHA, GL_ONE to GL_ONE, GL_ONE");
     env(LIBGL_BLENDCOLOR, globals4es.blendcolor, "Export a (faked) glBlendColor");
-    env(LIBGL_NOERROR, globals4es.noerror, "glGetError() always return GL_NOERROR");
+    globals4es.noerror = 1;
+    if (IsEnvVarInt("LIBGL_NOERROR", 0)) {
+        globals4es.noerror = 0;
+    } else {
+        SHUT_LOGD("glGetError() fast no-error mode enabled");
+    }
 
     globals4es.silentstub = 1;
     if (IsEnvVarInt("LIBGL_SILENTSTUB", 0)) {

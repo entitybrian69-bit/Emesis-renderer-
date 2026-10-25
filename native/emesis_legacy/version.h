@@ -2,8 +2,8 @@
 #define _GL4ES_VERSION_H
 
 #define MAJOR 1
-#define MINOR 1
-#define REVISION 9
+#define MINOR 2
+#define REVISION 0
 #define VERSION_TYPE "v"
 #define VERSION_SUFFIX " (Shader Accelerator)"
 #define RELEASE 1

@@ -118,6 +118,7 @@ void gl4es_glBindSampler(GLuint unit, GLuint sampler) {
     else
         gles_glBindSampler(unit, 0);
     if (glstate->bound_changed < unit + 1) glstate->bound_changed = unit + 1;
+    if ((unsigned)unit < 32u) glstate->bound_dirty_mask |= (1u << (unsigned)unit);
 }
 
 void gl4es_glDeleteSamplers(GLsizei n, const GLuint* samplers) {

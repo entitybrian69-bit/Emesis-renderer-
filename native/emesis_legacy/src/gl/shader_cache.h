@@ -50,6 +50,7 @@ void emesis_program_cache_store(GLuint gl_program_id,
 
 void emesis_note_shader_compiler_activity(void);
 void emesis_maybe_reclaim_compiler_memory(void);
+void emesis_force_reclaim_compiler_memory(void);
 
 #ifdef __cplusplus
 }

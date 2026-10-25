@@ -1,6 +1,8 @@
+#include <stdint.h>
 #include "../glx/hardext.h"
 #include "array.h"
 #include "gl4es.h"
+#include "glcase.h"
 #include "enum_info.h"
 #include "fpe.h"
 #include "gles.h"
@@ -533,9 +535,10 @@ static int ensure_gpu_quad_ibo_u16(size_t needed_quads) {
     return 1;
 }
 
-/* Strictly cap persistent 32-bit quad IBO at 65,536 quads (262,144 vertices = 1.5 MB max).
-   Larger arena offsets fall back to tiny per-draw index generation so GPU/CPU RAM never grows unboundedly. */
-#define EMESIS_MAX_QUAD_IBO_U32_QUADS 65536
+/* Lazy-growing persistent 32-bit quad IBO capped at 262,144 quads (1,048,576 vertices = 6 MB max)
+   for ES 3.0/3.1 GPUs without glDrawElementsBaseVertex. On ES 3.2+ (hardext.basevertex),
+   quad_ibo_u16 (196 KB) handles arbitrary arena offsets without ever allocating quad_ibo_u32. */
+#define EMESIS_MAX_QUAD_IBO_U32_QUADS 262144
 
 static int ensure_gpu_quad_ibo_u32(size_t needed_quads) {
     if (!hardext.elementuint || needed_quads > EMESIS_MAX_QUAD_IBO_U32_QUADS) return 0;
@@ -543,7 +546,11 @@ static int ensure_gpu_quad_ibo_u32(size_t needed_quads) {
         glstate->quad_ibo_u32.real_buffer && glstate->quad_ibo_u32.data) {
         return 1;
     }
-    size_t cap_quads = (needed_quads <= 32768) ? 32768 : EMESIS_MAX_QUAD_IBO_U32_QUADS;
+    size_t cap_quads = 32768;
+    while (cap_quads < needed_quads && cap_quads < EMESIS_MAX_QUAD_IBO_U32_QUADS) {
+        cap_quads <<= 1;
+    }
+    if (cap_quads > EMESIS_MAX_QUAD_IBO_U32_QUADS) cap_quads = EMESIS_MAX_QUAD_IBO_U32_QUADS;
     size_t byte_size = cap_quads * 6 * sizeof(GLuint);
     GLuint* data = (GLuint*)malloc(byte_size);
     if (!data) return 0;
@@ -587,11 +594,62 @@ static int ensure_gpu_quad_ibo_u32(size_t needed_quads) {
     return 1;
 }
 
+static int emesis_vao_has_only_vbo_attribs(int allow_instanced_divisor) {
+    if (!glstate || !glstate->vao || hardext.esversion <= 1) return 0;
+    int any_en = 0;
+    for (int a = 0; a < hardext.maxvattrib; ++a) {
+        const vertexattrib_t* w = &glstate->vao->vertexattrib[a];
+        if (!w->enabled) continue;
+        any_en = 1;
+        if (w->divisor != 0) {
+            if (!allow_instanced_divisor) return 0;
+            if (!w->buffer && !w->pointer) return 0;
+            continue;
+        }
+        if (!w->real_buffer || w->size == GL_BGRA || w->type == GL_DOUBLE) {
+            return 0;
+        }
+    }
+    return any_en;
+}
+
 static void draw_quads_arrays_fast(GLint first, GLsizei count, int instancecount) {
     GLsizei nquads = count / 4;
     if (nquads <= 0 || first < 0) return;
     GLsizei idx_count = nquads * 6;
     size_t max_vert = (size_t)first + (size_t)(nquads * 4);
+
+    /* ES 3.2+ basevertex fast path: handles ANY alignment and ANY arena offset using 16-bit quad_ibo_u16 */
+    if (instancecount == 1 && hardext.esversion > 1 && hardext.basevertex && glstate->render_mode != GL_SELECT &&
+        emesis_vao_has_only_vbo_attribs(1) &&
+        ensure_gpu_quad_ibo_u16((nquads <= 16384) ? (size_t)nquads : 16384)) {
+        LOAD_GLES2(glDrawElementsBaseVertex);
+        if (gles_glDrawElementsBaseVertex) {
+            if (glstate->raster.bm_drawing) bitmap_flush();
+            glbuffer_t* prev_elem = glstate->vao->elements;
+            GLuint prev_want = glstate->bind_buffer.want_index;
+            glstate->vao->elements = &glstate->quad_ibo_u16;
+
+            realize_textures(1);
+            scratch_t scratch = {0};
+            realize_glenv(0, 0, (int)max_vert, GL_UNSIGNED_SHORT, NULL, &scratch);
+            bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->quad_ibo_u16.real_buffer);
+
+            GLsizei rem_q = nquads;
+            GLint cur_first = first;
+            while (rem_q > 0) {
+                GLsizei cq = (rem_q > 16384) ? 16384 : rem_q;
+                gles_glDrawElementsBaseVertex(GL_TRIANGLES, cq * 6, GL_UNSIGNED_SHORT, NULL, cur_first);
+                cur_first += cq * 4;
+                rem_q -= cq;
+            }
+
+            free_scratch(&scratch);
+            glstate->vao->elements = prev_elem;
+            glstate->bind_buffer.want_index = prev_want;
+            return;
+        }
+    }
 
     /* Fast path: persistent GPU GL_ELEMENT_ARRAY_BUFFER for 4-aligned `first` (covers first == 0 and all terrain/entity VBOs) */
     if (hardext.esversion > 1 && ((first & 3) == 0)) {
@@ -1020,6 +1078,42 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArrays(GLenum mode, const GLint* firsts, co
                     return;
                 }
 
+                /* ES 3.2+ basevertex fast path: dispatches all coalesced quad runs via 16-bit quad_ibo_u16
+                 * regardless of vertex alignment or arena offset (>65,536 vertices). */
+                if (all_vbo_attribs && hardext.basevertex && ensure_gpu_quad_ibo_u16(16384)) {
+                    LOAD_GLES2(glDrawElementsBaseVertex);
+                    if (gles_glDrawElementsBaseVertex) {
+                        if (glstate->raster.bm_drawing) bitmap_flush();
+                        glbuffer_t* prev_elem = glstate->vao->elements;
+                        GLuint prev_want = glstate->bind_buffer.want_index;
+                        glstate->vao->elements = &glstate->quad_ibo_u16;
+
+                        realize_textures(1);
+                        scratch_t scratch = {0};
+                        realize_glenv(0, 0, (int)max_vert, GL_UNSIGNED_SHORT, NULL, &scratch);
+                        bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->quad_ibo_u16.real_buffer);
+
+                        for (int r = 0; r < n_runs; ++r) {
+                            GLsizei rem_q = rnquads[r];
+                            GLint cur_first = rfirst[r];
+                            while (rem_q > 0) {
+                                GLsizei cq = (rem_q > 16384) ? 16384 : rem_q;
+                                gles_glDrawElementsBaseVertex(GL_TRIANGLES, cq * 6, GL_UNSIGNED_SHORT, NULL, cur_first);
+                                cur_first += cq * 4;
+                                rem_q -= cq;
+                            }
+                        }
+
+                        free_scratch(&scratch);
+                        glstate->vao->elements = prev_elem;
+                        glstate->bind_buffer.want_index = prev_want;
+                        if (rfirst != stack_rfirst) free(rfirst);
+                        if (rnquads != stack_rnquads) free(rnquads);
+                        errorGL();
+                        return;
+                    }
+                }
+
                 /* Universal zero-upload GPU quad_ibo path: works on BOTH hardext.multidraw == 1 (Adreno)
                  * AND hardext.multidraw == 0 (ARM Mali), keeping quad_ibo persistently bound in VRAM
                  * with a single realize_glenv + realize_textures pass and zero CPU index generation. */
@@ -1440,7 +1534,7 @@ void APIENTRY_GL4ES gl4es_glDrawElementsBaseVertex(GLenum mode, GLsizei count, G
     free_scratch(&scratch);
 
     realize_textures(1);
-    bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->vao->elements->real_buffer);
+    bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->vao->elements ? glstate->vao->elements->real_buffer : 0);
     internal_glDrawElementsBaseVertex(mode, count, type, indices, basevertex);
 }
 AliasExport(void, glDrawElementsBaseVertex, ,
@@ -1448,20 +1542,471 @@ AliasExport(void, glDrawElementsBaseVertex, ,
 AliasExport(void, glDrawElementsBaseVertex, ARB,
             (GLenum mode, GLsizei count, GLenum type, const void* indices, GLint basevertex));
 
+typedef struct {
+    GLuint count;
+    GLuint instanceCount;
+    GLuint first;
+    GLuint baseInstance;
+} EmesisDrawArraysIndirectCmd;
+
+typedef struct {
+    GLuint count;
+    GLuint instanceCount;
+    GLuint firstIndex;
+    GLint  baseVertex;
+    GLuint baseInstance;
+} EmesisDrawElementsIndirectCmd;
+
+typedef struct {
+    int idx;
+    const char* base;
+    size_t buf_size;
+    int has_buf;
+    int stride;
+    int elem_bytes;
+    GLint size;
+    GLenum type;
+    GLboolean normalized;
+    int integer;
+    GLuint divisor;
+    GLfloat last_val[4];
+    int has_last;
+} EmesisInstancedAttribInfo;
+
+static int emesis_collect_instanced_attribs(EmesisInstancedAttribInfo* out_info, int max_out) {
+    int n = 0;
+    if (!glstate || !glstate->vao) return 0;
+    for (int a = 0; a < hardext.maxvattrib && n < max_out; ++a) {
+        vertexattrib_t* w = &glstate->vao->vertexattrib[a];
+        if (!w->enabled || w->divisor == 0) continue;
+        if (w->buffer && !w->buffer->data) {
+            emesis_ensure_buffer_cpu_shadow(w->buffer, GL_ARRAY_BUFFER, 1);
+        }
+        int elem_bytes = gl_sizeof(w->type) * ((w->size == GL_BGRA) ? 4 : w->size);
+        int stride = w->stride ? w->stride : elem_bytes;
+        out_info[n].idx = a;
+        out_info[n].base = (const char*)((uintptr_t)w->pointer + (w->buffer ? (uintptr_t)w->buffer->data : 0));
+        out_info[n].buf_size = w->buffer ? (size_t)w->buffer->size : 0;
+        out_info[n].has_buf = (w->buffer != NULL);
+        out_info[n].stride = stride;
+        out_info[n].elem_bytes = elem_bytes;
+        out_info[n].size = w->size;
+        out_info[n].type = w->type;
+        out_info[n].normalized = w->normalized;
+        out_info[n].integer = w->integer;
+        out_info[n].divisor = w->divisor;
+        out_info[n].has_last = 0;
+        ++n;
+    }
+    return n;
+}
+
+static inline void emesis_apply_instanced_attribs(EmesisInstancedAttribInfo* infos, int n_infos,
+                                                  GLuint instance_idx, GLuint base_instance,
+                                                  glVertexAttrib4fv_PTR fn_va4fv) {
+    for (int k = 0; k < n_infos; ++k) {
+        EmesisInstancedAttribInfo* inf = &infos[k];
+        if (!inf->base || inf->stride <= 0) continue;
+        size_t slot = (size_t)(instance_idx / inf->divisor) + (size_t)base_instance;
+        size_t byte_off = slot * (size_t)inf->stride;
+        if (inf->has_buf && ((uintptr_t)inf->base < (uintptr_t)glstate->vao->vertexattrib[inf->idx].buffer->data ||
+                             ((size_t)((uintptr_t)inf->base -
+                                       (uintptr_t)glstate->vao->vertexattrib[inf->idx].buffer->data) +
+                              byte_off + (size_t)inf->elem_bytes) > inf->buf_size)) {
+            continue;
+        }
+        const char* src = inf->base + byte_off;
+        if (inf->type == GL_FLOAT && inf->size == 4 && !inf->integer) {
+            const GLfloat* fp = (const GLfloat*)src;
+            fn_va4fv(inf->idx, fp);
+            memcpy(inf->last_val, fp, 4 * sizeof(GLfloat));
+            inf->has_last = 1;
+        } else {
+            GLfloat tmp[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            if (inf->type == GL_FLOAT) {
+                memcpy(tmp, src, (size_t)inf->size * sizeof(GLfloat));
+            } else if (inf->type == GL_DOUBLE || !inf->normalized || inf->integer) {
+                const char* cur = src;
+                for (int c = 0; c < inf->size && c < 4; ++c) {
+                    GL_TYPE_SWITCH(input, cur, inf->type, tmp[c] = (GLfloat)input[c];, )
+                }
+            } else {
+                const char* cur = src;
+                for (int c = 0; c < inf->size && c < 4; ++c) {
+                    GL_TYPE_SWITCH_MAX(input, cur, inf->type, tmp[c] = (GLfloat)input[c] / (GLfloat)maxv;, )
+                }
+            }
+            fn_va4fv(inf->idx, tmp);
+            memcpy(inf->last_val, tmp, 4 * sizeof(GLfloat));
+            inf->has_last = 1;
+        }
+    }
+}
+
+static inline void emesis_commit_instanced_attribs(const EmesisInstancedAttribInfo* infos, int n_infos) {
+    if (!glstate || !glstate->gleshard) return;
+    for (int k = 0; k < n_infos; ++k) {
+        if (infos[k].has_last) {
+            memcpy(glstate->gleshard->vavalue[infos[k].idx], infos[k].last_val, 4 * sizeof(GLfloat));
+        }
+    }
+}
+
+void APIENTRY_GL4ES gl4es_glMultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount,
+                                                    GLsizei stride) {
+    DBG(SHUT_LOGD("glMultiDrawArraysIndirect(%s, %p, %d, %d)\n", PrintEnum(mode), indirect, drawcount, stride);)
+    if (drawcount <= 0) {
+        if (drawcount < 0) errorShim(GL_INVALID_VALUE);
+        else noerrorShim();
+        return;
+    }
+    if (stride < 0 || (stride != 0 && (stride & 3) != 0)) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+
+    size_t cmd_stride = (stride == 0) ? sizeof(EmesisDrawArraysIndirectCmd) : (size_t)stride;
+    glbuffer_t* ind_buf = (glstate->defaultvao) ? glstate->defaultvao->indirect : glstate->vao->indirect;
+    const uint8_t* cmd_base = NULL;
+    if (ind_buf) {
+        if (!ind_buf->data) emesis_ensure_buffer_cpu_shadow(ind_buf, GL_DRAW_INDIRECT_BUFFER, 1);
+        size_t byte_off = (size_t)(uintptr_t)indirect;
+        size_t req_end = byte_off + (size_t)(drawcount - 1) * cmd_stride + sizeof(EmesisDrawArraysIndirectCmd);
+        if (!ind_buf->data || byte_off > (size_t)ind_buf->size || req_end > (size_t)ind_buf->size) {
+            errorShim(GL_INVALID_OPERATION);
+            return;
+        }
+        cmd_base = (const uint8_t*)ind_buf->data + byte_off;
+    } else {
+        if (!indirect) {
+            errorShim(GL_INVALID_OPERATION);
+            return;
+        }
+        cmd_base = (const uint8_t*)indirect;
+    }
+
+    if (glstate->list.pending) gl4es_flush();
+
+    bool compiling = (glstate->list.active != NULL);
+    bool intercept = should_intercept_render(mode);
+    GLenum draw_mode = (glstate->polygon_mode == GL_POINT && mode >= GL_TRIANGLES) ? GL_POINTS : mode;
+
+    /* High-speed GPU batch path for Sodium MultidrawChunkRenderBackend & Iris terrain/shadow passes */
+    if (!compiling && !intercept && glstate->polygon_mode != GL_LINE && glstate->render_mode != GL_SELECT &&
+        emesis_vao_has_only_vbo_attribs(1)) {
+        LOAD_GLES2(glVertexAttrib4fv);
+        EmesisInstancedAttribInfo inst_infos[MAX_VATTRIB];
+        int n_inst = emesis_collect_instanced_attribs(inst_infos, MAX_VATTRIB);
+
+        if (draw_mode == GL_QUADS) {
+            typedef struct {
+                GLint first;
+                GLsizei nquads;
+                GLuint inst_cnt;
+                GLuint base_inst;
+            } QuadIndRun;
+
+            QuadIndRun stack_runs[512];
+            QuadIndRun* runs = (drawcount <= 512)
+                                   ? stack_runs
+                                   : (QuadIndRun*)malloc((size_t)drawcount * sizeof(QuadIndRun));
+            if (runs) {
+                int n_runs = 0;
+                size_t max_vert = 0;
+                int all_aligned = 1;
+                for (GLsizei i = 0; i < drawcount; ++i) {
+                    EmesisDrawArraysIndirectCmd cmd;
+                    memcpy(&cmd, cmd_base + (size_t)i * cmd_stride, sizeof(cmd));
+                    GLsizei q = (GLsizei)(cmd.count / 4u);
+                    if (q <= 0 || cmd.instanceCount == 0) continue;
+                    GLint f = (GLint)cmd.first;
+                    if (f < 0) continue;
+                    size_t end_v = (size_t)f + (size_t)q * 4u;
+                    if (end_v > max_vert) max_vert = end_v;
+
+                    if (n_runs > 0 && cmd.instanceCount == 1 && runs[n_runs - 1].inst_cnt == 1 &&
+                        runs[n_runs - 1].base_inst == cmd.baseInstance &&
+                        (size_t)runs[n_runs - 1].first + (size_t)runs[n_runs - 1].nquads * 4u == (size_t)f) {
+                        runs[n_runs - 1].nquads += q;
+                    } else {
+                        if (f & 3) all_aligned = 0;
+                        runs[n_runs].first = f;
+                        runs[n_runs].nquads = q;
+                        runs[n_runs].inst_cnt = cmd.instanceCount;
+                        runs[n_runs].base_inst = cmd.baseInstance;
+                        ++n_runs;
+                    }
+                }
+
+                if (n_runs == 0) {
+                    if (runs != stack_runs) free(runs);
+                    noerrorShim();
+                    return;
+                }
+
+                int can_bv = 0;
+                LOAD_GLES2(glDrawElementsBaseVertex);
+                if (hardext.basevertex && gles_glDrawElementsBaseVertex && ensure_gpu_quad_ibo_u16(16384)) {
+                    can_bv = 1;
+                }
+                int can_ibo = 0;
+                int use_u32 = (max_vert > 65536);
+                if (!can_bv && all_aligned &&
+                    ((!use_u32 && ensure_gpu_quad_ibo_u16(max_vert >> 2)) ||
+                     (use_u32 && ensure_gpu_quad_ibo_u32(max_vert >> 2)))) {
+                    can_ibo = 1;
+                }
+
+                if (can_bv || can_ibo) {
+                    if (glstate->raster.bm_drawing) bitmap_flush();
+                    glbuffer_t* qibo = (!can_bv && use_u32) ? &glstate->quad_ibo_u32 : &glstate->quad_ibo_u16;
+                    size_t idx_bytes = (!can_bv && use_u32) ? sizeof(GLuint) : sizeof(GLushort);
+                    GLenum idx_type = (!can_bv && use_u32) ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT;
+
+                    glbuffer_t* prev_elem = glstate->vao->elements;
+                    GLuint prev_want = glstate->bind_buffer.want_index;
+                    GLuint prev_inst_id = glstate->instanceID;
+                    glstate->vao->elements = qibo;
+
+                    realize_textures(1);
+                    scratch_t scratch = {0};
+                    realize_glenv(0, 0, (int)max_vert, idx_type, NULL, &scratch);
+                    bindBuffer(GL_ELEMENT_ARRAY_BUFFER, qibo->real_buffer);
+                    LOAD_GLES2(glDrawElements);
+
+                    GLuint cur_base_inst = 0xFFFFFFFFu;
+                    for (int r = 0; r < n_runs; ++r) {
+                        const QuadIndRun* rn = &runs[r];
+                        for (GLuint inst = 0; inst < rn->inst_cnt; ++inst) {
+                            if (n_inst > 0 && (rn->inst_cnt > 1 || rn->base_inst != cur_base_inst)) {
+                                emesis_apply_instanced_attribs(inst_infos, n_inst, inst, rn->base_inst,
+                                                               gles_glVertexAttrib4fv);
+                                cur_base_inst = (rn->inst_cnt == 1) ? rn->base_inst : 0xFFFFFFFFu;
+                            }
+                            if (can_bv) {
+                                GLsizei rem_q = rn->nquads;
+                                GLint cur_first = rn->first;
+                                while (rem_q > 0) {
+                                    GLsizei cq = (rem_q > 16384) ? 16384 : rem_q;
+                                    gles_glDrawElementsBaseVertex(GL_TRIANGLES, cq * 6, GL_UNSIGNED_SHORT, NULL,
+                                                                  cur_first);
+                                    cur_first += cq * 4;
+                                    rem_q -= cq;
+                                }
+                            } else {
+                                gles_glDrawElements(GL_TRIANGLES, rn->nquads * 6, idx_type,
+                                                    (const void*)(((size_t)rn->first >> 2) * 6u * idx_bytes));
+                            }
+                        }
+                    }
+
+                    emesis_commit_instanced_attribs(inst_infos, n_inst);
+                    free_scratch(&scratch);
+                    glstate->instanceID = prev_inst_id;
+                    glstate->vao->elements = prev_elem;
+                    glstate->bind_buffer.want_index = prev_want;
+                    if (runs != stack_runs) free(runs);
+                    errorGL();
+                    return;
+                }
+                if (runs != stack_runs) free(runs);
+            }
+        } else if (draw_mode != GL_QUAD_STRIP && draw_mode != GL_POLYGON) {
+            if (glstate->raster.bm_drawing) bitmap_flush();
+            LOAD_GLES(glDrawArrays);
+            realize_textures(1);
+            scratch_t scratch = {0};
+            realize_glenv(draw_mode == GL_POINTS, 0, 0, 0, NULL, &scratch);
+
+            int can_merge = (draw_mode == GL_TRIANGLES || draw_mode == GL_LINES || draw_mode == GL_POINTS);
+            GLuint cur_base_inst = 0xFFFFFFFFu;
+            GLsizei i = 0;
+            while (i < drawcount) {
+                EmesisDrawArraysIndirectCmd cmd;
+                memcpy(&cmd, cmd_base + (size_t)i * cmd_stride, sizeof(cmd));
+                GLsizei c = adjust_vertices(draw_mode, (GLsizei)cmd.count);
+                ++i;
+                if (c <= 0 || cmd.instanceCount == 0) continue;
+                GLint f = (GLint)cmd.first;
+                if (can_merge && cmd.instanceCount == 1) {
+                    while (i < drawcount) {
+                        EmesisDrawArraysIndirectCmd nxt;
+                        memcpy(&nxt, cmd_base + (size_t)i * cmd_stride, sizeof(nxt));
+                        GLsizei nc = adjust_vertices(draw_mode, (GLsizei)nxt.count);
+                        if (nc <= 0 || nxt.instanceCount == 0) {
+                            ++i;
+                            continue;
+                        }
+                        if (nxt.instanceCount == 1 && nxt.baseInstance == cmd.baseInstance &&
+                            (GLuint)(f + c) == nxt.first) {
+                            c += nc;
+                            ++i;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                for (GLuint inst = 0; inst < cmd.instanceCount; ++inst) {
+                    if (n_inst > 0 && (cmd.instanceCount > 1 || cmd.baseInstance != cur_base_inst)) {
+                        emesis_apply_instanced_attribs(inst_infos, n_inst, inst, cmd.baseInstance,
+                                                       gles_glVertexAttrib4fv);
+                        cur_base_inst = (cmd.instanceCount == 1) ? cmd.baseInstance : 0xFFFFFFFFu;
+                    }
+                    gles_glDrawArrays(draw_mode, f, c);
+                }
+            }
+
+            emesis_commit_instanced_attribs(inst_infos, n_inst);
+            free_scratch(&scratch);
+            errorGL();
+            return;
+        }
+    }
+
+    /* General fallback (display lists, GL_LINE polygon mode, client arrays, GL_QUAD_STRIP/GL_POLYGON) */
+    GLuint prev_inst_id = glstate->instanceID;
+    for (GLsizei i = 0; i < drawcount; ++i) {
+        EmesisDrawArraysIndirectCmd cmd;
+        memcpy(&cmd, cmd_base + (size_t)i * cmd_stride, sizeof(cmd));
+        if (cmd.count == 0 || cmd.instanceCount == 0) continue;
+        for (GLuint inst = 0; inst < cmd.instanceCount; ++inst) {
+            glstate->instanceID = inst + cmd.baseInstance;
+            gl4es_glDrawArrays(mode, (GLint)cmd.first, (GLsizei)cmd.count);
+        }
+    }
+    glstate->instanceID = prev_inst_id;
+}
+AliasExport(void, glMultiDrawArraysIndirect, ,
+            (GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride));
+AliasExport(void, glMultiDrawArraysIndirect, ARB,
+            (GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride));
+
+void APIENTRY_GL4ES gl4es_glDrawArraysIndirect(GLenum mode, const void* indirect) {
+    gl4es_glMultiDrawArraysIndirect(mode, indirect, 1, 0);
+}
+AliasExport(void, glDrawArraysIndirect, , (GLenum mode, const void* indirect));
+AliasExport(void, glDrawArraysIndirect, ARB, (GLenum mode, const void* indirect));
+
+void APIENTRY_GL4ES gl4es_glMultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect,
+                                                      GLsizei drawcount, GLsizei stride) {
+    DBG(SHUT_LOGD("glMultiDrawElementsIndirect(%s, %s, %p, %d, %d)\n", PrintEnum(mode), PrintEnum(type), indirect,
+                  drawcount, stride);)
+    if (drawcount <= 0) {
+        if (drawcount < 0) errorShim(GL_INVALID_VALUE);
+        else noerrorShim();
+        return;
+    }
+    if (stride < 0 || (stride != 0 && (stride & 3) != 0)) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+
+    size_t cmd_stride = (stride == 0) ? sizeof(EmesisDrawElementsIndirectCmd) : (size_t)stride;
+    glbuffer_t* ind_buf = (glstate->defaultvao) ? glstate->defaultvao->indirect : glstate->vao->indirect;
+    const uint8_t* cmd_base = NULL;
+    if (ind_buf) {
+        if (!ind_buf->data) emesis_ensure_buffer_cpu_shadow(ind_buf, GL_DRAW_INDIRECT_BUFFER, 1);
+        size_t byte_off = (size_t)(uintptr_t)indirect;
+        size_t req_end = byte_off + (size_t)(drawcount - 1) * cmd_stride + sizeof(EmesisDrawElementsIndirectCmd);
+        if (!ind_buf->data || byte_off > (size_t)ind_buf->size || req_end > (size_t)ind_buf->size) {
+            errorShim(GL_INVALID_OPERATION);
+            return;
+        }
+        cmd_base = (const uint8_t*)ind_buf->data + byte_off;
+    } else {
+        if (!indirect) {
+            errorShim(GL_INVALID_OPERATION);
+            return;
+        }
+        cmd_base = (const uint8_t*)indirect;
+    }
+
+    if (glstate->list.pending) gl4es_flush();
+
+    size_t idx_bytes = (type == GL_UNSIGNED_INT) ? 4u : ((type == GL_UNSIGNED_SHORT) ? 2u : 1u);
+    GLenum draw_mode = (glstate->polygon_mode == GL_POINT && mode >= GL_TRIANGLES) ? GL_POINTS : mode;
+
+    if (!glstate->list.active && !should_intercept_render(mode) && glstate->polygon_mode != GL_LINE &&
+        glstate->render_mode != GL_SELECT && draw_mode != GL_QUADS && draw_mode != GL_QUAD_STRIP &&
+        draw_mode != GL_POLYGON && type != GL_UNSIGNED_BYTE &&
+        (type != GL_UNSIGNED_INT || hardext.elementuint) &&
+        glstate->vao && glstate->vao->elements && glstate->vao->elements->real_buffer &&
+        emesis_vao_has_only_vbo_attribs(1)) {
+        LOAD_GLES2(glVertexAttrib4fv);
+        LOAD_GLES2(glDrawElements);
+        LOAD_GLES2(glDrawElementsBaseVertex);
+        EmesisInstancedAttribInfo inst_infos[MAX_VATTRIB];
+        int n_inst = emesis_collect_instanced_attribs(inst_infos, MAX_VATTRIB);
+
+        int need_bv = 0;
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            EmesisDrawElementsIndirectCmd cmd;
+            memcpy(&cmd, cmd_base + (size_t)i * cmd_stride, sizeof(cmd));
+            if (cmd.count > 0 && cmd.instanceCount > 0 && cmd.baseVertex != 0) {
+                need_bv = 1;
+                break;
+            }
+        }
+
+        if (!need_bv || (hardext.basevertex && gles_glDrawElementsBaseVertex)) {
+            if (glstate->raster.bm_drawing) bitmap_flush();
+            realize_textures(1);
+            scratch_t scratch = {0};
+            realize_glenv(draw_mode == GL_POINTS, 0, 0, type, NULL, &scratch);
+            bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->vao->elements->real_buffer);
+
+            GLuint cur_base_inst = 0xFFFFFFFFu;
+            for (GLsizei i = 0; i < drawcount; ++i) {
+                EmesisDrawElementsIndirectCmd cmd;
+                memcpy(&cmd, cmd_base + (size_t)i * cmd_stride, sizeof(cmd));
+                GLsizei c = adjust_vertices(draw_mode, (GLsizei)cmd.count);
+                if (c <= 0 || cmd.instanceCount == 0) continue;
+                const void* idx_off = (const void*)((size_t)cmd.firstIndex * idx_bytes);
+                for (GLuint inst = 0; inst < cmd.instanceCount; ++inst) {
+                    if (n_inst > 0 && (cmd.instanceCount > 1 || cmd.baseInstance != cur_base_inst)) {
+                        emesis_apply_instanced_attribs(inst_infos, n_inst, inst, cmd.baseInstance,
+                                                       gles_glVertexAttrib4fv);
+                        cur_base_inst = (cmd.instanceCount == 1) ? cmd.baseInstance : 0xFFFFFFFFu;
+                    }
+                    if (cmd.baseVertex != 0) {
+                        gles_glDrawElementsBaseVertex(draw_mode, c, type, idx_off, cmd.baseVertex);
+                    } else {
+                        gles_glDrawElements(draw_mode, c, type, idx_off);
+                    }
+                }
+            }
+
+            emesis_commit_instanced_attribs(inst_infos, n_inst);
+            free_scratch(&scratch);
+            errorGL();
+            return;
+        }
+    }
+
+    GLuint prev_inst_id = glstate->instanceID;
+    for (GLsizei i = 0; i < drawcount; ++i) {
+        EmesisDrawElementsIndirectCmd cmd;
+        memcpy(&cmd, cmd_base + (size_t)i * cmd_stride, sizeof(cmd));
+        if (cmd.count == 0 || cmd.instanceCount == 0) continue;
+        const void* idx_off = (const void*)((size_t)cmd.firstIndex * idx_bytes);
+        for (GLuint inst = 0; inst < cmd.instanceCount; ++inst) {
+            glstate->instanceID = inst + cmd.baseInstance;
+            if (cmd.baseVertex == 0) {
+                gl4es_glDrawElements(mode, (GLsizei)cmd.count, type, idx_off);
+            } else {
+                gl4es_glDrawElementsInstancedBaseVertex(mode, (GLsizei)cmd.count, type, idx_off, 1, cmd.baseVertex);
+            }
+        }
+    }
+    glstate->instanceID = prev_inst_id;
+}
+AliasExport(void, glMultiDrawElementsIndirect, ,
+            (GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride));
+AliasExport(void, glMultiDrawElementsIndirect, ARB,
+            (GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride));
+
 void APIENTRY_GL4ES gl4es_glDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect) {
-    DBG(SHUT_LOGD("glDrawElementsIndirect(%s, %s, %p), vtx=%p map=%p, pending=%d\n", PrintEnum(mode), PrintEnum(type),
-                  indirect, (glstate->vao->vertex) ? glstate->vao->vertex->data : NULL,
-                  (glstate->vao->elements) ? glstate->vao->elements->data : NULL, glstate->list.pending);)
-    scratch_t scratch = {0};
-
-    realize_glenv(mode == GL_POINTS, 0, 0, type, indirect, &scratch);
-    free_scratch(&scratch);
-
-    realize_textures(1);
-    bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->vao->elements->real_buffer);
-
-    LOAD_GLES3_OR_EXT(glDrawElementsIndirect);
-    gles_glDrawElementsIndirect(mode, type, indirect);
+    gl4es_glMultiDrawElementsIndirect(mode, type, indirect, 1, 0);
 }
 AliasExport(void, glDrawElementsIndirect, , (GLenum mode, GLenum type, const void* indirect));
 AliasExport(void, glDrawElementsIndirect, ARB, (GLenum mode, GLenum type, const void* indirect));
