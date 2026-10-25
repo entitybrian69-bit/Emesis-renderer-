@@ -78,6 +78,8 @@ typedef struct {
     GLuint fbo;
     GLuint age;
     int complete;
+    uint8_t has_draw_cfg;
+    uint8_t has_read_cfg;
 } copy_blit_fbo_slot_t;
 
 static __thread copy_blit_fbo_slot_t s_copyBlitCache[COPY_BLIT_FBO_CACHE_SLOTS];
@@ -119,6 +121,20 @@ static GLuint bind_cached_copy_blit_fbo(GLenum fb_target, GLuint tex_glname, GLe
             s_copyBlitCache[i].level == level && s_copyBlitCache[i].attach == attach && s_copyBlitCache[i].fbo) {
             s_copyBlitCache[i].age = ++s_copyBlitClock;
             gles_glBindFramebuffer(fb_target, s_copyBlitCache[i].fbo);
+            if (glstate) glstate->fbo.gles_fb_synced = 0;
+            if (hardext.esversion >= 3) {
+                GLenum buf_mode = (attach == GL_COLOR_ATTACHMENT0) ? GL_COLOR_ATTACHMENT0 : GL_NONE;
+                if (fb_target != GL_READ_FRAMEBUFFER && !s_copyBlitCache[i].has_draw_cfg) {
+                    LOAD_GLES2(glDrawBuffers);
+                    if (gles_glDrawBuffers) gles_glDrawBuffers(1, &buf_mode);
+                    s_copyBlitCache[i].has_draw_cfg = 1;
+                }
+                if (fb_target != GL_DRAW_FRAMEBUFFER && !s_copyBlitCache[i].has_read_cfg) {
+                    LOAD_GLES2(glReadBuffer);
+                    if (gles_glReadBuffer) gles_glReadBuffer(buf_mode);
+                    s_copyBlitCache[i].has_read_cfg = 1;
+                }
+            }
             if (out_complete) *out_complete = s_copyBlitCache[i].complete;
             return s_copyBlitCache[i].fbo;
         }
@@ -144,13 +160,22 @@ static GLuint bind_cached_copy_blit_fbo(GLenum fb_target, GLuint tex_glname, GLe
             gles_glFramebufferTexture2D(fb_target, slot->attach, slot->target ? slot->target : GL_TEXTURE_2D, 0, 0);
         }
     }
+    if (glstate) glstate->fbo.gles_fb_synced = 0;
+    slot->has_draw_cfg = 0;
+    slot->has_read_cfg = 0;
     gles_glFramebufferTexture2D(fb_target, attach, tex_target, tex_glname, level);
     if (hardext.esversion >= 3) {
-        LOAD_GLES2(glDrawBuffers);
-        LOAD_GLES2(glReadBuffer);
         GLenum buf_mode = (attach == GL_COLOR_ATTACHMENT0) ? GL_COLOR_ATTACHMENT0 : GL_NONE;
-        if (gles_glDrawBuffers) gles_glDrawBuffers(1, &buf_mode);
-        if (gles_glReadBuffer) gles_glReadBuffer(buf_mode);
+        if (fb_target != GL_READ_FRAMEBUFFER) {
+            LOAD_GLES2(glDrawBuffers);
+            if (gles_glDrawBuffers) gles_glDrawBuffers(1, &buf_mode);
+            slot->has_draw_cfg = 1;
+        }
+        if (fb_target != GL_DRAW_FRAMEBUFFER) {
+            LOAD_GLES2(glReadBuffer);
+            if (gles_glReadBuffer) gles_glReadBuffer(buf_mode);
+            slot->has_read_cfg = 1;
+        }
     }
     int complete = (!gles_glCheckFramebufferStatus ||
                     gles_glCheckFramebufferStatus(fb_target) == GL_FRAMEBUFFER_COMPLETE)
@@ -382,8 +407,8 @@ void APIENTRY_GL4ES gl4es_glCopyTexSubImage2D(GLenum target, GLint level, GLint 
                 dstTex = (GLuint)currentTex;
             }
             if (gles_glBlitFramebuffer && gles_glBindFramebuffer && dstTex) {
-                GLuint restoreDrawFBO = (glstate->fbo.current_fb && glstate->fbo.current_fb->id)
-                                            ? glstate->fbo.current_fb->id
+                GLuint restoreDrawFBO = (glstate->fbo.fbo_draw && glstate->fbo.fbo_draw->id)
+                                            ? glstate->fbo.fbo_draw->id
                                             : glstate->fbo.mainfbo_fbo;
                 GLenum attach = is_depth ? GL_DEPTH_ATTACHMENT : GL_COLOR_ATTACHMENT0;
                 GLbitfield mask = is_depth ? GL_DEPTH_BUFFER_BIT : GL_COLOR_BUFFER_BIT;
@@ -661,6 +686,11 @@ void APIENTRY_GL4ES gl4es_glCopyImageSubData(GLuint srcName, GLenum srcTarget, G
                         gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, prevRead);
                         gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prevDraw);
                     }
+                    if (glstate) {
+                        glstate->fbo.gles_read_fb = prevRead;
+                        glstate->fbo.gles_draw_fb = prevDraw;
+                        glstate->fbo.gles_fb_synced = 1;
+                    }
                     errorGL();
                     return;
                 }
@@ -669,6 +699,11 @@ void APIENTRY_GL4ES gl4es_glCopyImageSubData(GLuint srcName, GLenum srcTarget, G
                 } else {
                     gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, prevRead);
                     gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prevDraw);
+                }
+                if (glstate) {
+                    glstate->fbo.gles_read_fb = prevRead;
+                    glstate->fbo.gles_draw_fb = prevDraw;
+                    glstate->fbo.gles_fb_synced = 1;
                 }
             }
         }

@@ -105,17 +105,22 @@ int adjust_vertices(GLenum mode, int nb) {
 }
 
 #undef client_state
+#define EMESIS_CUR_ARRAY_BUF ((glstate->defaultvao) ? glstate->defaultvao->vertex : glstate->vao->vertex)
 #define clone_gl_pointer(t, s, n)                                                                                      \
-    t.size = s;                                                                                                        \
-    t.type = type;                                                                                                     \
-    t.stride = stride;                                                                                                 \
-    t.pointer = (void*)((char*)pointer + (uintptr_t)((glstate->vao->vertex) ? glstate->vao->vertex->data : 0));        \
-    t.real_buffer = (glstate->vao->vertex) ? glstate->vao->vertex->real_buffer : 0;                                    \
-    t.real_pointer = (glstate->vao->vertex) ? pointer : 0;                                                             \
-    t.normalized = n;                                                                                                  \
-    t.divisor = 0;                                                                                                     \
-    t.buffer = glstate->vao->vertex;                                                                                   \
-    t.integer = 0
+    do {                                                                                                               \
+        glbuffer_t* _vbuf = EMESIS_CUR_ARRAY_BUF;                                                                      \
+        if (_vbuf) emesis_note_buffer_vao_ref(_vbuf, glstate->vao);                                                    \
+        t.size = s;                                                                                                    \
+        t.type = type;                                                                                                 \
+        t.stride = stride;                                                                                             \
+        t.pointer = (void*)((char*)pointer + (uintptr_t)((_vbuf) ? _vbuf->data : 0));                                  \
+        t.real_buffer = (_vbuf) ? _vbuf->real_buffer : 0;                                                              \
+        t.real_pointer = (_vbuf) ? pointer : 0;                                                                        \
+        t.normalized = n;                                                                                              \
+        t.divisor = 0;                                                                                                 \
+        t.buffer = _vbuf;                                                                                              \
+        t.integer = 0;                                                                                                 \
+    } while (0)
 #define break_lockarrays(t)                                                                                            \
     if (glstate->vao->vertexattrib[t].real_buffer && glstate->vao->locked_mapped[t]) {                                 \
         glstate->vao->vertexattrib[t].real_buffer = 0;                                                                 \

@@ -68,27 +68,55 @@ glframebuffer_t* get_framebuffer(GLenum target) {
 }
 
 void readfboBegin() {
+    LOAD_GLES2_OR_OES(glBindFramebuffer);
+    GLuint rfb = (glstate->fbo.fbo_read && glstate->fbo.fbo_read->id) ? glstate->fbo.fbo_read->id
+                                                                      : glstate->fbo.mainfbo_fbo;
+    if (hardext.esversion >= 3) {
+        if (!glstate->fbo.gles_fb_synced || glstate->fbo.gles_read_fb != rfb) {
+            gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, rfb);
+            glstate->fbo.gles_read_fb = rfb;
+        }
+        return;
+    }
     if (glstate->fbo.fbo_read == glstate->fbo.fbo_draw) return;
     DBG(SHUT_LOGD("readfboBegin, fbo status read=%u, draw=%u, main=%u, current=%u\n", glstate->fbo.fbo_read->id,
                   glstate->fbo.fbo_draw->id, glstate->fbo.mainfbo_fbo, glstate->fbo.current_fb->id);)
     if (glstate->fbo.fbo_read == glstate->fbo.current_fb) return;
     glstate->fbo.current_fb = glstate->fbo.fbo_read;
-    GLuint fbo = glstate->fbo.fbo_read->id;
-    if (!fbo) fbo = glstate->fbo.mainfbo_fbo;
-    LOAD_GLES2_OR_OES(glBindFramebuffer);
-    gles_glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    gles_glBindFramebuffer(GL_FRAMEBUFFER, rfb);
+    glstate->fbo.gles_draw_fb = rfb;
+    glstate->fbo.gles_read_fb = rfb;
+    glstate->fbo.gles_fb_synced = 1;
 }
 
 void readfboEnd() {
+    LOAD_GLES2_OR_OES(glBindFramebuffer);
+    GLuint dfb = (glstate->fbo.fbo_draw && glstate->fbo.fbo_draw->id) ? glstate->fbo.fbo_draw->id
+                                                                      : glstate->fbo.mainfbo_fbo;
+    GLuint rfb = (glstate->fbo.fbo_read && glstate->fbo.fbo_read->id) ? glstate->fbo.fbo_read->id
+                                                                      : glstate->fbo.mainfbo_fbo;
+    if (hardext.esversion >= 3) {
+        glstate->fbo.current_fb = glstate->fbo.fbo_draw;
+        if (dfb == rfb) {
+            gles_glBindFramebuffer(GL_FRAMEBUFFER, dfb);
+        } else {
+            gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, rfb);
+            gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dfb);
+        }
+        glstate->fbo.gles_draw_fb = dfb;
+        glstate->fbo.gles_read_fb = rfb;
+        glstate->fbo.gles_fb_synced = 1;
+        return;
+    }
     if (glstate->fbo.fbo_read->id == glstate->fbo.fbo_draw->id) return;
     DBG(SHUT_LOGD("readfboEnd, fbo status read=%p, draw=%p, main=%u, current=%p\n", glstate->fbo.fbo_read,
                   glstate->fbo.fbo_draw, glstate->fbo.mainfbo_fbo, glstate->fbo.current_fb);)
     if (glstate->fbo.fbo_draw == glstate->fbo.current_fb) return;
     glstate->fbo.current_fb = glstate->fbo.fbo_draw;
-    GLuint fbo = glstate->fbo.fbo_draw->id;
-    if (!fbo) fbo = glstate->fbo.mainfbo_fbo;
-    LOAD_GLES2_OR_OES(glBindFramebuffer);
-    gles_glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    gles_glBindFramebuffer(GL_FRAMEBUFFER, dfb);
+    glstate->fbo.gles_draw_fb = dfb;
+    glstate->fbo.gles_read_fb = dfb;
+    glstate->fbo.gles_fb_synced = 1;
 }
 
 glrenderbuffer_t* find_renderbuffer(GLuint renderbuffer) {
@@ -174,9 +202,14 @@ void APIENTRY_GL4ES gl4es_glDeleteFramebuffers(GLsizei n, GLuint* framebuffers) 
                     }
                     if (glstate->fbo.fbo_read == fb) {
                         glstate->fbo.fbo_read = glstate->fbo.fbo_0;
+                        glstate->fbo.gles_fb_synced = 0;
                     }
                     if (glstate->fbo.fbo_draw == fb) {
                         glstate->fbo.fbo_draw = glstate->fbo.fbo_0;
+                        glstate->fbo.gles_fb_synced = 0;
+                    }
+                    if (glstate->fbo.gles_draw_fb == t || glstate->fbo.gles_read_fb == t) {
+                        glstate->fbo.gles_fb_synced = 0;
                     }
                     free(fb);
                     kh_del(framebufferlist_t, glstate->fbo.framebufferlist, k);
@@ -247,63 +280,106 @@ void APIENTRY_GL4ES gl4es_glBindFramebuffer(GLenum target, GLuint framebuffer) {
         return;
     }
 
+    GLuint real_fb = (framebuffer == 0) ? glstate->fbo.mainfbo_fbo : framebuffer;
+
     if (target == GL_FRAMEBUFFER) {
         if (!glstate->fbo.internal && glstate->fbo.current_fb == fb &&
-            glstate->fbo.fbo_read == fb && glstate->fbo.fbo_draw == fb) {
+            glstate->fbo.fbo_read == fb && glstate->fbo.fbo_draw == fb &&
+            glstate->fbo.gles_fb_synced &&
+            glstate->fbo.gles_draw_fb == real_fb && glstate->fbo.gles_read_fb == real_fb) {
             noerrorShim();
             return;
         }
         glstate->fbo.fbo_read = fb;
         glstate->fbo.fbo_draw = fb;
+        glstate->fbo.current_fb = fb;
         glstate->fbo.internal = 0;
+        gles_glBindFramebuffer(GL_FRAMEBUFFER, real_fb);
+        glstate->fbo.gles_draw_fb = real_fb;
+        glstate->fbo.gles_read_fb = real_fb;
+        glstate->fbo.gles_fb_synced = 1;
+        errorGL();
+        return;
     } else if (target == GL_READ_FRAMEBUFFER) {
+        if (!glstate->fbo.internal && glstate->fbo.fbo_read == fb &&
+            hardext.esversion >= 3 && glstate->fbo.gles_fb_synced &&
+            glstate->fbo.gles_read_fb == real_fb) {
+            noerrorShim();
+            return;
+        }
         glstate->fbo.fbo_read = fb;
         glstate->fbo.internal = 0;
+        if (hardext.esversion >= 3) {
+            gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, real_fb);
+            glstate->fbo.gles_read_fb = real_fb;
+        } else {
+            glstate->fbo.current_fb = fb;
+            gles_glBindFramebuffer(GL_FRAMEBUFFER, real_fb);
+            glstate->fbo.gles_draw_fb = real_fb;
+            glstate->fbo.gles_read_fb = real_fb;
+            glstate->fbo.gles_fb_synced = 1;
+        }
+        errorGL();
+        return;
     } else if (target == GL_DRAW_FRAMEBUFFER) {
+        if (!glstate->fbo.internal && glstate->fbo.fbo_draw == fb && glstate->fbo.current_fb == fb &&
+            hardext.esversion >= 3 && glstate->fbo.gles_fb_synced &&
+            glstate->fbo.gles_draw_fb == real_fb) {
+            noerrorShim();
+            return;
+        }
         glstate->fbo.fbo_draw = fb;
+        glstate->fbo.current_fb = fb;
         glstate->fbo.internal = 0;
+        if (hardext.esversion >= 3) {
+            gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, real_fb);
+            glstate->fbo.gles_draw_fb = real_fb;
+        } else {
+            gles_glBindFramebuffer(GL_FRAMEBUFFER, real_fb);
+            glstate->fbo.gles_draw_fb = real_fb;
+            glstate->fbo.gles_read_fb = real_fb;
+            glstate->fbo.gles_fb_synced = 1;
+        }
+        errorGL();
+        return;
     } else {
         errorShim(GL_INVALID_ENUM);
         return;
     }
-
-    GLuint real_fb = (framebuffer == 0) ? glstate->fbo.mainfbo_fbo : framebuffer;
-    glstate->fbo.current_fb = fb;
-
-    GLenum real_target = (hardext.esversion >= 3) ? target : GL_FRAMEBUFFER;
-    gles_glBindFramebuffer(real_target, real_fb);
-    errorGL();
 }
 
 GLenum ReadDraw_Push(GLenum target) {
-    // if (target == GL_FRAMEBUFFER) return GL_FRAMEBUFFER;
-    // LOAD_GLES2_OR_OES(glBindFramebuffer);
-    // if (target == GL_DRAW_FRAMEBUFFER) {
-    //     if (glstate->fbo.current_fb != glstate->fbo.fbo_draw)
-    //         gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
-    //                                (glstate->fbo.fbo_draw->id) ? glstate->fbo.fbo_draw->id :
-    //                                glstate->fbo.mainfbo_fbo);
-    //     return GL_DRAW_FRAMEBUFFER;
-    // }
-    // if (target == GL_READ_FRAMEBUFFER) {
-    //     if (glstate->fbo.current_fb != glstate->fbo.fbo_read)
-    //         gles_glBindFramebuffer(GL_READ_FRAMEBUFFER,
-    //                                (glstate->fbo.fbo_read->id) ? glstate->fbo.fbo_read->id :
-    //                                glstate->fbo.mainfbo_fbo);
-    //     return GL_READ_FRAMEBUFFER;
-    // }
+    if (hardext.esversion >= 3 || target == GL_FRAMEBUFFER) return target;
+    LOAD_GLES2_OR_OES(glBindFramebuffer);
+    if (target == GL_DRAW_FRAMEBUFFER) {
+        if (glstate->fbo.current_fb != glstate->fbo.fbo_draw) {
+            GLuint dfb = (glstate->fbo.fbo_draw->id) ? glstate->fbo.fbo_draw->id : glstate->fbo.mainfbo_fbo;
+            gles_glBindFramebuffer(GL_FRAMEBUFFER, dfb);
+            glstate->fbo.gles_draw_fb = dfb;
+            glstate->fbo.gles_read_fb = dfb;
+        }
+        return GL_FRAMEBUFFER;
+    }
+    if (target == GL_READ_FRAMEBUFFER) {
+        if (glstate->fbo.current_fb != glstate->fbo.fbo_read) {
+            GLuint rfb = (glstate->fbo.fbo_read->id) ? glstate->fbo.fbo_read->id : glstate->fbo.mainfbo_fbo;
+            gles_glBindFramebuffer(GL_FRAMEBUFFER, rfb);
+            glstate->fbo.gles_draw_fb = rfb;
+            glstate->fbo.gles_read_fb = rfb;
+        }
+        return GL_FRAMEBUFFER;
+    }
     return target;
 }
 void ReadDraw_Pop(GLenum target) {
-    if (target == GL_FRAMEBUFFER) return;
+    if (hardext.esversion >= 3 || target == GL_FRAMEBUFFER) return;
     LOAD_GLES2_OR_OES(glBindFramebuffer);
-    if (target == GL_DRAW_FRAMEBUFFER && glstate->fbo.current_fb != glstate->fbo.fbo_draw) {
-        gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
-                               (glstate->fbo.current_fb->id) ? glstate->fbo.current_fb->id : glstate->fbo.mainfbo_fbo);
-    }
-    if (target == GL_READ_FRAMEBUFFER && glstate->fbo.current_fb != glstate->fbo.fbo_read) {
-        gles_glBindFramebuffer(GL_READ_FRAMEBUFFER,
-                               (glstate->fbo.current_fb->id) ? glstate->fbo.current_fb->id : glstate->fbo.mainfbo_fbo);
+    if ((target == GL_DRAW_FRAMEBUFFER && glstate->fbo.current_fb != glstate->fbo.fbo_draw) ||
+        (target == GL_READ_FRAMEBUFFER && glstate->fbo.current_fb != glstate->fbo.fbo_read)) {
+        GLuint cfb = (glstate->fbo.current_fb->id) ? glstate->fbo.current_fb->id : glstate->fbo.mainfbo_fbo;
+        gles_glBindFramebuffer(GL_FRAMEBUFFER, cfb);
+        glstate->fbo.gles_draw_fb = cfb;
+        glstate->fbo.gles_read_fb = cfb;
     }
 }
 
@@ -1404,6 +1480,7 @@ void createMainFBO(int width, int height) {
         if (glstate->fbo.current_fb->id == 0)
             gles_glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     }
+    glstate->fbo.gles_fb_synced = 0;
 }
 
 void blitMainFBO(int x, int y, int width, int height) {
@@ -1440,6 +1517,7 @@ void bindMainFBO() {
     if (!glstate->fbo.mainfbo_fbo) return;
     if (glstate->fbo.current_fb->id == 0) {
         gles_glBindFramebuffer(GL_FRAMEBUFFER, glstate->fbo.mainfbo_fbo);
+        glstate->fbo.gles_fb_synced = 0;
         // gles_glCheckFramebufferStatus(GL_FRAMEBUFFER);
     }
 }
@@ -1449,6 +1527,7 @@ void unbindMainFBO() {
     if (!glstate->fbo.mainfbo_fbo) return;
     if (glstate->fbo.current_fb->id == 0) {
         gles_glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glstate->fbo.gles_fb_synced = 0;
     }
 }
 
@@ -1655,8 +1734,11 @@ GLuint gl4es_getCurrentFBO() {
 
 void gl4es_setCurrentFBO() {
     LOAD_GLES2_OR_OES(glBindFramebuffer);
-    gles_glBindFramebuffer(GL_FRAMEBUFFER,
-                           (glstate->fbo.current_fb->id) ? glstate->fbo.current_fb->id : glstate->fbo.mainfbo_fbo);
+    GLuint cfb = (glstate->fbo.current_fb->id) ? glstate->fbo.current_fb->id : glstate->fbo.mainfbo_fbo;
+    gles_glBindFramebuffer(GL_FRAMEBUFFER, cfb);
+    glstate->fbo.gles_draw_fb = cfb;
+    glstate->fbo.gles_read_fb = cfb;
+    glstate->fbo.gles_fb_synced = 0;
 }
 
 static inline GLboolean is_default_fbo(const glframebuffer_t* fb) {
@@ -2080,6 +2162,7 @@ void gl4es_saveCurrentFBO() {
         if ((hardext.vendor & VEND_ARM) && hardext.esversion < 3)
             gl4es_glFinish(); // Legacy ES2 Mali workaround; ES 3.x Mali tracks FBO hazards in hardware
         gles_glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glstate->fbo.gles_fb_synced = 0;
     }
 }
 
@@ -2090,6 +2173,7 @@ void gl4es_restoreCurrentFBO() {
     if (framebuffer) {
         LOAD_GLES2_OR_OES(glBindFramebuffer);
         gles_glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        glstate->fbo.gles_fb_synced = 0;
     }
 }
 

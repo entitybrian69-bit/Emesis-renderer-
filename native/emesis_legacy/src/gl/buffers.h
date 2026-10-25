@@ -30,12 +30,18 @@ typedef struct {
     GLvoid* original_data;
     GLuint single_vao_id;
     uint32_t vao_ref_hint;
+    uint8_t gpu_dirty;
+    uint8_t is_indirect;
+    uint8_t used_by_divisor;
+    uint8_t used_by_divisor0_draw;
+    uint8_t realloc_streak;
 
 } glbuffer_t;
 
 KHASH_MAP_DECLARE_INT(buff, glbuffer_t*);
 
 void bindBuffer(GLenum target, GLuint buffer);
+void emesis_sync_gpu_buffer(glbuffer_t* buff, GLenum hint_target);
 
 void APIENTRY_GL4ES gl4es_glGenBuffers(GLsizei n, GLuint* buffers);
 void APIENTRY_GL4ES gl4es_glBindBuffer(GLenum target, GLuint buffer);

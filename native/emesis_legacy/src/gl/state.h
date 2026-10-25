@@ -271,6 +271,10 @@ typedef struct {
     glframebuffer_t* fbo_draw;
     glframebuffer_t* current_fb;
 
+    GLuint gles_draw_fb;
+    GLuint gles_read_fb;
+    int gles_fb_synced;
+
     GLenum fb_status;
     int internal;
 

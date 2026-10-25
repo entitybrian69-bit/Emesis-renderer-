@@ -230,11 +230,17 @@ emesis_hash128_t emesis_shader_compute_key(GLenum shader_type,
     int32_t highp = (int32_t)hardext.highp;
     int32_t maxvarying = (int32_t)hardext.maxvarying;
     int32_t notexarray = (int32_t)globals4es.notexarray;
+    uint32_t glsl_caps = ((uint32_t)(hardext.glsl320es & 1) << 0) |
+                         ((uint32_t)(hardext.glsl310es & 1) << 1) |
+                         ((uint32_t)(hardext.glsl300es & 1) << 2) |
+                         ((uint32_t)(hardext.glsl120 & 1) << 3) |
+                         ((uint32_t)(hardext.esversion & 0xFF) << 8);
     hash128_update(&h, &st, sizeof(st));
     hash128_update(&h, &essl, sizeof(essl));
     hash128_update(&h, &highp, sizeof(highp));
     hash128_update(&h, &maxvarying, sizeof(maxvarying));
     hash128_update(&h, &notexarray, sizeof(notexarray));
+    hash128_update(&h, &glsl_caps, sizeof(glsl_caps));
     if (need) {
         hash128_update(&h, need, sizeof(*need));
     }

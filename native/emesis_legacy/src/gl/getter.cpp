@@ -652,23 +652,46 @@ extern "C"
                           ? glstate->texture.bound[glstate->texture.active][ENABLED_TEXTURE_2D_ARRAY]->texture
                           : 0;
             break;
-        case GL_ARRAY_BUFFER_BINDING:
-            *params = (glstate->vao->vertex) ? glstate->vao->vertex->buffer : 0;
+        case GL_ARRAY_BUFFER_BINDING: {
+            glvao_t* h = glstate->defaultvao ? glstate->defaultvao : glstate->vao;
+            *params = (h && h->vertex) ? h->vertex->buffer : 0;
             break;
+        }
         case GL_ELEMENT_ARRAY_BUFFER_BINDING:
-            *params = (glstate->vao->elements) ? glstate->vao->elements->buffer : 0;
+            *params = (glstate->vao && glstate->vao->elements) ? glstate->vao->elements->buffer : 0;
             break;
-        case GL_COPY_READ_BUFFER_BINDING:
-            *params = (glstate->vao->read) ? glstate->vao->read->buffer : 0;
+        case GL_COPY_READ_BUFFER_BINDING: {
+            glvao_t* h = glstate->defaultvao ? glstate->defaultvao : glstate->vao;
+            *params = (h && h->read) ? h->read->buffer : 0;
             break;
-        case GL_COPY_WRITE_BUFFER_BINDING:
-            *params = (glstate->vao->write) ? glstate->vao->write->buffer : 0;
+        }
+        case GL_COPY_WRITE_BUFFER_BINDING: {
+            glvao_t* h = glstate->defaultvao ? glstate->defaultvao : glstate->vao;
+            *params = (h && h->write) ? h->write->buffer : 0;
             break;
-        case GL_PIXEL_PACK_BUFFER_BINDING:
-            *params = (glstate->vao->pack) ? glstate->vao->pack->buffer : 0;
+        }
+        case GL_PIXEL_PACK_BUFFER_BINDING: {
+            glvao_t* h = glstate->defaultvao ? glstate->defaultvao : glstate->vao;
+            *params = (h && h->pack) ? h->pack->buffer : 0;
             break;
-        case GL_PIXEL_UNPACK_BUFFER_BINDING:
-            *params = (glstate->vao->unpack) ? glstate->vao->unpack->buffer : 0;
+        }
+        case GL_PIXEL_UNPACK_BUFFER_BINDING: {
+            glvao_t* h = glstate->defaultvao ? glstate->defaultvao : glstate->vao;
+            *params = (h && h->unpack) ? h->unpack->buffer : 0;
+            break;
+        }
+        case 0x8F43: /* GL_DRAW_INDIRECT_BUFFER_BINDING */ {
+            glvao_t* h = glstate->defaultvao ? glstate->defaultvao : glstate->vao;
+            *params = (h && h->indirect) ? h->indirect->buffer : 0;
+            break;
+        }
+        case 0x8A28: /* GL_UNIFORM_BUFFER_BINDING */ {
+            glvao_t* h = glstate->defaultvao ? glstate->defaultvao : glstate->vao;
+            *params = (h && h->uniform) ? h->uniform->buffer : 0;
+            break;
+        }
+        case 0x85B5: /* GL_VERTEX_ARRAY_BINDING */
+            *params = (glstate->vao) ? glstate->vao->array : 0;
             break;
         case GL_MAX_TEXTURE_MAX_ANISOTROPY:
             if (hardext.aniso)

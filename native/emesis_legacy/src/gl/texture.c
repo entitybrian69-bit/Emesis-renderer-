@@ -2201,7 +2201,8 @@ void APIENTRY_GL4ES gl4es_glTexImage2D(GLenum target, GLint level, GLint interna
         if (!(globals4es.texstream && bound->streamed)) {
             if ((target != GL_TEXTURE_RECTANGLE_ARB) && (GL4ES_AUTOMIPMAP_PLACEHOLDER != 3) &&
                 (bound->mipmap_need || bound->mipmap_auto) && !(bound->npot && hardext.npot < 2) &&
-                (bound->max_level == -1)) {
+                (bound->max_level == -1) && !bound->binded_fbo &&
+                format != GL_DEPTH_COMPONENT && format != GL_DEPTH_STENCIL) {
                 if (hardext.esversion < 2)
                     gles_glTexParameteri(rtarget, GL_GENERATE_MIPMAP, GL_TRUE);
                 else

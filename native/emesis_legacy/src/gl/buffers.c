@@ -125,6 +125,18 @@ void bind_buffer(GLenum target, glbuffer_t* buff) {
     if (target != GL_ELEMENT_ARRAY_BUFFER && glstate && glstate->defaultvao && glstate->vao != glstate->defaultvao) {
         emesis_sync_global_vao_bindings(glstate->vao, glstate->defaultvao);
     }
+    if (buff) {
+        if (target == GL_DRAW_INDIRECT_BUFFER) {
+            buff->is_indirect = 1;
+        } else if (target == GL_ELEMENT_ARRAY_BUFFER || target == GL_UNIFORM_BUFFER ||
+                   target == GL_TEXTURE_BUFFER || target == GL_COPY_READ_BUFFER ||
+                   target == GL_COPY_WRITE_BUFFER) {
+            buff->used_by_divisor0_draw = 1;
+            if (buff->gpu_dirty) {
+                emesis_sync_gpu_buffer(buff, target);
+            }
+        }
+    }
     if (target == GL_ARRAY_BUFFER || target == GL_ELEMENT_ARRAY_BUFFER) {
         emesis_note_buffer_vao_ref(buff, glstate ? glstate->vao : NULL);
     }
@@ -169,11 +181,43 @@ void rebind_real_buff_arrays(int old_buffer, int new_buffer) {
     }
 }
 
+void emesis_sync_gpu_buffer(glbuffer_t* buff, GLenum hint_target) {
+    if (!buff) return;
+    buff->used_by_divisor0_draw = 1;
+    if (!buff->gpu_dirty && buff->real_buffer) return;
+    GLuint prev_real = buff->real_buffer;
+    LOAD_GLES(glBufferData);
+    LOAD_GLES(glGenBuffers);
+    if (!buff->real_buffer) {
+        gles_glGenBuffers(1, &buff->real_buffer);
+        if (!buff->real_buffer) return;
+    }
+    GLenum up_tgt = (hint_target == GL_ELEMENT_ARRAY_BUFFER) ? GL_ELEMENT_ARRAY_BUFFER : GL_ARRAY_BUFFER;
+    GLuint prev_want = glstate->bind_buffer.want_index;
+    GLuint prev_idx = glstate->bind_buffer.index;
+    bindBuffer(up_tgt, buff->real_buffer);
+    gles_glBufferData(up_tgt, buff->size, (buff->size > 0) ? buff->data : NULL,
+                      buff->usage ? buff->usage : GL_STATIC_DRAW);
+    if (up_tgt == GL_ELEMENT_ARRAY_BUFFER && prev_idx != buff->real_buffer) {
+        bindBuffer(GL_ELEMENT_ARRAY_BUFFER, prev_idx);
+        glstate->bind_buffer.want_index = prev_want;
+    }
+    buff->gpu_dirty = 0;
+    if (buff->real_buffer != prev_real && glstate) {
+        for (int i = 0; i < hardext.maxvattrib; ++i) {
+            if (glstate->vao->vertexattrib[i].buffer == buff) {
+                glstate->vao->vertexattrib[i].real_buffer = buff->real_buffer;
+            }
+        }
+    }
+}
+
 void VISIBLE glTexBuffer(GLenum target, GLenum internalformat, GLuint buffer) {
     DBG(SHUT_LOGD("glTexBuffer(%s, %s, %u)\n", PrintEnum(target), PrintEnum(internalformat), buffer);)
     LOAD_GLES3(glTexBuffer);
     glbuffer_t* realBuffer = getbuffer_id(buffer);
-    gles_glTexBuffer(target, internalformat, realBuffer->real_buffer);
+    if (realBuffer) emesis_sync_gpu_buffer(realBuffer, GL_ARRAY_BUFFER);
+    gles_glTexBuffer(target, internalformat, realBuffer ? realBuffer->real_buffer : 0);
 }
 
 void APIENTRY_GL4ES gl4es_glGenBuffers(GLsizei n, GLuint* buffers) {
@@ -262,36 +306,73 @@ void APIENTRY_GL4ES gl4es_glBufferData(GLenum target, GLsizeiptr size, const GLv
     }
     if (target == GL_ARRAY_BUFFER) VaoSharedClear(glstate->vao);
 
+    int is_cpu_emul_target = (target == GL_PIXEL_PACK_BUFFER || target == GL_PIXEL_UNPACK_BUFFER ||
+                              target == GL_DRAW_INDIRECT_BUFFER);
+    if (target == GL_DRAW_INDIRECT_BUFFER) {
+        buff->is_indirect = 1;
+    }
+
     int go_real = 0;
     if ((target == GL_ARRAY_BUFFER || target == GL_ELEMENT_ARRAY_BUFFER) && globals4es.usevbo)
         go_real = 1;
 
     if (target == GL_UNIFORM_BUFFER || target == GL_COPY_WRITE_BUFFER || target == GL_COPY_READ_BUFFER ||
-        target == GL_TEXTURE_BUFFER || target == GL_PIXEL_PACK_BUFFER || target == GL_PIXEL_UNPACK_BUFFER ||
-        target == GL_DRAW_INDIRECT_BUFFER)
+        target == GL_TEXTURE_BUFFER)
         go_real = 1;
 
+    /* Fast path for CPU-consumed per-pass buffers (e.g. Sodium MultidrawChunkRenderBackend
+       commandBuffer on GL_DRAW_INDIRECT_BUFFER and uniformBuffer on divisor>0 ModelOffset):
+       avoid 8x/frame Mali kbase glBufferData kernel page allocations unless GPU actually binds it */
+    int defer_gpu_upload = 0;
+    if (is_cpu_emul_target && !buff->used_by_divisor0_draw) {
+        defer_gpu_upload = 1;
+        go_real = 0;
+    } else if (target == GL_ARRAY_BUFFER && buff->real_buffer &&
+               (buff->is_indirect || buff->used_by_divisor) && !buff->used_by_divisor0_draw) {
+        defer_gpu_upload = 1;
+    } else if (size == 0 && data == NULL && buff->real_buffer &&
+               (usage == GL_STREAM_COPY || usage == GL_DYNAMIC_COPY)) {
+        /* Skip 0-byte invalidateBuffer kbase free/alloc churn; next upload orphans cleanly */
+        buff->size = 0;
+        buff->usage = usage;
+        noerrorShim();
+        return;
+    }
+
     GLuint prev_real_buffer = buff->real_buffer;
-    if (buff->real_buffer && !go_real) {
+    if (buff->real_buffer && !go_real && !defer_gpu_upload) {
         rebind_real_buff_arrays(buff->real_buffer, 0);
 
         deleteSingleBuffer(buff->real_buffer);
         // what about VA already pointing there?
         buff->real_buffer = 0;
     }
-    if (go_real) {
+    if (go_real && !defer_gpu_upload) {
+        int had_real = (buff->real_buffer != 0);
         if (!buff->real_buffer) {
             LOAD_GLES(glGenBuffers);
             gles_glGenBuffers(1, &buff->real_buffer);
         }
+        if (had_real && buff->realloc_streak < 255) {
+            buff->realloc_streak++;
+        }
+        GLenum hw_usage = usage;
+        if (buff->realloc_streak >= 3 && usage == GL_STATIC_DRAW && size > 0 && size <= 524288) {
+            hw_usage = GL_STREAM_DRAW;
+        }
+        GLenum hw_target = is_cpu_emul_target ? GL_ARRAY_BUFFER : target;
         LOAD_GLES(glBufferData);
         LOAD_GLES(glBindBuffer);
-        bindBuffer(target, buff->real_buffer);
-        gles_glBufferData(target, size, data, usage);
+        bindBuffer(hw_target, buff->real_buffer);
+        gles_glBufferData(hw_target, size, data, hw_usage);
+        buff->gpu_dirty = 0;
         DBG(SHUT_LOGD(" => real VBO %d\n", buff->real_buffer);)
+    } else if (defer_gpu_upload) {
+        buff->gpu_dirty = 1;
     }
 
-    int skip_cpu_shadow = (go_real && buff->real_buffer && emesis_has_gpu_copy_buffer() && !buff->mapped &&
+    int skip_cpu_shadow = (!defer_gpu_upload && !is_cpu_emul_target &&
+                           go_real && buff->real_buffer && emesis_has_gpu_copy_buffer() && !buff->mapped &&
                            (((target == GL_COPY_WRITE_BUFFER || target == GL_COPY_READ_BUFFER) && data == NULL) ||
                             (target == GL_ARRAY_BUFFER && usage == GL_STREAM_COPY)));
     if (skip_cpu_shadow) {
@@ -480,13 +561,14 @@ void APIENTRY_GL4ES gl4es_glBufferSubData(GLenum target, GLintptr offset, GLsize
     }
 
     if ((target == GL_ARRAY_BUFFER || target == GL_ELEMENT_ARRAY_BUFFER || target == GL_UNIFORM_BUFFER ||
-         target == GL_COPY_WRITE_BUFFER || target == GL_COPY_READ_BUFFER || target == GL_TEXTURE_BUFFER ||
-         target == GL_PIXEL_PACK_BUFFER || target == GL_PIXEL_UNPACK_BUFFER || target == GL_DRAW_INDIRECT_BUFFER) &&
-        buff->real_buffer) {
+         target == GL_COPY_WRITE_BUFFER || target == GL_COPY_READ_BUFFER || target == GL_TEXTURE_BUFFER) &&
+        buff->real_buffer && !buff->gpu_dirty) {
         LOAD_GLES(glBufferSubData);
         LOAD_GLES(glBindBuffer);
         bindBuffer(target, buff->real_buffer);
         gles_glBufferSubData(target, offset, size, data);
+    } else if (buff->real_buffer) {
+        buff->gpu_dirty = 1;
     }
 
     if (!buff->data && !buff->real_buffer && buff->size > 0) {
@@ -995,6 +1077,11 @@ void APIENTRY_GL4ES gl4es_glCopyBufferSubData(GLenum readTarget, GLenum writeTar
         return;
     }
 
+    if (readbuff->gpu_dirty) emesis_sync_gpu_buffer(readbuff, GL_ARRAY_BUFFER);
+    if (writebuff->gpu_dirty) emesis_sync_gpu_buffer(writebuff, GL_ARRAY_BUFFER);
+    readbuff->used_by_divisor0_draw = 1;
+    writebuff->used_by_divisor0_draw = 1;
+
     if (writebuff->data && readbuff->data) {
         memmove((char*)writebuff->data + writeOffset, (char*)readbuff->data + readOffset, (size_t)size);
     } else if (writebuff->data && !readbuff->data && !writebuff->mapped && writebuff->real_buffer) {
@@ -1051,12 +1138,8 @@ void APIENTRY_GL4ES gl4es_glBindBufferBase(GLenum target, GLuint index, GLuint b
         errorShim(GL_INVALID_OPERATION);
         return;
     }
-    if (!buff->real_buffer) {
-        LOAD_GLES(glGenBuffers);
-        LOAD_GLES(glBufferData);
-        gles_glGenBuffers(1, &buff->real_buffer);
-        bindBuffer(target, buff->real_buffer);
-        gles_glBufferData(target, buff->size, buff->size > 0 ? buff->data : NULL, buff->usage);
+    if (!buff->real_buffer || buff->gpu_dirty) {
+        emesis_sync_gpu_buffer(buff, GL_ARRAY_BUFFER);
     }
     gles_glBindBufferBase(target, index, buff->real_buffer);
     noerrorShim();
@@ -1082,12 +1165,8 @@ void APIENTRY_GL4ES gl4es_glBindBufferRange(GLenum target, GLuint index, GLuint 
         return;
     }
 
-    if (!buff->real_buffer) {
-        LOAD_GLES(glGenBuffers);
-        LOAD_GLES(glBufferData);
-        gles_glGenBuffers(1, &buff->real_buffer);
-        bindBuffer(target, buff->real_buffer);
-        gles_glBufferData(target, buff->size, buff->size > 0 ? buff->data : NULL, buff->usage);
+    if (!buff->real_buffer || buff->gpu_dirty) {
+        emesis_sync_gpu_buffer(buff, GL_ARRAY_BUFFER);
     }
 
     gles_glBindBufferRange(target, index, buff->real_buffer, offset, size);

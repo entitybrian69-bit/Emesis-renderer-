@@ -343,7 +343,8 @@ void APIENTRY_GL4ES gl4es_glCompressedTexImage2D(GLenum target, GLint level, GLe
         bound->wanted_internal = bound->internalformat = internalformat;
         bound->compressed = 1;
         bound->valid = 1;
-        if (glstate->fpe_state && glstate->fpe_bound_changed < glstate->texture.active + 1)
+        if (glstate->fpe_state && glstate->texture.active < MAX_TEX &&
+            glstate->fpe_bound_changed < glstate->texture.active + 1)
             glstate->fpe_bound_changed = glstate->texture.active + 1;
         gles_glCompressedTexImage2D(rtarget, level, internalformat, width, height, border, imageSize, datab);
         errorGL();

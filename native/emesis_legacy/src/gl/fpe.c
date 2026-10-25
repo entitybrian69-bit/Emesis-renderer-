@@ -1236,7 +1236,9 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
     LOAD_GLES2(glUseProgram);
     // update texture state for fpe only
     if (glstate->fpe_bound_changed && !glstate->glsl->program) {
-        for (int i = 0; i < glstate->fpe_bound_changed; i++) {
+        int fpe_max = glstate->fpe_bound_changed;
+        if (fpe_max > MAX_TEX) fpe_max = MAX_TEX;
+        for (int i = 0; i < fpe_max; i++) {
             glstate->fpe_state->texture[i].texformat = 0;
             glstate->fpe_state->texture[i].texadjust = 0;
             // disable texture unit, in that case (binded texture iconsts not valid)
@@ -1685,6 +1687,13 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
             }
             // check if new value has to be sent to hardware
             if (v->enabled) {
+                if (w->buffer && w->size != GL_BGRA && w->type != GL_DOUBLE) {
+                    w->buffer->used_by_divisor0_draw = 1;
+                    if (w->buffer->gpu_dirty) {
+                        emesis_sync_gpu_buffer(w->buffer, GL_ARRAY_BUFFER);
+                        w->real_buffer = w->buffer->real_buffer;
+                    }
+                }
                 if (w->real_buffer != 0 && w->size != GL_BGRA && w->type != GL_DOUBLE) {
                     /* Fast GPU VBO attribute path (Sodium/OptiFine/vanilla VBOs) */
                     if (dirty || v->real_buffer != w->real_buffer || v->real_pointer != w->real_pointer ||
@@ -1780,8 +1789,11 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
                 char* current = (char*)glstate->vavalue[i];
                 GLfloat tmp[4] = {0.0f, 0.0f, 0.0f, 1.0f};
                 if (w->divisor && w->enabled) {
-                    if (w->buffer && !w->buffer->data) {
-                        emesis_ensure_buffer_cpu_shadow(w->buffer, GL_ARRAY_BUFFER, 1);
+                    if (w->buffer) {
+                        w->buffer->used_by_divisor = 1;
+                        if (!w->buffer->data) {
+                            emesis_ensure_buffer_cpu_shadow(w->buffer, GL_ARRAY_BUFFER, 1);
+                        }
                     }
                     current = (char*)((uintptr_t)w->pointer + ((w->buffer) ? (uintptr_t)w->buffer->data : 0));
                     int stride = w->stride;

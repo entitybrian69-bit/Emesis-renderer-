@@ -16,7 +16,7 @@ jobs:
       - name: Verify Universal Plugin APK with Official Android SDK Build-Tools
         run: |
           set -euo pipefail
-          APK="EmesisRenderer-Universal-v1.2.0.apk"
+          APK="EmesisRenderer-Universal-v1.2.1.apk"
           test -f "${APK}"
           ls -lh "${APK}"
           sha256sum "${APK}"
@@ -27,47 +27,47 @@ jobs:
           "${BT_DIR}/apksigner" verify --verbose --print-certs --min-sdk-version 21 --max-sdk-version 34 "${APK}"
           "${BT_DIR}/aapt2" dump badging "${APK}" | head -n 35
 
-      - name: Create or Update GitHub Release v1.2.0
+      - name: Create or Update GitHub Release v1.2.1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 - << 'PY'
           import hashlib, pathlib, textwrap
 
-          apk = pathlib.Path("EmesisRenderer-Universal-v1.2.0.apk")
+          apk = pathlib.Path("EmesisRenderer-Universal-v1.2.1.apk")
           sha256 = hashlib.sha256(apk.read_bytes()).hexdigest()
 
           notes = textwrap.dedent(f"""\
           <div align="center">
             <img src="https://raw.githubusercontent.com/entitybrian69-bit/Emesis-renderer-/arena/fac24748-emesis-renderer/assets/emesis_logo.png" alt="Emesis Renderer — Made by Entitybrian" width="240" />
 
-            # Emesis Renderer v1.2.0 — High-FPS `<1.17` MultiDrawIndirect & Zero-Stutter Shader Accelerator
+            # Emesis Renderer v1.2.1 — High-FPS `<1.17` Shader & HUD Fix + Zero-Churn Mali Accelerator
             ### **Made by Entitybrian**
           </div>
 
-          **Emesis Renderer v1.2.0** is a universal all-in-one Android Minecraft: Java Edition launcher renderer plugin APK created by **Entitybrian**, compatible across **all variants of Pojav** and 32-bit / 64-bit Android devices, with full `< 1.17` Shader Acceleration (`1.6.4` – `1.7.10` – `1.8.9` – `1.12.2` – `1.16.5`) and `> 1.16.5` Modern Core rendering (`1.17` – `1.21.x`, `26.x+`).
+          **Emesis Renderer v1.2.1** is a universal all-in-one Android Minecraft: Java Edition launcher renderer plugin APK created by **Entitybrian**, compatible across **all variants of Pojav** and 32-bit / 64-bit Android devices, with full `< 1.17` Shader Acceleration (`1.6.4` – `1.7.10` – `1.8.9` – `1.12.2` – `1.16.5`) and `> 1.16.5` Modern Core rendering (`1.17` – `1.21.x`, `26.x+`).
 
           ---
 
           ### Package Details
-          - **Asset:** `EmesisRenderer-Universal-v1.2.0.apk`
-          - **Application ID:** `com.entitybrian.emesis.renderer` (`versionName "1.2.0"`, `versionCode 120`, `compileSdkVersion 34`, `minSdkVersion 21`, `targetSdkVersion 34`, signed v1 + v2 + v3)
+          - **Asset:** `EmesisRenderer-Universal-v1.2.1.apk`
+          - **Application ID:** `com.entitybrian.emesis.renderer` (`versionName "1.2.1"`, `versionCode 121`, `compileSdkVersion 34`, `minSdkVersion 21`, `targetSdkVersion 34`, signed v1 + v2 + v3)
           - **SHA-256:** `{sha256}`
           """)
 
           pathlib.Path("/tmp/release_notes.md").write_text(notes, encoding="utf-8")
           PY
 
-          if gh release view v1.2.0 >/dev/null 2>&1; then
-            gh release edit v1.2.0 \
-              --title "Emesis Renderer v1.2.0 — Made by Entitybrian" \
+          if gh release view v1.2.1 >/dev/null 2>&1; then
+            gh release edit v1.2.1 \
+              --title "Emesis Renderer v1.2.1 — Made by Entitybrian" \
               --notes-file /tmp/release_notes.md \
               --latest
-            gh release upload v1.2.0 EmesisRenderer-Universal-v1.2.0.apk --clobber
+            gh release upload v1.2.1 EmesisRenderer-Universal-v1.2.1.apk --clobber
           else
-            gh release create v1.2.0 EmesisRenderer-Universal-v1.2.0.apk \
+            gh release create v1.2.1 EmesisRenderer-Universal-v1.2.1.apk \
               --target "${GITHUB_SHA}" \
-              --title "Emesis Renderer v1.2.0 — Made by Entitybrian" \
+              --title "Emesis Renderer v1.2.1 — Made by Entitybrian" \
               --notes-file /tmp/release_notes.md \
               --latest
           fi

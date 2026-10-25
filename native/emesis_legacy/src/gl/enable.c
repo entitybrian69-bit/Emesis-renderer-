@@ -37,8 +37,8 @@ static void fpe_changelight(int n, bool enable)
 }
 static void fpe_changetex(int n)
 {
-    if(glstate->fpe_bound_changed < n+1)
-        glstate->fpe_bound_changed = n+1;
+    if (n >= 0 && n < MAX_TEX && glstate->fpe_bound_changed < n + 1)
+        glstate->fpe_bound_changed = n + 1;
 }
 #define generate_changetexgen(C) \
 static void fpe_changetexgen_##C(int n, bool enable) \

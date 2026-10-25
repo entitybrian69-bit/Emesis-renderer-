@@ -197,9 +197,11 @@ void APIENTRY_GL4ES gl4es_glBindTexture(GLenum target, GLuint texture) {
         int tex_changed = 1;
         gltexture_t* tex = NULL;
         const GLuint itarget = what_target(target);
+        gltexture_t* cur_bound = glstate->texture.bound[glstate->texture.active][itarget];
+        if (cur_bound && cur_bound->texture == texture) return;
 
         tex = gl4es_getTexture(target, texture);
-        if (glstate->texture.bound[glstate->texture.active][itarget] == tex) return;
+        if (cur_bound == tex) return;
 
         FLUSH_BEGINEND;
         tex_changed = glstate->texture.active + 1;
@@ -228,7 +230,8 @@ void APIENTRY_GL4ES gl4es_glBindTexture(GLenum target, GLuint texture) {
                 glstate->bound_changed = glstate->texture.active + 1;
             if ((unsigned)glstate->texture.active < 32u)
                 glstate->bound_dirty_mask |= (1u << (unsigned)glstate->texture.active);
-            if (glstate->fpe_state && glstate->fpe_bound_changed < glstate->texture.active + 1)
+            if (glstate->fpe_state && glstate->texture.active < MAX_TEX &&
+                glstate->fpe_bound_changed < glstate->texture.active + 1)
                 glstate->fpe_bound_changed = glstate->texture.active + 1;
             break;
         }
@@ -549,7 +552,7 @@ void APIENTRY_GL4ES gl4es_glDeleteTextures(GLsizei n, const GLuint* textures) {
                             glstate->bound_changed = a + 1;
                         if ((unsigned)a < 32u)
                             glstate->bound_dirty_mask |= (1u << (unsigned)a);
-                        if (glstate->fpe_state && glstate->fpe_bound_changed < a + 1)
+                        if (glstate->fpe_state && a < MAX_TEX && glstate->fpe_bound_changed < a + 1)
                             glstate->fpe_bound_changed = a + 1;
                     }
                 }
@@ -914,7 +917,8 @@ void realize_bound(int TMU, GLenum target) {
         break;
     }
     // all done
-    if (glstate->fpe_state && glstate->fpe_bound_changed < TMU + 1) glstate->fpe_bound_changed = TMU + 1;
+    if (glstate->fpe_state && TMU < MAX_TEX && glstate->fpe_bound_changed < TMU + 1)
+        glstate->fpe_bound_changed = TMU + 1;
 }
 
 void realize_active() {
