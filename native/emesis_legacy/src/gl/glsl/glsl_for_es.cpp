@@ -977,6 +977,29 @@ static void inject_ngg_macro_definition(std::string& glslCode) {
             "#endif\n";
         glslCode.insert(find_insertion_point(glslCode), version_fallback);
     }
+    if (glslCode.find("DH_BLOCK_") != std::string::npos &&
+        !has_macro_definition(glslCode, "DH_BLOCK_WATER")) {
+        static const char* dh_fallbacks =
+            "#ifndef DH_BLOCK_UNKNOWN\n"
+            "#define DH_BLOCK_UNKNOWN 0\n"
+            "#define DH_BLOCK_LEAVES 1\n"
+            "#define DH_BLOCK_STONE 2\n"
+            "#define DH_BLOCK_WOOD 3\n"
+            "#define DH_BLOCK_METAL 4\n"
+            "#define DH_BLOCK_DIRT 5\n"
+            "#define DH_BLOCK_LAVA 6\n"
+            "#define DH_BLOCK_DEEPSLATE 7\n"
+            "#define DH_BLOCK_SNOW 8\n"
+            "#define DH_BLOCK_SAND 9\n"
+            "#define DH_BLOCK_TERRACOTTA 10\n"
+            "#define DH_BLOCK_NETHER_STONE 11\n"
+            "#define DH_BLOCK_WATER 12\n"
+            "#define DH_BLOCK_GRASS 13\n"
+            "#define DH_BLOCK_AIR 14\n"
+            "#define DH_BLOCK_ILLUMINATED 15\n"
+            "#endif\n";
+        glslCode.insert(find_insertion_point(glslCode), dh_fallbacks);
+    }
 }
 
 static void upgrade_to_compatibility_version(std::string& glsl) {
@@ -1023,9 +1046,177 @@ static bool has_explicit_vertex_input_layout(const std::string& glsl) {
     return std::regex_search(glsl, explicitInRx);
 }
 
+static std::string strip_glsl_comments_preserve_lines(const std::string& src) {
+    std::string out = src;
+    const size_t n = out.size();
+    size_t i = 0;
+    while (i < n) {
+        if (i + 1 < n && out[i] == '/' && out[i + 1] == '/') {
+            while (i < n && out[i] != '\n') {
+                out[i] = ' ';
+                ++i;
+            }
+        } else if (i + 1 < n && out[i] == '/' && out[i + 1] == '*') {
+            out[i] = ' ';
+            out[i + 1] = ' ';
+            i += 2;
+            while (i < n) {
+                if (i + 1 < n && out[i] == '*' && out[i + 1] == '/') {
+                    out[i] = ' ';
+                    out[i + 1] = ' ';
+                    i += 2;
+                    break;
+                }
+                if (out[i] != '\n') out[i] = ' ';
+                ++i;
+            }
+        } else {
+            ++i;
+        }
+    }
+    return out;
+}
+
+static bool is_glsl_decl_type_token(const std::string& tok) {
+    return tok == "int" || tok == "uint" || tok == "float" || tok == "double" || tok == "bool" ||
+           tok == "vec2" || tok == "vec3" || tok == "vec4" ||
+           tok == "ivec2" || tok == "ivec3" || tok == "ivec4" ||
+           tok == "uvec2" || tok == "uvec3" || tok == "uvec4" ||
+           tok == "bvec2" || tok == "bvec3" || tok == "bvec4" ||
+           tok == "mat2" || tok == "mat3" || tok == "mat4" ||
+           tok == "highp" || tok == "mediump" || tok == "lowp";
+}
+
+static bool needs_implicit_shaderpack_decl(const std::string& clean, const char* ident) {
+    const size_t ilen = std::strlen(ident);
+    if (clean.find(ident) == std::string::npos) return false;
+    if (has_macro_definition(clean, ident)) return false;
+
+    bool referenced = false;
+    size_t pos = clean.find(ident);
+    while (pos != std::string::npos) {
+        bool left_ok = (pos == 0) || (!std::isalnum((unsigned char)clean[pos - 1]) && clean[pos - 1] != '_');
+        bool right_ok = (pos + ilen >= clean.size()) ||
+                        (!std::isalnum((unsigned char)clean[pos + ilen]) && clean[pos + ilen] != '_');
+        if (left_ok && right_ok) {
+            size_t ls = clean.rfind('\n', pos);
+            ls = (ls == std::string::npos) ? 0 : (ls + 1);
+            size_t lp = ls;
+            while (lp < pos && (clean[lp] == ' ' || clean[lp] == '\t' || clean[lp] == '\r')) ++lp;
+            if (lp < pos && clean[lp] == '#') {
+                pos = clean.find(ident, pos + ilen);
+                continue;
+            }
+
+            size_t prev = pos;
+            while (prev > 0 && std::isspace((unsigned char)clean[prev - 1])) --prev;
+            if (prev > 0 && clean[prev - 1] == '.') {
+                pos = clean.find(ident, pos + ilen);
+                continue;
+            }
+
+            size_t next = pos + ilen;
+            while (next < clean.size() && std::isspace((unsigned char)clean[next])) ++next;
+            if (next < clean.size() && clean[next] == '(') {
+                return false;
+            }
+
+            if (prev > 0 && (std::isalnum((unsigned char)clean[prev - 1]) || clean[prev - 1] == '_')) {
+                size_t ts = prev;
+                while (ts > 0 && (std::isalnum((unsigned char)clean[ts - 1]) || clean[ts - 1] == '_')) --ts;
+                std::string prev_tok = clean.substr(ts, prev - ts);
+                if (is_glsl_decl_type_token(prev_tok)) {
+                    return false;
+                }
+            } else if (prev > 0 && clean[prev - 1] == ',') {
+                size_t scan = prev - 1;
+                int paren_depth = 0;
+                while (scan > 0) {
+                    char c = clean[scan - 1];
+                    if (c == ')') ++paren_depth;
+                    else if (c == '(') {
+                        if (paren_depth == 0) break;
+                        --paren_depth;
+                    } else if (paren_depth == 0 && (c == ';' || c == '{' || c == '}')) {
+                        break;
+                    }
+                    --scan;
+                }
+                while (scan < prev && std::isspace((unsigned char)clean[scan])) ++scan;
+                size_t te = scan;
+                while (te < prev && (std::isalnum((unsigned char)clean[te]) || clean[te] == '_')) ++te;
+                std::string first_tok = clean.substr(scan, te - scan);
+                if (first_tok == "uniform" || first_tok == "in" || first_tok == "out" ||
+                    first_tok == "attribute" || first_tok == "varying" || first_tok == "const" ||
+                    first_tok == "flat" || first_tok == "smooth" || is_glsl_decl_type_token(first_tok)) {
+                    return false;
+                }
+            }
+
+            referenced = true;
+        }
+        pos = clean.find(ident, pos + ilen);
+    }
+    return referenced;
+}
+
+static void inject_missing_shaderpack_declarations(std::string& glsl, GLenum shaderType) {
+    bool maybe_entity = (glsl.find("entityId") != std::string::npos);
+    bool maybe_block_entity = (glsl.find("blockEntityId") != std::string::npos);
+    bool maybe_item = (glsl.find("currentRenderedItemId") != std::string::npos);
+    bool maybe_stage = (glsl.find("renderStage") != std::string::npos);
+    bool maybe_dh = (shaderType == GL_VERTEX_SHADER && glsl.find("dhMaterialId") != std::string::npos);
+    bool maybe_flat_normals =
+        (glsl.find("FlatNormals") != std::string::npos && glsl.find("MC_NORMAL_MAP") != std::string::npos);
+
+    if (!maybe_entity && !maybe_block_entity && !maybe_item && !maybe_stage && !maybe_dh && !maybe_flat_normals) {
+        return;
+    }
+
+    std::string clean = strip_glsl_comments_preserve_lines(glsl);
+    std::string extra;
+
+    if (maybe_entity && needs_implicit_shaderpack_decl(clean, "entityId")) {
+        extra += "uniform int entityId;\n";
+    }
+    if (maybe_block_entity && needs_implicit_shaderpack_decl(clean, "blockEntityId")) {
+        extra += "uniform int blockEntityId;\n";
+    }
+    if (maybe_item && needs_implicit_shaderpack_decl(clean, "currentRenderedItemId")) {
+        extra += "uniform int currentRenderedItemId;\n";
+    }
+    if (maybe_stage && needs_implicit_shaderpack_decl(clean, "renderStage")) {
+        extra += "uniform int renderStage;\n";
+    }
+    if (maybe_dh && needs_implicit_shaderpack_decl(clean, "dhMaterialId")) {
+        extra += "in int dhMaterialId;\n";
+    }
+    if (maybe_flat_normals) {
+        static const std::regex flatNormalsVaryingRx(
+            R"(\bvarying\s+vec3\s+FlatNormals\s*;)",
+            std::regex::ECMAScript | std::regex::optimize);
+        std::smatch m;
+        if (std::regex_search(clean, m, flatNormalsVaryingRx) &&
+            clean.find("vec3 FlatNormals = vec3(0.0);") == std::string::npos) {
+            size_t decl_end = (size_t)m.position() + (size_t)m.length();
+            if (clean.find("FlatNormals", decl_end) != std::string::npos) {
+                size_t endif_pos = clean.find("#endif", decl_end);
+                if (endif_pos != std::string::npos) {
+                    size_t nl = glsl.find('\n', endif_pos);
+                    size_t ins = (nl == std::string::npos) ? glsl.size() : (nl + 1);
+                    glsl.insert(ins, "#ifndef MC_NORMAL_MAP\nvec3 FlatNormals = vec3(0.0);\n#endif\n");
+                }
+            }
+        }
+    }
+
+    if (!extra.empty()) {
+        glsl.insert(find_insertion_point(glsl), extra);
+    }
+}
+
 static std::string preprocess_glsl(const char* raw_glsl, GLenum shaderType, bool* atomicCounterEmulated,
                                    bool* keepVertexInputLocations) {
-    (void)shaderType;
     std::string ret(raw_glsl ? raw_glsl : "");
     *keepVertexInputLocations = (shaderType == GL_VERTEX_SHADER) && has_explicit_vertex_input_layout(ret);
 
@@ -1046,6 +1237,7 @@ static std::string preprocess_glsl(const char* raw_glsl, GLenum shaderType, bool
     inject_temporal_filter(ret);
     inject_textureQueryLod(ret);
     inject_ngg_macro_definition(ret);
+    inject_missing_shaderpack_declarations(ret, shaderType);
 
     *atomicCounterEmulated = process_non_opaque_atomic_to_ssbo(ret);
     return ret;
@@ -1312,7 +1504,11 @@ std::string GLSLtoGLSLES_2(const char* glsl_code, GLenum glsl_type, unsigned int
     essl = processOutColorLocations(essl);
     essl = forceSupporterOutput(essl);
     essl = injectSafePowForMobileGPU(essl);
-    essl = injectSafeClampForMobileGPU(essl);
+    if (glsl_type == GL_FRAGMENT_SHADER &&
+        (essl.find("colortex") != std::string::npos || essl.find("gcolor") != std::string::npos ||
+         essl.find("gaux") != std::string::npos)) {
+        essl = injectSafeClampForMobileGPU(essl);
+    }
 
     return_code = atomicCounterEmulated ? 1 : 0;
     return essl;

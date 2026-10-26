@@ -242,8 +242,6 @@ extern "C"
                                    "GL_ARB_shading_language_420pack "
                                    "GL_EXT_texture_array "
                                    "GL_ARB_seamless_cube_map "
-                                   "GL_ARB_occlusion_query "
-                                   "GL_ARB_occlusion_query2 "
                                    "GL_ARB_sync "
                                    "GL_ARB_copy_image "
                                    "GL_EXT_copy_image "
@@ -848,6 +846,119 @@ extern "C"
         case GL_LIGHTING:
             *params = glstate->enable.lighting;
             break;
+        case GL_AUTO_NORMAL:
+            *params = glstate->enable.auto_normal;
+            break;
+        case GL_ALPHA_TEST:
+            *params = glstate->enable.alpha_test;
+            break;
+        case GL_FOG:
+            *params = glstate->enable.fog;
+            break;
+        case GL_BLEND:
+            if (glstate->enable.blend > 1) return 0;
+            *params = glstate->enable.blend;
+            break;
+        case GL_SCISSOR_TEST:
+            if (glstate->enable.scissor > 1) return 0;
+            *params = glstate->enable.scissor;
+            break;
+        case GL_CULL_FACE:
+            *params = glstate->enable.cull_face;
+            break;
+        case GL_DEPTH_TEST:
+            *params = glstate->enable.depth_test;
+            break;
+        case GL_STENCIL_TEST:
+            *params = glstate->enable.stencil_test;
+            break;
+        case GL_LINE_STIPPLE:
+            *params = glstate->enable.line_stipple;
+            break;
+        case GL_TEXTURE_GEN_S:
+            *params = glstate->enable.texgen_s[glstate->texture.active];
+            break;
+        case GL_TEXTURE_GEN_T:
+            *params = glstate->enable.texgen_t[glstate->texture.active];
+            break;
+        case GL_TEXTURE_GEN_R:
+            *params = glstate->enable.texgen_r[glstate->texture.active];
+            break;
+        case GL_TEXTURE_GEN_Q:
+            *params = glstate->enable.texgen_q[glstate->texture.active];
+            break;
+        case GL_COLOR_MATERIAL:
+            *params = glstate->enable.color_material;
+            break;
+        case GL_COLOR_SUM:
+            *params = glstate->enable.color_sum;
+            break;
+        case GL_POINT_SPRITE:
+            *params = glstate->enable.pointsprite;
+            break;
+        case GL_PROGRAM_POINT_SIZE:
+            *params = glstate->enable.point_size;
+            break;
+        case GL_MULTISAMPLE:
+            *params = glstate->enable.multisample;
+            break;
+        case GL_SAMPLE_COVERAGE:
+            *params = glstate->enable.sample_coverage;
+            break;
+        case GL_SAMPLE_ALPHA_TO_COVERAGE:
+            *params = glstate->enable.sample_alpha_to_coverage;
+            break;
+        case GL_SAMPLE_ALPHA_TO_ONE:
+            *params = glstate->enable.sample_alpha_to_one;
+            break;
+        case GL_POINT_SMOOTH:
+            *params = glstate->enable.point_smooth;
+            break;
+        case GL_LINE_SMOOTH:
+            *params = glstate->enable.line_smooth;
+            break;
+        case GL_POLYGON_OFFSET_FILL:
+            *params = glstate->enable.polyfill_offset;
+            break;
+        case GL_COLOR_LOGIC_OP:
+            *params = glstate->enable.color_logic_op;
+            break;
+        case GL_NORMALIZE:
+            *params = glstate->enable.normalize;
+            break;
+        case GL_RESCALE_NORMAL:
+            *params = glstate->enable.normal_rescale;
+            break;
+        case GL_TEXTURE_1D:
+            *params = (glstate->enable.texture[glstate->texture.active] & (1 << ENABLED_TEX1D)) ? 1.0f : 0.0f;
+            break;
+        case GL_TEXTURE_2D:
+            *params = (glstate->enable.texture[glstate->texture.active] & (1 << ENABLED_TEX2D)) ? 1.0f : 0.0f;
+            break;
+        case GL_TEXTURE_3D:
+            *params = (glstate->enable.texture[glstate->texture.active] & (1 << ENABLED_TEX3D)) ? 1.0f : 0.0f;
+            break;
+        case GL_TEXTURE_CUBE_MAP:
+            *params = (glstate->enable.texture[glstate->texture.active] & (1 << ENABLED_CUBE_MAP)) ? 1.0f : 0.0f;
+            break;
+        case GL_VERTEX_ARRAY:
+            *params = glstate->vao->vertexattrib[ATT_VERTEX].enabled;
+            break;
+        case GL_NORMAL_ARRAY:
+            *params = glstate->vao->vertexattrib[ATT_NORMAL].enabled;
+            break;
+        case GL_COLOR_ARRAY:
+            *params = glstate->vao->vertexattrib[ATT_COLOR].enabled;
+            break;
+        case GL_SECONDARY_COLOR_ARRAY:
+            *params = glstate->vao->vertexattrib[ATT_SECONDARY].enabled;
+            break;
+        case GL_FOG_COORD_ARRAY:
+            *params = glstate->vao->vertexattrib[ATT_FOGCOORD].enabled;
+            break;
+        case GL_TEXTURE_COORD_ARRAY:
+            *params = glstate->vao->vertexattrib[ATT_MULTITEXCOORD0 + glstate->texture.client].enabled;
+            break;
         case GL_DEPTH_WRITEMASK:
             *params = glstate->depth.mask;
             break;
@@ -1118,6 +1229,62 @@ extern "C"
         }
     }
     AliasExport(void, glGetIntegerv, , (GLenum pname, GLint* params));
+
+    void APIENTRY_GL4ES gl4es_glGetBooleanv(GLenum pname, GLboolean* params) {
+        DBG(SHUT_LOGD("glGetBooleanv(%s, %p)\n", PrintEnum(pname), params);)
+        if (params == NULL) {
+            errorShim(GL_INVALID_OPERATION);
+            return;
+        }
+        noerrorShim();
+        if (pname == GL_COLOR_WRITEMASK) {
+            memcpy(params, glstate->colormask, 4 * sizeof(GLboolean));
+            return;
+        }
+        GLfloat fparam = 0.0f;
+        if (gl4es_commonGet(pname, &fparam)) {
+            params[0] = (fparam != 0.0f) ? GL_TRUE : GL_FALSE;
+            return;
+        }
+        switch (pname) {
+        case GL_LIGHT_MODEL_AMBIENT:
+            for (int i = 0; i < 4; ++i) params[i] = (glstate->light.ambient[i] != 0.0f) ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_FOG_COLOR:
+            for (int i = 0; i < 4; ++i) params[i] = (glstate->fog.color[i] != 0.0f) ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_CURRENT_COLOR:
+            for (int i = 0; i < 4; ++i) params[i] = (glstate->color[i] != 0.0f) ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_CURRENT_SECONDARY_COLOR:
+            for (int i = 0; i < 4; ++i) params[i] = (glstate->secondary[i] != 0.0f) ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_CURRENT_NORMAL:
+            for (int i = 0; i < 3; ++i) params[i] = (glstate->normal[i] != 0.0f) ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_CURRENT_TEXTURE_COORDS:
+            for (int i = 0; i < 4; ++i)
+                params[i] = (glstate->texcoord[glstate->texture.active][i] != 0.0f) ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_POINT_DISTANCE_ATTENUATION:
+            for (int i = 0; i < 3; ++i) params[i] = (glstate->pointsprite.distance[i] != 0.0f) ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_DEPTH_RANGE:
+            params[0] = (glstate->depth.Near != 0.0f) ? GL_TRUE : GL_FALSE;
+            params[1] = (glstate->depth.Far != 0.0f) ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_CONTEXT_PROFILE_MASK:
+            params[0] = GL_TRUE;
+            break;
+        default: {
+            errorGL();
+            void gles_glGetBooleanv(glGetBooleanv_ARG_EXPAND);
+            gles_glGetBooleanv(pname, params);
+            break;
+        }
+        }
+    }
+    AliasExport(void, glGetBooleanv, , (GLenum pname, GLboolean* params));
 
     void APIENTRY_GL4ES gl4es_glGetFloatv(GLenum pname, GLfloat* params) {
         DBG(SHUT_LOGD("glGetFloatv(%s, %p)\n", PrintEnum(pname), params);)

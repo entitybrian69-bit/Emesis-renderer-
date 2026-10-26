@@ -473,55 +473,63 @@ static int has_standalone_token_fast(const char* src, const char* tok) {
 
 static int emesis_should_skip_fpe_alphatest(program_t* glprogram) {
     if (!glprogram) return 1;
+    if (glprogram->skip_fpe_alphatest_cache != 0) {
+        return (glprogram->skip_fpe_alphatest_cache == 2) ? 1 : 0;
+    }
+    int skip = 0;
     if (glprogram->uniform_by_name) {
         if (kh_get(uniformnamelist, glprogram->uniform_by_name, "alphaTestRef") !=
             kh_end(glprogram->uniform_by_name)) {
-            return 1;
-        }
-        int has_post_rt =
-            (kh_get(uniformnamelist, glprogram->uniform_by_name, "colortex0") != kh_end(glprogram->uniform_by_name)) ||
-            (kh_get(uniformnamelist, glprogram->uniform_by_name, "colortex1") != kh_end(glprogram->uniform_by_name)) ||
-            (kh_get(uniformnamelist, glprogram->uniform_by_name, "depthtex0") != kh_end(glprogram->uniform_by_name)) ||
-            (kh_get(uniformnamelist, glprogram->uniform_by_name, "depthtex1") != kh_end(glprogram->uniform_by_name));
-        int has_albedo =
-            (kh_get(uniformnamelist, glprogram->uniform_by_name, "gtexture") != kh_end(glprogram->uniform_by_name)) ||
-            (kh_get(uniformnamelist, glprogram->uniform_by_name, "texture") != kh_end(glprogram->uniform_by_name)) ||
-            (kh_get(uniformnamelist, glprogram->uniform_by_name, "tex") != kh_end(glprogram->uniform_by_name));
-        int has_gcolor =
-            (kh_get(uniformnamelist, glprogram->uniform_by_name, "gcolor") != kh_end(glprogram->uniform_by_name));
-        /* Fullscreen composite/deferred/final passes or untextured skybasic passes never use fixed-function alpha test */
-        if (has_post_rt && !has_albedo) return 1;
-        if (!has_albedo && !has_gcolor && kh_size(glprogram->uniform_by_name) > 0) {
-            int any_sampler2d = 0;
-            if (glprogram->uniform) {
-                uniform_t* u;
-                kh_foreach_value(glprogram->uniform, u, {
-                    if (u && u->type == GL_SAMPLER_2D) {
-                        any_sampler2d = 1;
-                        break;
-                    }
-                });
-            }
-            if (!any_sampler2d) return 1;
-        }
-        if (has_gcolor && !has_albedo) {
-            /* Distinguish composite/deferred/final (`gcolor` without lightmap) from legacy gbuffers_terrain (`gcolor` + `lightmap`) */
-            if (kh_get(uniformnamelist, glprogram->uniform_by_name, "lightmap") ==
-                kh_end(glprogram->uniform_by_name)) {
-                return 1;
+            skip = 1;
+        } else {
+            int has_post_rt =
+                (kh_get(uniformnamelist, glprogram->uniform_by_name, "colortex0") != kh_end(glprogram->uniform_by_name)) ||
+                (kh_get(uniformnamelist, glprogram->uniform_by_name, "colortex1") != kh_end(glprogram->uniform_by_name)) ||
+                (kh_get(uniformnamelist, glprogram->uniform_by_name, "depthtex0") != kh_end(glprogram->uniform_by_name)) ||
+                (kh_get(uniformnamelist, glprogram->uniform_by_name, "depthtex1") != kh_end(glprogram->uniform_by_name));
+            int has_albedo =
+                (kh_get(uniformnamelist, glprogram->uniform_by_name, "gtexture") != kh_end(glprogram->uniform_by_name)) ||
+                (kh_get(uniformnamelist, glprogram->uniform_by_name, "texture") != kh_end(glprogram->uniform_by_name)) ||
+                (kh_get(uniformnamelist, glprogram->uniform_by_name, "tex") != kh_end(glprogram->uniform_by_name));
+            int has_gcolor =
+                (kh_get(uniformnamelist, glprogram->uniform_by_name, "gcolor") != kh_end(glprogram->uniform_by_name));
+            /* Fullscreen composite/deferred/final passes or untextured skybasic passes never use fixed-function alpha test */
+            if (has_post_rt && !has_albedo) {
+                skip = 1;
+            } else if (!has_albedo && !has_gcolor && kh_size(glprogram->uniform_by_name) > 0) {
+                int any_sampler2d = 0;
+                if (glprogram->uniform) {
+                    uniform_t* u;
+                    kh_foreach_value(glprogram->uniform, u, {
+                        if (u && u->type == GL_SAMPLER_2D) {
+                            any_sampler2d = 1;
+                            break;
+                        }
+                    });
+                }
+                if (!any_sampler2d) skip = 1;
+            } else if (has_gcolor && !has_albedo) {
+                /* Distinguish composite/deferred/final (`gcolor` without lightmap) from legacy gbuffers_terrain (`gcolor` + `lightmap`) */
+                if (kh_get(uniformnamelist, glprogram->uniform_by_name, "lightmap") ==
+                    kh_end(glprogram->uniform_by_name)) {
+                    skip = 1;
+                }
             }
         }
     }
-    const char* fs_src = glprogram->frag_essl_copy
-                             ? glprogram->frag_essl_copy
-                             : (glprogram->last_frag
-                                    ? (glprogram->last_frag->converted ? glprogram->last_frag->converted
-                                                                       : glprogram->last_frag->source)
-                                    : NULL);
-    if (fs_src && has_standalone_token_fast(fs_src, "discard")) {
-        return 1;
+    if (!skip) {
+        const char* fs_src = glprogram->frag_essl_copy
+                                 ? glprogram->frag_essl_copy
+                                 : (glprogram->last_frag
+                                        ? (glprogram->last_frag->converted ? glprogram->last_frag->converted
+                                                                           : glprogram->last_frag->source)
+                                        : NULL);
+        if (fs_src && has_standalone_token_fast(fs_src, "discard")) {
+            skip = 1;
+        }
     }
-    return 0;
+    glprogram->skip_fpe_alphatest_cache = skip ? 2 : 1;
+    return skip;
 }
 
 program_t* APIENTRY_GL4ES fpe_CustomShader(program_t* glprogram, fpe_state_t* state) {
@@ -1395,35 +1403,35 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
             glprogram =
                 fpe_CustomShader_DefaultVertex(glprogram, &vertex_state); // fetch from cache if exist or create it
             program = glprogram->id;
-        } else if (glstate->fpe_state->plane ||
-                   (glstate->fpe_state->alphatest && glstate->fpe_state->alphafunc != FPE_ALWAYS &&
-                    !emesis_should_skip_fpe_alphatest(glprogram))) {
+        } else {
             int want_alpha = (glstate->fpe_state->alphatest && glstate->fpe_state->alphafunc != FPE_ALWAYS &&
                               !emesis_should_skip_fpe_alphatest(glprogram));
-            uint32_t custom_key =
-                (uint32_t)glstate->fpe_state->plane |
-                ((want_alpha ? (1u | ((uint32_t)glstate->fpe_state->alphafunc << 1)) : 0u) << 8);
-            if (glprogram->last_custom_valid && glprogram->last_custom_key == custom_key &&
-                glprogram->last_custom_prog) {
-                glprogram = (program_t*)glprogram->last_custom_prog;
-                program = glprogram->id;
-            } else {
-                fpe_state_t state;
-                fpe_ReleventState(&state, glstate->fpe_state, 0);
-                if (!want_alpha) {
-                    state.alphatest = 0;
-                    state.alphafunc = FPE_ALWAYS;
-                }
-                if (!fpe_IsEmpty(&state)) {
-                    DBG(DBGLOGD("GLSL program %d need customization => ", program);)
-                    if (!glprogram->fpe_cache) glprogram->fpe_cache = fpe_NewCache();
-                    program_t* custom_prog = fpe_CustomShader(glprogram, &state);
-                    glprogram->last_custom_key = custom_key;
-                    glprogram->last_custom_prog = custom_prog;
-                    glprogram->last_custom_valid = 1;
-                    glprogram = custom_prog;
+            if (glstate->fpe_state->plane || want_alpha) {
+                uint32_t custom_key =
+                    (uint32_t)glstate->fpe_state->plane |
+                    ((want_alpha ? (1u | ((uint32_t)glstate->fpe_state->alphafunc << 1)) : 0u) << 8);
+                if (glprogram->last_custom_valid && glprogram->last_custom_key == custom_key &&
+                    glprogram->last_custom_prog) {
+                    glprogram = (program_t*)glprogram->last_custom_prog;
                     program = glprogram->id;
-                    DBG(DBGLOGD("%d\n", program);)
+                } else {
+                    fpe_state_t state;
+                    fpe_ReleventState(&state, glstate->fpe_state, 0);
+                    if (!want_alpha) {
+                        state.alphatest = 0;
+                        state.alphafunc = FPE_ALWAYS;
+                    }
+                    if (!fpe_IsEmpty(&state)) {
+                        DBG(DBGLOGD("GLSL program %d need customization => ", program);)
+                        if (!glprogram->fpe_cache) glprogram->fpe_cache = fpe_NewCache();
+                        program_t* custom_prog = fpe_CustomShader(glprogram, &state);
+                        glprogram->last_custom_key = custom_key;
+                        glprogram->last_custom_prog = custom_prog;
+                        glprogram->last_custom_valid = 1;
+                        glprogram = custom_prog;
+                        program = glprogram->id;
+                        DBG(DBGLOGD("%d\n", program);)
+                    }
                 }
             }
         }

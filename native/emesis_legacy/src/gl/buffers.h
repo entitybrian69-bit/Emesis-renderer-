@@ -34,6 +34,7 @@ typedef struct {
     uint8_t is_indirect;
     uint8_t used_by_divisor;
     uint8_t used_by_divisor0_draw;
+    uint8_t ever_mapped;
     uint8_t realloc_streak;
 
 } glbuffer_t;

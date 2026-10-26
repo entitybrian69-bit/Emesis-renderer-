@@ -94,7 +94,15 @@ void APIENTRY_GL4ES gl4es_glGenQueries(GLsizei n, GLuint * ids) {
         return;
     }
     for (int i=0; i<n; i++) {
-        ids[i] = new_query(++glstate->queries.last_query);
+        GLuint qid = new_query(++glstate->queries.last_query);
+        ids[i] = qid;
+        khint_t k;
+        int ret;
+        khash_t(queries) *list = glstate->queries.querylist;
+        k = kh_put(queries, list, qid, &ret);
+        glquery_t *q = calloc(1, sizeof(glquery_t));
+        if (q) q->id = qid;
+        kh_value(list, k) = q;
     }
 }
 
@@ -146,8 +154,10 @@ void APIENTRY_GL4ES gl4es_glBeginQuery(GLenum target, GLuint id) {
 			errorShim(GL_INVALID_ENUM);
 			return;
 	}
+    query->id = id;
     query->target = target;
-    query->num = 0;
+    query->num = (target == GL_SAMPLES_PASSED || target == GL_ANY_SAMPLES_PASSED ||
+                  target == GL_ANY_SAMPLES_PASSED_CONSERVATIVE) ? 1 : 0;
 	query->active = 1;
 	query->start = get_clock() - glstate->queries.start;
     noerrorShim();
@@ -179,20 +189,32 @@ void APIENTRY_GL4ES gl4es_glEndQuery(GLenum target) {
 
 void APIENTRY_GL4ES gl4es_glGetQueryiv(GLenum target, GLenum pname, GLint* params) {
     FLUSH_BEGINEND;
+    if (!params) {
+        errorShim(GL_INVALID_VALUE);
+        return;
+    }
+    switch (target) {
+        case GL_SAMPLES_PASSED:
+        case GL_ANY_SAMPLES_PASSED:
+        case GL_ANY_SAMPLES_PASSED_CONSERVATIVE:
+        case GL_PRIMITIVES_GENERATED:
+        case GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN:
+        case GL_TIME_ELAPSED:
+        case GL_TIMESTAMP:
+            break;
+        default:
+            errorShim(GL_INVALID_ENUM);
+            return;
+    }
 
 	glquery_t *q = find_query_target(target);
-	if(!q) {
-		errorShim(GL_INVALID_OPERATION);
-		return;
-	}
-
 	noerrorShim();
 	switch (pname) {
 		case GL_CURRENT_QUERY:
-			*params = (q->target==GL_TIME_ELAPSED)?q->start:q->num;
+			*params = q ? (GLint)q->id : 0;
 			break;
 		case GL_QUERY_COUNTER_BITS:
-			*params = (q->target==GL_TIME_ELAPSED)?32:0;	//no counter...
+			*params = (target == GL_TIME_ELAPSED || target == GL_TIMESTAMP) ? 32 : 0;
 			break;
 		default:
 			errorShim(GL_INVALID_ENUM);
@@ -213,7 +235,7 @@ void APIENTRY_GL4ES gl4es_glGetQueryObjectiv(GLuint id, GLenum pname, GLint* par
     		break;
 		case GL_QUERY_RESULT_NO_WAIT:
     	case GL_QUERY_RESULT:
-    		*params = (query->target==GL_TIME_ELAPSED)?query->start:query->num;
+    		*params = (query->target==GL_TIME_ELAPSED || query->target==GL_TIMESTAMP)?query->start:query->num;
     		break;
     	default:
     		errorShim(GL_INVALID_ENUM);
@@ -237,7 +259,7 @@ void APIENTRY_GL4ES gl4es_glGetQueryObjectuiv(GLuint id, GLenum pname, GLuint* p
     		break;
 		case GL_QUERY_RESULT_NO_WAIT:
     	case GL_QUERY_RESULT:
-    		*params = (query->target==GL_TIME_ELAPSED)?query->start:query->num;
+    		*params = (query->target==GL_TIME_ELAPSED || query->target==GL_TIMESTAMP)?query->start:query->num;
     		break;
     	default:
     		errorShim(GL_INVALID_ENUM);
@@ -249,11 +271,17 @@ void APIENTRY_GL4ES gl4es_glGetQueryObjectuiv(GLuint id, GLenum pname, GLuint* p
 void APIENTRY_GL4ES gl4es_glQueryCounter(GLuint id, GLenum target)
 {
     FLUSH_BEGINEND;
-		
+    if (id == 0) {
+        errorShim(GL_INVALID_OPERATION);
+        return;
+    }
 	glquery_t *query = find_query(id);
 	if(!query) {
-		errorShim(GL_INVALID_OPERATION);
-		return;
+		khint_t k;
+		int ret;
+		khash_t(queries) *list = glstate->queries.querylist;
+		k = kh_put(queries, list, id, &ret);
+		query = kh_value(list, k) = calloc(1, sizeof(glquery_t));
 	}
 	if(query->active) {
 		errorShim(GL_INVALID_OPERATION);
@@ -263,9 +291,11 @@ void APIENTRY_GL4ES gl4es_glQueryCounter(GLuint id, GLenum target)
 		errorShim(GL_INVALID_ENUM);
 		return;
 	}
+	query->id = id;
 	query->target = target;
-	// should finish first?
 	query->start = get_clock() - glstate->queries.start;
+	query->num = (int)query->start;
+	noerrorShim();
 }
 
 
@@ -285,7 +315,7 @@ void APIENTRY_GL4ES gl4es_glGetQueryObjecti64v(GLuint id, GLenum pname, GLint64 
     		break;
 		case GL_QUERY_RESULT_NO_WAIT:
     	case GL_QUERY_RESULT:
-    		*params = (query->target==GL_TIME_ELAPSED)?query->start:query->num;
+    		*params = (query->target==GL_TIME_ELAPSED || query->target==GL_TIMESTAMP)?query->start:query->num;
     		break;
     	default:
     		errorShim(GL_INVALID_ENUM);
@@ -310,7 +340,7 @@ void APIENTRY_GL4ES gl4es_glGetQueryObjectui64v(GLuint id, GLenum pname, GLuint6
     		break;
 		case GL_QUERY_RESULT_NO_WAIT:
     	case GL_QUERY_RESULT:
-    		*params = (query->target==GL_TIME_ELAPSED)?query->start:query->num;
+    		*params = (query->target==GL_TIME_ELAPSED || query->target==GL_TIMESTAMP)?query->start:query->num;
     		break;
     	default:
     		errorShim(GL_INVALID_ENUM);

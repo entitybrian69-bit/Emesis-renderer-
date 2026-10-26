@@ -295,6 +295,7 @@ typedef struct {
     void* last_custom_prog;
     uint32_t last_custom_key;
     uint8_t last_custom_valid;
+    uint8_t skip_fpe_alphatest_cache;
 
     uniform_declarations_list_t declarations;
     int frag_data_changed;

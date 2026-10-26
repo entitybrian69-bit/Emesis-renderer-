@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <math.h>
 #include <locale.h>
 #include "khash.h"
@@ -180,30 +181,33 @@ eTokenType NextToken(char **p, uToken *tok) {
         case '6':
         case '7':
         case '8':
-        case '9':
-            nb=c-'0';
+        case '9': {
+            uint64_t unb = (uint64_t)(c - '0');
+            nb = c - '0';
             // we don't know if it's an int or a float at first...
-            if(nextc=='x' && nb==0) {
+            if ((nextc=='x' || nextc=='X') && unb==0) {
                 // hex number, so int...
                 (*p)++; nextc=**p;
-                while((nextc>='0' && nextc<='9') || (nextc>='a' && nextc<='f') || (nextc>='A' && nextc<='F')) { 
-                    nb=nb*16;
+                while((nextc>='0' && nextc<='9') || (nextc>='a' && nextc<='f') || (nextc>='A' && nextc<='F')) {
+                    unb = (unb << 4);
                     if(nextc>='0' && nextc<='9')
-                        nb+=nextc-'0';
+                        unb += (uint64_t)(nextc - '0');
                     else if(nextc>='a' && nextc<='f')
-                        nb+=nextc-'a'+10;
+                        unb += (uint64_t)(nextc - 'a' + 10);
                     else if(nextc>='A' && nextc<='F')
-                        nb+=nextc-'A'+10;
+                        unb += (uint64_t)(nextc - 'A' + 10);
                     (*p)++; nextc=**p;
                 }
+                nb = (int)(uint32_t)unb;
                 tok->type = TK_INT;
                 tok->integer = nb;
-                sprintf(tok->str, "0x%x", nb);
+                sprintf(tok->str, "0x%x", (unsigned int)(uint32_t)unb);
             } else {
-                while(nextc>='0' && nextc<='9') { nb=nb*10+nextc-'0'; (*p)++; nextc=**p;}
+                while(nextc>='0' && nextc<='9') { unb = unb * 10u + (uint64_t)(nextc - '0'); (*p)++; nextc=**p; }
+                nb = (int)(uint32_t)unb;
                 if(nextc=='.' || nextc=='f' || nextc=='e') {
                     isfloat = 1;
-                    fnb=nb;
+                    fnb = (float)unb;
                     if(nextc=='.') {
                         (*p)++; nextc=**p;
                         fcnt = 0.1f;
@@ -216,13 +220,14 @@ eTokenType NextToken(char **p, uToken *tok) {
                     if(nextc=='e') {
                         // exponent
                         (*p)++; nextc=**p;
-                        nb=0;
+                        uint64_t exp_u = 0;
                         int expsign = 1;
                         if(nextc=='-' || nextc=='+') {
                             if(nextc=='-') expsign = -1;
                             (*p)++; nextc=**p;
                         }
-                        while(nextc>='0' && nextc<='9') { nb=nb*10+nextc-'0'; (*p)++; nextc=**p;}
+                        while(nextc>='0' && nextc<='9') { exp_u = exp_u * 10u + (uint64_t)(nextc - '0'); (*p)++; nextc=**p;}
+                        nb = (int)((exp_u > 1000u) ? 1000u : exp_u);
                         fnb *= powf(10, nb*expsign); // exp10f is a GNU extension
                     }
                     if(nextc=='f') {
@@ -239,6 +244,7 @@ eTokenType NextToken(char **p, uToken *tok) {
                 }
             }
             break;
+        }
         case '/':
             if(nextc=='/') {
                 (*p)++;

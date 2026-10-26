@@ -59,6 +59,7 @@
 #define skip_glGetError
 #define skip_glGetPointerv
 #define skip_glGetIntegerv
+#define skip_glGetBooleanv
 #define skip_glGetFloatv
 #define skip_glGetString
 #define skip_glGetLightfv

@@ -287,6 +287,9 @@ void APIENTRY_GL4ES gl4es_glBindBuffer(GLenum target, GLuint buffer) {
             buff = kh_value(list, k);
             buff->type = target; // TODO: check if old binding?
         }
+        if (target == GL_DRAW_INDIRECT_BUFFER) {
+            buff->is_indirect = 1;
+        }
         bind_buffer(target, buff);
     }
     noerrorShim();
@@ -327,9 +330,10 @@ void APIENTRY_GL4ES gl4es_glBufferData(GLenum target, GLsizeiptr size, const GLv
     if (is_cpu_emul_target && !buff->used_by_divisor0_draw) {
         defer_gpu_upload = 1;
         go_real = 0;
-    } else if (target == GL_ARRAY_BUFFER && buff->real_buffer &&
+    } else if (target == GL_ARRAY_BUFFER &&
                (buff->is_indirect || buff->used_by_divisor) && !buff->used_by_divisor0_draw) {
         defer_gpu_upload = 1;
+        if (!buff->real_buffer) go_real = 0;
     }
 
     GLuint prev_real_buffer = buff->real_buffer;
@@ -356,10 +360,17 @@ void APIENTRY_GL4ES gl4es_glBufferData(GLenum target, GLsizeiptr size, const GLv
         buff->gpu_dirty = 1;
     }
 
-    int skip_cpu_shadow = (!defer_gpu_upload && !is_cpu_emul_target &&
-                           target != GL_ELEMENT_ARRAY_BUFFER &&
-                           go_real && buff->real_buffer && emesis_has_gpu_copy_buffer() &&
-                           !buff->mapped && !buff->used_by_divisor);
+    int skip_cpu_shadow = 0;
+    if (!defer_gpu_upload && !is_cpu_emul_target &&
+        target != GL_ELEMENT_ARRAY_BUFFER &&
+        go_real && buff->real_buffer && emesis_has_gpu_copy_buffer() &&
+        !buff->mapped && !buff->ever_mapped && !buff->used_by_divisor && !buff->is_indirect) {
+        if (target == GL_COPY_WRITE_BUFFER || target == GL_COPY_READ_BUFFER ||
+            usage == GL_STREAM_COPY || usage == GL_DYNAMIC_COPY || usage == GL_STATIC_COPY ||
+            (data == NULL && size >= 65536)) {
+            skip_cpu_shadow = 1;
+        }
+    }
     if (skip_cpu_shadow) {
         if (buff->data) {
             free(buff->data);
@@ -478,7 +489,8 @@ void APIENTRY_GL4ES gl4es_glNamedBufferData(GLuint buffer, GLsizeiptr size, cons
 
     int skip_cpu_shadow = 0;
     if (go_real && buff->real_buffer && emesis_has_gpu_copy_buffer() &&
-        buff->type != GL_ELEMENT_ARRAY_BUFFER) {
+        buff->type != GL_ELEMENT_ARRAY_BUFFER &&
+        !buff->mapped && !buff->ever_mapped && !buff->used_by_divisor && !buff->is_indirect) {
         if (buff->type == GL_COPY_WRITE_BUFFER || buff->type == GL_COPY_READ_BUFFER ||
             buff->type == GL_PIXEL_PACK_BUFFER || buff->type == GL_PIXEL_UNPACK_BUFFER ||
             usage == GL_STREAM_COPY || usage == GL_DYNAMIC_COPY || usage == GL_STATIC_COPY ||
@@ -809,6 +821,7 @@ void* APIENTRY_GL4ES gl4es_glMapBuffer(GLenum target, GLenum access) {
         return NULL;
     }
     emesis_ensure_buffer_cpu_shadow(buff, target, (access == GL_READ_ONLY || access == GL_READ_WRITE));
+    buff->ever_mapped = 1;
     buff->access = access; // not used
     buff->mapped = 1;
     buff->ranged = 0;
@@ -828,6 +841,7 @@ void* APIENTRY_GL4ES gl4es_glMapNamedBuffer(GLuint buffer, GLenum access) {
         return NULL;
     }
     emesis_ensure_buffer_cpu_shadow(buff, buff->type, (access == GL_READ_ONLY || access == GL_READ_WRITE));
+    buff->ever_mapped = 1;
     buff->access = access; // not used
     buff->mapped = 1;
     buff->ranged = 0;
@@ -862,7 +876,7 @@ GLboolean APIENTRY_GL4ES gl4es_glUnmapBuffer(GLenum target) {
                                  upload_target == GL_DRAW_INDIRECT_BUFFER || upload_target == 0)
                                     ? ((hardext.esversion >= 3) ? GL_COPY_READ_BUFFER : GL_ARRAY_BUFFER)
                                     : upload_target;
-    if (buff->real_buffer && buff->data &&
+    if (buff->real_buffer && !buff->gpu_dirty && buff->data &&
         (upload_target == GL_ARRAY_BUFFER || upload_target == GL_ELEMENT_ARRAY_BUFFER ||
          upload_target == GL_UNIFORM_BUFFER || upload_target == GL_COPY_WRITE_BUFFER ||
          upload_target == GL_COPY_READ_BUFFER || upload_target == GL_TEXTURE_BUFFER ||
@@ -875,7 +889,7 @@ GLboolean APIENTRY_GL4ES gl4es_glUnmapBuffer(GLenum target) {
         gles_glBufferSubData(gles_upload_target, 0, buff->size, buff->data);
     }
 
-    if (buff->real_buffer && buff->data &&
+    if (buff->real_buffer && !buff->gpu_dirty && buff->data &&
         (upload_target == GL_ARRAY_BUFFER || upload_target == GL_ELEMENT_ARRAY_BUFFER ||
          upload_target == GL_UNIFORM_BUFFER || upload_target == GL_COPY_WRITE_BUFFER ||
          upload_target == GL_COPY_READ_BUFFER || upload_target == GL_TEXTURE_BUFFER ||
@@ -883,10 +897,15 @@ GLboolean APIENTRY_GL4ES gl4es_glUnmapBuffer(GLenum target) {
          upload_target == GL_DRAW_INDIRECT_BUFFER) &&
         buff->mapped && buff->ranged && (buff->access & GL_MAP_WRITE_BIT_EXT) &&
         !(buff->access & GL_MAP_FLUSH_EXPLICIT_BIT_EXT)) {
-        LOAD_GLES(glBufferSubData);
         bindBuffer(gles_upload_target, buff->real_buffer);
-        gles_glBufferSubData(gles_upload_target, buff->offset, buff->length,
-                             (void*)((uintptr_t)buff->data + buff->offset));
+        if ((buff->access & GL_MAP_INVALIDATE_BUFFER_BIT_EXT) && buff->offset == 0 && buff->length == buff->size) {
+            LOAD_GLES(glBufferData);
+            gles_glBufferData(gles_upload_target, buff->size, buff->data, buff->usage);
+        } else {
+            LOAD_GLES(glBufferSubData);
+            gles_glBufferSubData(gles_upload_target, buff->offset, buff->length,
+                                 (void*)((uintptr_t)buff->data + buff->offset));
+        }
     }
     if (buff->mapped) {
         buff->mapped = 0;
@@ -907,7 +926,7 @@ GLboolean APIENTRY_GL4ES gl4es_glUnmapNamedBuffer(GLuint buffer) {
     if (buff == NULL) return GL_FALSE; // Should generate an error!
     noerrorShim();
 
-    if (buff->real_buffer && buff->data &&
+    if (buff->real_buffer && !buff->gpu_dirty && buff->data &&
         (buff->type == GL_ARRAY_BUFFER || buff->type == GL_ELEMENT_ARRAY_BUFFER || buff->type == GL_UNIFORM_BUFFER ||
          buff->type == GL_COPY_WRITE_BUFFER || buff->type == GL_COPY_READ_BUFFER || buff->type == GL_TEXTURE_BUFFER ||
          buff->type == GL_PIXEL_PACK_BUFFER || buff->type == GL_PIXEL_UNPACK_BUFFER ||
@@ -927,15 +946,13 @@ GLboolean APIENTRY_GL4ES gl4es_glUnmapNamedBuffer(GLuint buffer) {
         gles_glBufferSubData(upload_target, 0, buff->size, buff->data);
     }
 
-    if (buff->real_buffer && buff->data &&
+    if (buff->real_buffer && !buff->gpu_dirty && buff->data &&
         (buff->type == GL_ARRAY_BUFFER || buff->type == GL_ELEMENT_ARRAY_BUFFER || buff->type == GL_UNIFORM_BUFFER ||
          buff->type == GL_COPY_WRITE_BUFFER || buff->type == GL_COPY_READ_BUFFER || buff->type == GL_TEXTURE_BUFFER ||
          buff->type == GL_PIXEL_PACK_BUFFER || buff->type == GL_PIXEL_UNPACK_BUFFER ||
          buff->type == GL_DRAW_INDIRECT_BUFFER) &&
         buff->mapped && buff->ranged && (buff->access & GL_MAP_WRITE_BIT_EXT) &&
         !(buff->access & GL_MAP_FLUSH_EXPLICIT_BIT_EXT)) {
-        LOAD_GLES(glBufferSubData);
-        LOAD_GLES(glBindBuffer);
         GLenum upload_target = (buff->type == GL_ELEMENT_ARRAY_BUFFER)
                                    ? GL_ELEMENT_ARRAY_BUFFER
                                    : ((hardext.esversion >= 3 && buff->type &&
@@ -945,7 +962,14 @@ GLboolean APIENTRY_GL4ES gl4es_glUnmapNamedBuffer(GLuint buffer) {
                                           ? buff->type
                                           : GL_ARRAY_BUFFER);
         bindBuffer(upload_target, buff->real_buffer);
-        gles_glBufferSubData(upload_target, buff->offset, buff->length, (void*)((uintptr_t)buff->data + buff->offset));
+        if ((buff->access & GL_MAP_INVALIDATE_BUFFER_BIT_EXT) && buff->offset == 0 && buff->length == buff->size) {
+            LOAD_GLES(glBufferData);
+            gles_glBufferData(upload_target, buff->size, buff->data, buff->usage);
+        } else {
+            LOAD_GLES(glBufferSubData);
+            gles_glBufferSubData(upload_target, buff->offset, buff->length,
+                                 (void*)((uintptr_t)buff->data + buff->offset));
+        }
     }
     if (buff->mapped) {
         buff->mapped = 0;
@@ -1034,6 +1058,7 @@ void* APIENTRY_GL4ES gl4es_glMapBufferRange(GLenum target, GLintptr offset, GLsi
     int need_read = (access & GL_MAP_READ_BIT) &&
                     !(access & (GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_INVALIDATE_RANGE_BIT));
     emesis_ensure_buffer_cpu_shadow(buff, target, need_read);
+    buff->ever_mapped = 1;
     buff->access = access;
     buff->mapped = 1;
     buff->ranged = 1;
@@ -1068,7 +1093,7 @@ void APIENTRY_GL4ES gl4es_glFlushMappedBufferRange(GLenum target, GLintptr offse
         return;
     }
 
-    if (buff->real_buffer && buff->data && length > 0 && (buff->access & GL_MAP_WRITE_BIT_EXT)) {
+    if (buff->real_buffer && !buff->gpu_dirty && buff->data && length > 0 && (buff->access & GL_MAP_WRITE_BIT_EXT)) {
         GLenum flush_target = target ? target : buff->type;
         if (flush_target == GL_ARRAY_BUFFER || flush_target == GL_ELEMENT_ARRAY_BUFFER ||
             flush_target == GL_UNIFORM_BUFFER || flush_target == GL_COPY_WRITE_BUFFER ||
@@ -1127,7 +1152,8 @@ void APIENTRY_GL4ES gl4es_glCopyBufferSubData(GLenum readTarget, GLenum writeTar
 
     if (writebuff->data && readbuff->data) {
         memmove((char*)writebuff->data + writeOffset, (char*)readbuff->data + readOffset, (size_t)size);
-    } else if (writebuff->data && !readbuff->data && !writebuff->mapped && writebuff->real_buffer) {
+    } else if (writebuff->data && !readbuff->data && !writebuff->mapped && !writebuff->ever_mapped &&
+               writebuff->real_buffer) {
         free(writebuff->data);
         writebuff->data = NULL;
         writebuff->cap = 0;
