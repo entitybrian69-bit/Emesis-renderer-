@@ -104,8 +104,12 @@ void IR_TO_GLSL::print_type(sbuffer& str, const glsl_type* t, bool arraySize)
 	if (t->is_array())
 	{
 		print_type(str, t->fields.array, true);
-		if (arraySize)
-			str.append("[%u]", t->length);
+		if (arraySize) {
+			if (t->length == 0)
+				str.append("[]");
+			else
+				str.append("[%u]", t->length);
+		}
 	}
 	else if ((t->is_struct()) && !is_gl_identifier(t->name))
 	{
@@ -121,8 +125,12 @@ void IR_TO_GLSL::print_type_post(sbuffer& str, const glsl_type* t, bool arraySiz
 {
 	if (t->base_type == GLSL_TYPE_ARRAY)
 	{
-		if (!arraySize)
-			str.append("[%u]", t->length);
+		if (!arraySize) {
+			if (t->length == 0)
+				str.append("[]");
+			else
+				str.append("[%u]", t->length);
+		}
 	}
 }
 
@@ -204,6 +212,18 @@ void print_nan_check_funcs(sbuffer& str) {
     str.append(nan_check_func, "vec4", "0.0,0.0,0.0,1.0");
 }
 
+void print_wvaa_funcs(sbuffer& str) {
+    // Workaround for PowerVR fragment shader compiler failing on dynamic vector-as-array writes
+    // to fragment outputs (used by Minecraft 26.x / Sodium 26.3 OIT shaders).
+    const char* wrap_func =
+            "float _emesis_wvaa_wrapper(inout %1$s accvar, in uint idx, in float val) {\n"
+            "   return accvar[idx] = val;\n"
+            "}\n";
+    str.append(wrap_func, "vec2");
+    str.append(wrap_func, "vec3");
+    str.append(wrap_func, "vec4");
+}
+
 // DANGER, the function allocates a new string
 // DO NOT FORGET TO FREE IT
 char * IR_TO_GLSL::Convert(
@@ -267,7 +287,8 @@ char * IR_TO_GLSL::Convert(
                 if(!uses_buffer_sampler && (strstr(type, "samplerBuffer") != nullptr || strstr(type, "imageBuffer") != nullptr)) {
                     uses_buffer_sampler = true;
                     if(state->es_shader && state->language_version < 320) {
-                        res.append("#extension GL_EXT_texture_buffer : enable\n");
+                        res.append("#extension GL_EXT_texture_buffer : enable\n"
+                                   "#extension GL_OES_texture_buffer : enable\n");
                     }
                 }
                 // Check if shampler2DShadow is used in this shader. If yes, we need to explicitly enable high
@@ -294,31 +315,31 @@ char * IR_TO_GLSL::Convert(
         }
 
         if(print_precision) {
-            const char* sampler2d_precision = "lowp";
-            if(sampler2d_highp) sampler2d_precision = "highp";
-            res.append("precision %1$s float;\n"
-                       "precision %1$s int;\n"
-                       "precision %2$s sampler2D;\n", "highp", sampler2d_precision);
-            res.append("precision %1$s sampler3D;\n"
-                       "precision %1$s samplerCubeShadow;\n"
-                       "precision %2$s sampler2DShadow;\n"
-                       "precision %2$s sampler2DArray;\n"
-                       "precision %2$s sampler2DArrayShadow;\n"
-                       "precision %1$s isampler2D;\n"
-                       "precision %1$s isampler3D;\n"
-                       "precision %1$s isamplerCube;\n"
-                       "precision %1$s isampler2DArray;\n"
-                       "precision %1$s usampler2D;\n"
-                       "precision %1$s usampler3D;\n"
-                       "precision %1$s usamplerCube;\n"
-                       "precision %1$s usampler2DArray;\n", "lowp", sampler2d_precision);
+            res.append("precision highp float;\n"
+                       "precision highp int;\n"
+                       "precision highp sampler2D;\n"
+                       "precision highp sampler3D;\n"
+                       "precision highp samplerCubeShadow;\n"
+                       "precision highp sampler2DShadow;\n"
+                       "precision highp sampler2DArray;\n"
+                       "precision highp sampler2DArrayShadow;\n"
+                       "precision highp isampler2D;\n"
+                       "precision highp isampler3D;\n"
+                       "precision highp isamplerCube;\n"
+                       "precision highp isampler2DArray;\n"
+                       "precision highp usampler2D;\n"
+                       "precision highp usampler3D;\n"
+                       "precision highp usamplerCube;\n"
+                       "precision highp usampler2DArray;\n");
             if(uses_buffer_sampler) {
-                res.append("precision %1$s samplerBuffer;\n"
-                           "precision %1$s isamplerBuffer;\n"
-                           "precision %1$s usamplerBuffer;\n"
-                           "precision %1$s imageBuffer;\n"
-                           "precision %1$s iimageBuffer;\n"
-                           "precision %1$s uimageBuffer;\n", "lowp");
+                res.append("precision highp samplerBuffer;\n"
+                           "precision highp isamplerBuffer;\n"
+                           "precision highp usamplerBuffer;\n");
+                if(state->language_version >= 310) {
+                    res.append("precision highp imageBuffer;\n"
+                               "precision highp iimageBuffer;\n"
+                               "precision highp uimageBuffer;\n");
+                }
             }
         }
 
@@ -354,10 +375,14 @@ char * IR_TO_GLSL::Convert(
             print_nan_check_funcs(res);
             shader_nan_check = true;
         }
+        if(state->stage == MESA_SHADER_FRAGMENT) {
+            print_wvaa_funcs(res);
+        }
 	}
 
 	global_print_tracker global;
     global.enable_nan_check = shader_nan_check;
+    global.enable_wvaa = (state != nullptr && state->stage == MESA_SHADER_FRAGMENT);
 	int uses_texlod_impl = 0;
 	int uses_texlodproj_impl = 0;
 
@@ -617,9 +642,42 @@ static const char* image_load_store_format(pipe_format format) {
             return "unknown";
     }
 }
+static int compute_explicit_location(const struct _mesa_glsl_parse_state* state, const ir_variable* ir, bool* out_can_emit) {
+    const auto &data = ir->data;
+    const bool is_es = (state != nullptr && state->es_shader);
+    const int ver = (state != nullptr ? state->language_version : 460);
+
+    if (data.mode == ir_var_uniform || data.mode == ir_var_shader_storage) {
+        *out_can_emit = (!is_es || ver >= 310);
+        return data.location;
+    }
+    if (state != nullptr && state->stage == MESA_SHADER_VERTEX && data.mode == ir_var_shader_in) {
+        int loc = data.location - (int)VERT_ATTRIB_GENERIC0;
+        *out_can_emit = (loc >= 0) && (!is_es || ver >= 300);
+        return loc;
+    }
+    if (state != nullptr && state->stage == MESA_SHADER_FRAGMENT && data.mode == ir_var_shader_out) {
+        int loc = data.location - (int)FRAG_RESULT_DATA0;
+        *out_can_emit = (loc >= 0) && (!is_es || ver >= 300);
+        return loc;
+    }
+    if (data.patch) {
+        int loc = data.location - (int)VARYING_SLOT_PATCH0;
+        *out_can_emit = (loc >= 0) && (!is_es || ver >= 320);
+        return loc;
+    }
+    // Stage-to-stage varyings (VS out, FS in, GS/TCS/TES in/out):
+    // Mesa stores qual_location + VARYING_SLOT_VAR0. In GLSL ES, layout(location=N) on varyings requires ES 3.10+.
+    int loc = data.location - (int)VARYING_SLOT_VAR0;
+    *out_can_emit = (loc >= 0) && (!is_es || ver >= 310);
+    return loc;
+}
+
 void IR_TO_GLSL::print_generic_layout_block(ir_variable* ir) {
     auto &data = ir->data;
-    // Maybe pick better formats? Not sure yet
+    const bool is_es = (this->state != nullptr && this->state->es_shader);
+    const int ver = (this->state != nullptr ? this->state->language_version : 460);
+
     if (data.image_format == 0 && ir->type->is_image()) {
         switch(ir->type->sampled_type){
             case GLSL_TYPE_FLOAT: data.image_format = PIPE_FORMAT_R32_FLOAT; break;
@@ -628,10 +686,21 @@ void IR_TO_GLSL::print_generic_layout_block(ir_variable* ir) {
             default: return;
         }
     }
-    bool should_print = data.binding || data.explicit_location || data.explicit_component || data.image_format || ir->type->is_image();
+
+    const bool emit_binding = (data.explicit_binding || data.binding != 0) && (!is_es || ver >= 310);
+    bool emit_location = false;
+    int location_val = 0;
+    if (data.explicit_location) {
+        location_val = compute_explicit_location(this->state, ir, &emit_location);
+    }
+    const bool emit_component = data.explicit_component && (!is_es || ver >= 320);
+    const bool emit_stream = (data.stream != 0) && (!is_es);
+    const bool emit_img_fmt = (data.image_format != 0) && (!is_es || ver >= 310);
+
+    bool should_print = emit_binding || emit_location || emit_component || emit_stream || emit_img_fmt;
     if(!should_print) return;
     bool packed_stream = data.stream & (1u << 31);
-    if(packed_stream) {
+    if(packed_stream && emit_stream) {
         generated_source.append("// GS packed stream: %u,%u,%u,%u",
                                 ir->data.stream & 3, (ir->data.stream >> 2) & 3,
                                 (ir->data.stream >> 4) & 3, (ir->data.stream >> 6) & 3);
@@ -640,26 +709,23 @@ void IR_TO_GLSL::print_generic_layout_block(ir_variable* ir) {
     bool first = true;
 #define SEPARATE { if(!first) { generated_source.append(","); } else { first = false; } }
     generated_source.append("layout(");
-    if(data.binding) {
+    if(emit_binding) {
         SEPARATE generated_source.append("binding=%i", data.binding);
     }
-    if(data.explicit_location) {
-        const int binding_base = (this->state->stage == MESA_SHADER_VERTEX ? (int)VERT_ATTRIB_GENERIC0 : (int)FRAG_RESULT_DATA0);
-        const int location = data.location - binding_base;
-        SEPARATE generated_source.append("location=%i", location);
+    if(emit_location) {
+        SEPARATE generated_source.append("location=%i", location_val);
     }
-    if(data.explicit_component) {
+    if(emit_component) {
         SEPARATE generated_source.append("component=%u", data.location_frac);
     }
-    if(data.stream) {
+    if(emit_stream) {
         SEPARATE if(packed_stream) {
             generated_source.append("EMESIS_PACKED_STREAM_REPORT");
         }else {
             generated_source.append("stream=%u", data.stream);
         }
-
     }
-    if(data.image_format) {
+    if(emit_img_fmt) {
         SEPARATE generated_source.append(image_load_store_format(data.image_format));
     }
     generated_source.append(") ");
@@ -673,7 +739,7 @@ IR_TO_GLSL::visit(ir_variable* ir)
    if(ir->type->is_void())
       return;
 
-	if ( ir->is_in_uniform_block()) // only supporting uniform blocks for now, might add SSBOs later
+	if ( ir->is_in_buffer_block())
 	{
 		visit_uniform_block( ir );
 		return;
@@ -1661,6 +1727,30 @@ IR_TO_GLSL::try_print_array_assignment(ir_dereference* lhs, ir_rvalue* rhs)
 	return true;
 }
 
+bool IR_TO_GLSL::try_emit_wvaa_assignment(ir_dereference_array *lhs, ir_rvalue *rhs) {
+	if(!global->enable_wvaa) return false;
+	if(lhs == nullptr || rhs == nullptr) return false;
+	ir_variable* ref_var = lhs->array->variable_referenced();
+	if(ref_var == nullptr) return false;
+
+	int vmode = ref_var->data.mode;
+	const struct glsl_type* arr_type = lhs->array->type;
+	const struct glsl_type* rhs_type = rhs->type;
+
+	if(vmode != ir_var_shader_out) return false;
+	if(!arr_type->is_float() || !arr_type->is_vector()) return false;
+	if(!rhs_type->is_float() || !rhs_type->is_scalar()) return false;
+
+	generated_source.append("_emesis_wvaa_wrapper(");
+	lhs->array->accept(this);
+	generated_source.append(",uint(");
+	lhs->array_index->accept(this);
+	generated_source.append("),");
+	rhs->accept(this);
+	generated_source.append(")");
+	return true;
+}
+
 void
 IR_TO_GLSL::emit_assignment_part(ir_dereference* lhs, ir_rvalue* rhs, unsigned write_mask, ir_rvalue* dstIndex)
 {
@@ -1854,14 +1944,8 @@ IR_TO_GLSL::visit(ir_assignment* ir)
 	if (try_print_array_assignment(ir->lhs, ir->rhs))
 		return;
 
-    /*
-	if (ir->condition)
-	{
-		generated_source.append("if (");
-		ir->condition->accept(this);
-		generated_source.append(") ");
-	}
-     */
+	if (try_emit_wvaa_assignment(ir->lhs->as_dereference_array(), ir->rhs))
+		return;
 
 	emit_assignment_part(ir->lhs, ir->rhs, ir->write_mask, NULL);
 }
@@ -2377,22 +2461,29 @@ void IR_TO_GLSL::visit_uniform_block(ir_variable *ir) {
 		}
 	}
 
-	assert( global->num_uniform_blocks < sizeof( global->processed_uniform_blocks ) / sizeof( global->processed_uniform_blocks[0] ) );
+	if ( global->num_uniform_blocks < (int)(sizeof( global->processed_uniform_blocks ) / sizeof( global->processed_uniform_blocks[0] )) ) {
+        global->processed_uniform_blocks[global->num_uniform_blocks++] = itype->name;
+    }
 
-    global->processed_uniform_blocks[global->num_uniform_blocks++] = itype->name;
-
+	const bool is_ssbo = ir->is_in_shader_storage_block();
+	const bool is_es = (this->state != nullptr && this->state->es_shader);
+	const int ver = (this->state != nullptr ? this->state->language_version : 460);
 	const char* packing = nullptr;
 
 	switch ( itype->interface_packing )
 	{
 		case GLSL_INTERFACE_PACKING_STD140: packing = "std140"; break;
-		case GLSL_INTERFACE_PACKING_STD430: packing = "std430"; break;
+		case GLSL_INTERFACE_PACKING_STD430:
+			// std430 is only valid on buffer blocks (SSBOs) in standard GLSL ES
+			packing = is_ssbo ? "std430" : "std140";
+			break;
 		case GLSL_INTERFACE_PACKING_SHARED: packing = "shared"; break;
 		default: packing = nullptr;  break;
 	}
 
-    bool explicit_location = ir->data.explicit_location;
-    bool output_layout_qualifier = packing || explicit_location;
+    bool explicit_binding = ir->data.explicit_binding && (!is_es || ver >= 310);
+    bool explicit_location = ir->data.explicit_location && (!is_es || ver >= 310);
+    bool output_layout_qualifier = packing || explicit_binding || explicit_location;
     if(output_layout_qualifier) {
         generated_source.append("layout(");
         char insert_comma[] = {0, 0};
@@ -2400,13 +2491,17 @@ void IR_TO_GLSL::visit_uniform_block(ir_variable *ir) {
             generated_source.append("%s%s", insert_comma, packing);
             insert_comma[0] = ',';
         }
+        if(explicit_binding) {
+            generated_source.append("%sbinding=%i", insert_comma, ir->data.binding);
+            insert_comma[0] = ',';
+        }
         if(explicit_location) {
             generated_source.append("%slocation=%i", insert_comma, ir->data.location);
             insert_comma[0] = ',';
         }
-        generated_source.append(")");
+        generated_source.append(") ");
     }
-	generated_source.append( "uniform %s {\n", itype->name );
+	generated_source.append( is_ssbo ? "buffer %s {\n" : "uniform %s {\n", itype->name );
 
 	for ( unsigned int i = 0; i < itype->length; i++ )
 	{

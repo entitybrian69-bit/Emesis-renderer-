@@ -359,6 +359,52 @@ static void emesis_default_getmainfbsize(int* width, int* height) {
     }
 }
 
+static void emesis_setup_shader_cache_env(void) {
+    const char* cache_dir = getenv("EMESIS_SHADER_CACHE_DIR");
+    if (cache_dir && *cache_dir) {
+        mkdir(cache_dir, 0775);
+        if (access(cache_dir, W_OK | X_OK) == 0) return;
+    }
+
+    const char* candidates[3] = {
+        getenv("MESA_GLSL_CACHE_DIR"),
+        getenv("TMPDIR"),
+        getenv("POJAV_NATIVEDIR")
+    };
+    for (int i = 0; i < 2; i++) {
+        if (candidates[i] && *candidates[i]) {
+            char fallback_cache[1024];
+            snprintf(fallback_cache, sizeof(fallback_cache), "%s/emesis_shadercache", candidates[i]);
+            mkdir(fallback_cache, 0775);
+            if (access(fallback_cache, W_OK | X_OK) == 0) {
+                setenv("EMESIS_SHADER_CACHE_DIR", fallback_cache, 1);
+                return;
+            }
+        }
+    }
+
+    /* Fallback: derive Android app cache dir from g_self_dir (/data/user/0/<pkg>/... or /data/data/<pkg>/...) */
+    if (g_self_dir[0] == '/') {
+        const char* data_prefix = NULL;
+        if (strncmp(g_self_dir, "/data/user/", 11) == 0) {
+            const char* p = strchr(g_self_dir + 11, '/');
+            if (p) data_prefix = strchr(p + 1, '/');
+        } else if (strncmp(g_self_dir, "/data/data/", 11) == 0) {
+            data_prefix = strchr(g_self_dir + 11, '/');
+        }
+        if (data_prefix && (size_t)(data_prefix - g_self_dir) < 512) {
+            char pkg_cache[1024];
+            int plen = (int)(data_prefix - g_self_dir);
+            snprintf(pkg_cache, sizeof(pkg_cache), "%.*s/cache/emesis_shadercache", plen, g_self_dir);
+            mkdir(pkg_cache, 0775);
+            if (access(pkg_cache, W_OK | X_OK) == 0) {
+                setenv("EMESIS_SHADER_CACHE_DIR", pkg_cache, 1);
+                return;
+            }
+        }
+    }
+}
+
 static void emesis_init_engine_once(void) {
     emesis_discover_self_paths();
     emesis_load_sys_egl();
@@ -368,36 +414,22 @@ static void emesis_init_engine_once(void) {
                                     ? "libemesis_modern.so"
                                     : "libemesis_legacy.so";
 
+    /* Configure environment BEFORE dlopen() so backend constructors see the active flags & cache path! */
+    const char* force_es2 = getenv("EMESIS_FORCE_GLES2");
+    if (g_decision.engine == EMESIS_ENGINE_MODERN || !force_es2 || strcmp(force_es2, "1") != 0) {
+        setenv("LIBGL_ES", "3", 1);
+    }
+    setenv("LIBGL_NOERROR", "1", 0);
+    emesis_setup_shader_cache_env();
+
     /* Promote Legacy (<= 1.16.5) to GLES 3.x even when PojavLauncher sets LIBGL_ES=2 by default,
        unlocking ESSL 3.20/3.10/3.00 shaders, MRT drawbuffers, shadow2D, texelFetch, and glProgramBinary. */
     if (g_decision.engine == EMESIS_ENGINE_LEGACY) {
-        const char* force_es2 = getenv("EMESIS_FORCE_GLES2");
-        if (!force_es2 || strcmp(force_es2, "1") != 0) {
-            setenv("LIBGL_ES", "3", 1);
-        }
         /* Ensure bare V1 launcher forks that skip pojavEnv still disable synchronous glGetError
            stalls and report OpenGL 3.1 capability to Sodium/Iris/OptiFine. */
         setenv("LIBGL_GL", "31", 0);
-        setenv("LIBGL_NOERROR", "1", 0);
         setenv("LIBGL_MIPMAP", "3", 0);
         setenv("LIBGL_NOINTOVLHACK", "1", 0);
-        const char* cache_dir = getenv("EMESIS_SHADER_CACHE_DIR");
-        bool cache_ok = false;
-        if (cache_dir && *cache_dir) {
-            mkdir(cache_dir, 0775);
-            cache_ok = (access(cache_dir, W_OK | X_OK) == 0);
-        }
-        if (!cache_ok) {
-            const char* tmp_dir = getenv("TMPDIR");
-            if (tmp_dir && *tmp_dir) {
-                char fallback_cache[1024];
-                snprintf(fallback_cache, sizeof(fallback_cache), "%s/emesis_shadercache", tmp_dir);
-                mkdir(fallback_cache, 0775);
-                if (access(fallback_cache, W_OK | X_OK) == 0) {
-                    setenv("EMESIS_SHADER_CACHE_DIR", fallback_cache, 1);
-                }
-            }
-        }
     }
 
     char full_path[1024] = {0};
@@ -418,11 +450,10 @@ static void emesis_init_engine_once(void) {
         return;
     }
 
-    EMESIS_LOGI("Emesis Renderer v1.2.5 (Made by Entitybrian) -> Selected [%s] for MC [%s] via [%s]",
+    EMESIS_LOGI("Emesis Renderer v1.2.6 (Made by Entitybrian) -> Selected [%s] for MC [%s] via [%s]",
                 target_soname, g_decision.detected_version, g_decision.detection_source);
 
     if (g_decision.engine == EMESIS_ENGINE_MODERN) {
-        setenv("LIBGL_ES", "3", 1);
         g_modern_eglGetProcAddress = (pfn_eglGetProcAddress_t)dlsym(g_engine_handle, "eglGetProcAddress");
         g_mod_eglCreateContext = (__typeof__(g_mod_eglCreateContext))dlsym(g_engine_handle, "eglCreateContext");
         g_mod_eglDestroyContext = (__typeof__(g_mod_eglDestroyContext))dlsym(g_engine_handle, "eglDestroyContext");
@@ -818,7 +849,7 @@ __attribute__((visibility("default"))) void* glXGetProcAddressARB(const char* pr
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL
 Java_com_entitybrian_emesis_EmesisNative_getEngineVersion(JNIEnv* env, jclass cls) {
     (void)cls;
-    return (*env)->NewStringUTF(env, "Emesis Renderer v1.2.5 (Shader Accelerator) — Made by Entitybrian");
+    return (*env)->NewStringUTF(env, "Emesis Renderer v1.2.6 (26.3 + <1.17 Accelerator) — Made by Entitybrian");
 }
 
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL

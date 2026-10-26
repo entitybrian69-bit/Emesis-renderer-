@@ -32,6 +32,19 @@ static bool starts_with_ci(const char* s, const char* prefix) {
     return true;
 }
 
+static bool contains_ci(const char* haystack, const char* needle) {
+    if (!haystack || !needle || !*needle) return false;
+    size_t nlen = strlen(needle);
+    for (const char* p = haystack; *p; p++) {
+        size_t i = 0;
+        while (i < nlen && p[i] && tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i])) {
+            i++;
+        }
+        if (i == nlen) return true;
+    }
+    return false;
+}
+
 int emesis_classify_mc_version_string(const char* raw) {
     if (!raw || !*raw) return -1;
 
@@ -45,6 +58,11 @@ int emesis_classify_mc_version_string(const char* raw) {
         starts_with_ci(s, "a1.") || starts_with_ci(s, "b1.") ||
         starts_with_ci(s, "alpha") || starts_with_ci(s, "beta")) {
         return EMESIS_ENGINE_LEGACY;
+    }
+
+    /* NeoForge only exists for Minecraft 1.20.2+ and 26.x+ -> always Modern */
+    if (contains_ci(s, "neoforge")) {
+        return EMESIS_ENGINE_MODERN;
     }
 
     /* Strip common prefixes like "fabric-loader-0.16.9-1.20.1", "quilt-loader-...", "mc-" */
@@ -94,16 +112,56 @@ int emesis_classify_mc_version_string(const char* raw) {
                 }
                 return EMESIS_ENGINE_MODERN;
             }
-            /* Year-based Minecraft releases (e.g. 26.1, 26.2, 27.1+) => Modern */
+            /* Year-based Minecraft releases (e.g. 25.x, 26.1, 26.2, 26.3, 27.1+) => Modern */
             if (major >= 25 && major <= 99) {
                 return EMESIS_ENGINE_MODERN;
             }
         }
     }
 
-    /* Scan embedded substrings for standard MC version tokens (e.g. "OptiFine_1.8.9", "1.12.2-forge-14.23.5") */
+    /* Scan embedded substrings left-to-right for MC version tokens:
+       - "mc26.3", "forge-26.3-1.0.2", "OptiFine_26.3_HD_U_J9" -> Modern
+       - embedded snapshots like "fabric-25w04a" -> Modern/Legacy
+       - "OptiFine_1.8.9", "1.12.2-forge-14.23.5" -> Legacy/Modern */
     for (const char* p = s; *p; p++) {
-        if ((p == s || !isalnum((unsigned char)p[-1])) && p[0] == '1' && p[1] == '.' && isdigit((unsigned char)p[2])) {
+        bool boundary = (p == s || (!isalnum((unsigned char)p[-1]) && p[-1] != '.'));
+        bool mc_prefixed = (p >= s + 2 &&
+                            (p[-2] == 'm' || p[-2] == 'M') &&
+                            (p[-1] == 'c' || p[-1] == 'C') &&
+                            (p == s + 2 || !isalpha((unsigned char)p[-3])));
+
+        if (boundary && isdigit((unsigned char)p[0]) && isdigit((unsigned char)p[1]) &&
+            (p[2] == 'w' || p[2] == 'W') &&
+            isdigit((unsigned char)p[3]) && isdigit((unsigned char)p[4]) &&
+            isalpha((unsigned char)p[5])) {
+            int yy = (p[0] - '0') * 10 + (p[1] - '0');
+            int ww = (p[3] - '0') * 10 + (p[4] - '0');
+            if (yy < 21) return EMESIS_ENGINE_LEGACY;
+            if (yy > 21) return EMESIS_ENGINE_MODERN;
+            return (ww >= 10) ? EMESIS_ENGINE_MODERN : EMESIS_ENGINE_LEGACY;
+        }
+
+        if ((boundary || mc_prefixed) && isdigit((unsigned char)p[0]) && isdigit((unsigned char)p[1]) &&
+            p[2] == '.' && isdigit((unsigned char)p[3])) {
+            long major = (p[0] - '0') * 10 + (p[1] - '0');
+            if (major >= 25 && major <= 99) {
+                char* end_min = NULL;
+                long minor = strtol(p + 3, &end_min, 10);
+                long patch = 0;
+                bool has_patch = false;
+                if (end_min && *end_min == '.' && isdigit((unsigned char)end_min[1])) {
+                    has_patch = true;
+                    patch = strtol(end_min + 1, &end_min, 10);
+                }
+                /* Distinguish MC year versions (e.g. 26.1, 26.3, 26.3.1) from 3-part Forge build numbers (e.g. 36.2.39) */
+                if (minor >= 0 && minor <= 12 && (!has_patch || patch <= 12) &&
+                    (!end_min || *end_min != '.')) {
+                    return EMESIS_ENGINE_MODERN;
+                }
+            }
+        }
+
+        if ((boundary || mc_prefixed) && p[0] == '1' && p[1] == '.' && isdigit((unsigned char)p[2])) {
             char* end_min = NULL;
             long minor = strtol(p + 2, &end_min, 10);
             if (minor >= 0 && minor <= 30) {

@@ -4,58 +4,67 @@
  * For use under LGPL-3.0
  */
 
+#include <stdint.h>
 #include <proc.h>
 #include <egl.h>
 #include "basevertex.h"
-void glMultiDrawArrays( GLenum mode, GLint *first, GLsizei *count, GLsizei primcount )
-{
-    // We'd need to merge each buffer attached to the VBO to properly achieve this. Nuh-uh. Aint no way im doin allat
-    if(!current_context) return;
-    for (int i = 0; i < primcount; i++) {
+
+void glMultiDrawArrays(GLenum mode, const GLint *first, const GLsizei *count, GLsizei primcount) {
+    emesis_ensure_current_context();
+    if(!current_context || primcount <= 0 || !first || !count) return;
+    if(es3_functions.glMultiDrawArraysEXT != NULL) {
+        es3_functions.glMultiDrawArraysEXT(mode, first, count, primcount);
+        return;
+    }
+    for (GLsizei i = 0; i < primcount; i++) {
         if (count[i] > 0)
             es3_functions.glDrawArrays(mode, first[i], count[i]);
     }
 }
 
-void glMultiDrawElements( GLenum mode, GLsizei *count, GLenum type, const void * const *indices, GLsizei primcount )
-{
-    if(!current_context) return;
-    GLint elementbuffer;
-    es3_functions.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &elementbuffer);
-    es3_functions.glBindBuffer(GL_COPY_WRITE_BUFFER, current_context->multidraw_element_buffer);
-    GLsizei total = 0, offset = 0, typebytes = type_bytes(type);
-    for (GLsizei i = 0; i < primcount; i++) {
-        total += count[i];
+void glMultiDrawElements(GLenum mode, const GLsizei *count, GLenum type, const void * const *indices, GLsizei primcount) {
+    emesis_ensure_current_context();
+    if(!current_context || primcount <= 0 || !count || !indices) return;
+    if(es3_functions.glMultiDrawElementsEXT != NULL) {
+        es3_functions.glMultiDrawElementsEXT(mode, count, type, indices, primcount);
+        return;
     }
-    es3_functions.glBufferData(GL_COPY_WRITE_BUFFER, total*typebytes, NULL, GL_STREAM_DRAW);
+    /* Direct per-subdraw submission avoids glGetIntegerv sync stalls, EBO reallocation,
+     * glCopyBufferSubData overhead, and VAO GL_ELEMENT_ARRAY_BUFFER state clobbering. */
     for (GLsizei i = 0; i < primcount; i++) {
-        GLsizei icount = count[i];
-        if(icount == 0) continue;
-        icount *= typebytes;
-        if(elementbuffer != 0) {
-            es3_functions.glCopyBufferSubData(GL_ELEMENT_ARRAY_BUFFER, GL_COPY_WRITE_BUFFER, (GLintptr)indices[i], offset, icount);
-        }else {
-            es3_functions.glBufferSubData(GL_COPY_WRITE_BUFFER, offset, icount, indices[i]);
-        }
-        offset += icount;
+        if (count[i] > 0)
+            es3_functions.glDrawElements(mode, count[i], type, indices[i]);
     }
-    es3_functions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, current_context->multidraw_element_buffer);
-    es3_functions.glDrawElements(mode, total, type, 0);
-    if(elementbuffer != 0) es3_functions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, elementbuffer);
-
 }
 
-void glMultiDrawElementsIndirect(GLenum mode, GLenum type, const void *indirect, GLsizei drawcount, GLsizei stride){
-    if(!current_context) return;
-    if(current_context->multidraw_indirect) {
+void glMultiDrawElementsIndirect(GLenum mode, GLenum type, const void *indirect, GLsizei drawcount, GLsizei stride) {
+    emesis_ensure_current_context();
+    if(!current_context || drawcount <= 0) return;
+    if(current_context->multidraw_indirect && es3_functions.glMultiDrawElementsIndirectEXT != NULL) {
         es3_functions.glMultiDrawElementsIndirectEXT(mode, type, indirect, drawcount, stride);
+        return;
     }
-    // TODO: handle MDI emulation if needed
+    if(current_context->es31 && es3_functions.glDrawElementsIndirect != NULL) {
+        size_t step = (stride != 0) ? (size_t)stride : 20u;
+        uintptr_t base = (uintptr_t)indirect;
+        for (GLsizei i = 0; i < drawcount; i++) {
+            es3_functions.glDrawElementsIndirect(mode, type, (const void*)(base + (size_t)i * step));
+        }
+    }
 }
 
 void glMultiDrawArraysIndirect(GLenum mode, const void *indirect, GLsizei drawcount, GLsizei stride) {
-    if(!current_context) return;
-    if(current_context->multidraw_indirect) {
+    emesis_ensure_current_context();
+    if(!current_context || drawcount <= 0) return;
+    if(current_context->multidraw_indirect && es3_functions.glMultiDrawArraysIndirectEXT != NULL) {
         es3_functions.glMultiDrawArraysIndirectEXT(mode, indirect, drawcount, stride);
+        return;
+    }
+    if(current_context->es31 && es3_functions.glDrawArraysIndirect != NULL) {
+        size_t step = (stride != 0) ? (size_t)stride : 16u;
+        uintptr_t base = (uintptr_t)indirect;
+        for (GLsizei i = 0; i < drawcount; i++) {
+            es3_functions.glDrawArraysIndirect(mode, (const void*)(base + (size_t)i * step));
+        }
     }
 }

@@ -3,8 +3,11 @@
 //
 
 #include <cstring>
+#include <mutex>
 #include "c_wrapper.h"
 #include "GlslConvert.h"
+
+static std::mutex s_glsl_convert_mutex;
 
 GlslConvert::ShaderStage getStageForGlEnum(GLenum shader_type) {
     switch(shader_type) {
@@ -26,7 +29,8 @@ GlslConvert::OptimizationStruct optimizationStruct {}; // Default struct with ev
 
 
 
-__attribute((visibility("default"))) char *optimize_shader(char *source, GLenum type, int vGLSLVersion, int vTargetGLSLVersion) {
+__attribute__((visibility("default"))) char *optimize_shader(char *source, GLenum type, int vGLSLVersion, int vTargetGLSLVersion) {
+    std::lock_guard<std::mutex> lock(s_glsl_convert_mutex);
     GlslConvert& converter = GlslConvert::Instance();
     GlslConvert::ShaderStage stage = getStageForGlEnum(type);
     if(stage == GlslConvert::MESA_SHADER_NONE) {

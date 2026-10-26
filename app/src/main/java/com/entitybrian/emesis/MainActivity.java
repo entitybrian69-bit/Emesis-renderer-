@@ -95,7 +95,7 @@ public class MainActivity extends Activity {
         heroCard.addView(logoView, logoLp);
 
         TextView titleView = new TextView(this);
-        titleView.setText("EMESIS RENDERER v1.2.5");
+        titleView.setText("EMESIS RENDERER v1.2.6");
         titleView.setTextColor(Color.parseColor("#F3F7FA"));
         titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 23);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
@@ -103,7 +103,7 @@ public class MainActivity extends Activity {
         heroCard.addView(titleView);
 
         TextView authorView = new TextView(this);
-        authorView.setText("Made by Entitybrian • <1.17 Shader Accelerator");
+        authorView.setText("Made by Entitybrian • 26.3 + <1.17 Accelerator");
         authorView.setTextColor(Color.parseColor("#00FF88"));
         authorView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         titleView.setIncludeFontPadding(false);
@@ -267,8 +267,8 @@ public class MainActivity extends Activity {
         // 4. Automatic Dual-Pipeline Overview Card
         LinearLayout archCard = createCard("#101820", "#1F2937");
         archCard.addView(sectionHeader("UNIFIED AUTOMATIC PIPELINES"));
-        archCard.addView(infoLine("Minecraft > 1.16.5 (1.17 – 1.21.x, 26.x+)",
-                "Emesis Modern Core — OpenGL 3.2+ Core Profile over GLES 3.x (auto-promotes GLES 3.2/3.1/3.0 context)"));
+        archCard.addView(infoLine("Minecraft > 1.16.5 (1.17 – 1.21.x, 26.3+)",
+                "Emesis Modern Core — High-FPS OpenGL 3.2+ / RenderPearl Core over GLES 3.x (Dual-Tier .essl/.pbin Cache, Zero-Query State Dedup, OIT & Compute Support, 32-bit Address-Space Protection & ES 3.0 BaseVertex Ring)"));
         archCard.addView(infoLine("Minecraft <= 1.16.5 (Classic – 1.7.10 – 1.8.9 – 1.12.2 – 1.16.5)",
                 "Emesis Compatibility Core — GLES 3.2/3.1/3.0 + SPIR-V ESSL Shader Accelerator (Sodium, Iris, OptiFine, ShadersMod, Angelica, Oculus) with Persistent Two-Tier Shader & GPU Binary Cache, 16-MRT FBO State-Diffing, GPU Quad IBO & Hardware PCF Shadows"));
         root.addView(archCard, cardParams());
@@ -278,10 +278,10 @@ public class MainActivity extends Activity {
         simCard.addView(sectionHeader("VERSION ROUTER TESTER"));
 
         final EditText verInput = new EditText(this);
-        verInput.setText("1.16.5");
+        verInput.setText("26.3");
         verInput.setTextColor(Color.parseColor("#F3F7FA"));
         verInput.setHintTextColor(Color.parseColor("#64748B"));
-        verInput.setHint("Enter MC version (e.g. 1.8.9, 1.16.5, 1.17.1, 1.21.4)");
+        verInput.setHint("Enter MC version (e.g. 26.3, 1.21.4, 1.16.5, 1.8.9)");
         GradientDrawable inputBg = new GradientDrawable();
         inputBg.setColor(Color.parseColor("#080C0F"));
         inputBg.setCornerRadius(dp(8));
@@ -298,7 +298,7 @@ public class MainActivity extends Activity {
         simOutputText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         simOutputText.setPadding(0, dp(10), 0, 0);
         if (EmesisNative.isLoaded()) {
-            simOutputText.setText(EmesisNative.simulateRoute("1.16.5") + "\n" + EmesisNative.simulateRoute("1.21.4"));
+            simOutputText.setText(EmesisNative.simulateRoute("26.3") + "\n" + EmesisNative.simulateRoute("1.16.5"));
         }
         simCard.addView(simOutputText);
 

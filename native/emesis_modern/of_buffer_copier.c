@@ -6,8 +6,10 @@
 #include "proc.h"
 #include "egl.h"
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include "swizzle.h"
+
 void buffer_copier_init(context_t* context) {
     framebuffer_copier_t* copier = &context->framebuffer_copier;
     while(es3_functions.glGetError() != 0) {}
@@ -19,6 +21,7 @@ void buffer_copier_init(context_t* context) {
     es3_functions.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     es3_functions.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     es3_functions.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    es3_functions.glBindTexture(GL_TEXTURE_2D, 0);
     GLenum error = es3_functions.glGetError();
     if(error != 0) {
         printf("EmesisRenderer: error while initializing buffer-copier: %x\n", error);
@@ -30,8 +33,7 @@ void buffer_copier_init(context_t* context) {
 static void buffer_copier_store(GLint x, GLint y, GLsizei w, GLsizei h) {
     framebuffer_copier_t* copier = &current_context->framebuffer_copier;
     if(!copier->ready) return;
-    GLint current_texbind;
-    es3_functions.glGetIntegerv(GL_TEXTURE_BINDING_2D, &current_texbind);
+    GLuint current_texbind = emesis_get_bound_texture(GL_TEXTURE_2D);
     es3_functions.glBindTexture(GL_TEXTURE_2D, copier->temp_texture);
     es3_functions.glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, w, h, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
     es3_functions.glBindTexture(GL_TEXTURE_2D, current_texbind);
@@ -44,46 +46,68 @@ static void buffer_copier_store(GLint x, GLint y, GLsizei w, GLsizei h) {
 static void buffer_copier_release(GLenum target, GLint level, GLint x, GLint y, GLsizei w, GLsizei h) {
     framebuffer_copier_t* copier = &current_context->framebuffer_copier;
     if(!copier->ready) return;
-    GLint current_texbind;
-    GLenum target_query = get_textarget_query_param(target);
-    if(target_query == GL_NONE) return;
-    es3_functions.glGetIntegerv(target_query, &current_texbind);
+    GLuint current_texbind = emesis_get_bound_texture(target);
+    if(current_texbind == 0) return;
     es3_functions.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copier->destfb);
     es3_functions.glBindFramebuffer(GL_READ_FRAMEBUFFER, copier->tempfb);
     es3_functions.glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, target, current_texbind, level);
     es3_functions.glBlitFramebuffer(0, 0, w, h, x, y, x+w, y+h, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-    es3_functions.glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+    es3_functions.glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, target, 0, 0);
     es3_functions.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, current_context->draw_framebuffer);
     es3_functions.glBindFramebuffer(GL_READ_FRAMEBUFFER, current_context->read_framebuffer);
 }
 
-void glGetTexImage( 	GLenum target,
-                       GLint level,
-                       GLenum format,
-                       GLenum type,
-                       void * pixels) {
-    if(!current_context) return;
-    if(!current_context->es31) goto unsupported_esver;
-    if(format != GL_RGBA && format != GL_RGBA_INTEGER && type != GL_UNSIGNED_BYTE && type != GL_UNSIGNED_INT && type != GL_INT && type != GL_FLOAT) goto unsupported;
+void glGetTexImage(GLenum target,
+                   GLint level,
+                   GLenum format,
+                   GLenum type,
+                   void * pixels) {
+    emesis_ensure_current_context();
+    if(!current_context || !pixels) return;
+    if(!current_context->es31 || !es3_functions.glGetTexLevelParameteriv) {
+        printf("EmesisRenderer: glGetTexImage only supported on OpenGL ES 3.1+\n");
+        return;
+    }
+    bool swap_bgra = false;
+    GLenum read_fmt = format;
+    GLenum read_type = type;
+    if (read_fmt == GL_BGRA_EXT) {
+        read_fmt = GL_RGBA;
+        swap_bgra = true;
+    }
+    if (read_type == 0x8367 /* GL_UNSIGNED_INT_8_8_8_8_REV */) {
+        read_type = GL_UNSIGNED_BYTE;
+    }
+    if ((read_fmt != GL_RGBA && read_fmt != GL_RGBA_INTEGER) ||
+        (read_type != GL_UNSIGNED_BYTE && read_type != GL_UNSIGNED_INT && read_type != GL_INT && read_type != GL_FLOAT)) {
+        printf("EmesisRenderer: unsupported parameters for glGetTexImage (fmt=0x%x type=0x%x)\n", format, type);
+        return;
+    }
     framebuffer_copier_t* copier = &current_context->framebuffer_copier;
-    GLint texture;
-    es3_functions.glGetIntegerv(get_textarget_query_param(target), &texture);
-    es3_functions.glBindFramebuffer(GL_READ_FRAMEBUFFER, copier->tempfb);
-    es3_functions.glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, target, texture, level);
-    GLint w, h;
+    GLuint texture = emesis_get_bound_texture(target);
+    if (texture == 0) return;
+    GLint w = 0, h = 0;
     es3_functions.glGetTexLevelParameteriv(target, level, GL_TEXTURE_WIDTH, &w);
     es3_functions.glGetTexLevelParameteriv(target, level, GL_TEXTURE_HEIGHT, &h);
-    es3_functions.glReadPixels(0, 0, w, h, format, type, pixels);
-    es3_functions.glFramebufferRenderbuffer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, 0);
-    return;
-    unsupported_esver:
-    printf("EmesisRenderer: glGetTexImage only supported on OpenGL ES 3.1");
-    return;
-    unsupported:
-    printf("EmesisRenderer: unsupported parameters for glGetTexImage");
+    if (w <= 0 || h <= 0) return;
+    es3_functions.glBindFramebuffer(GL_READ_FRAMEBUFFER, copier->tempfb);
+    es3_functions.glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, target, texture, level);
+    es3_functions.glReadPixels(0, 0, w, h, read_fmt, read_type, pixels);
+    es3_functions.glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, target, 0, 0);
+    es3_functions.glBindFramebuffer(GL_READ_FRAMEBUFFER, current_context->read_framebuffer);
+    if (swap_bgra && read_type == GL_UNSIGNED_BYTE) {
+        uint8_t* p = (uint8_t*)pixels;
+        size_t total = (size_t)w * (size_t)h;
+        for (size_t i = 0; i < total; i++) {
+            uint8_t r = p[i * 4 + 0];
+            p[i * 4 + 0] = p[i * 4 + 2];
+            p[i * 4 + 2] = r;
+        }
+    }
 }
 
 void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid * data) {
+    emesis_ensure_current_context();
     if(!current_context) return;
     if(format == GL_DEPTH_COMPONENT) {
         framebuffer_copier_t* copier = &current_context->framebuffer_copier;
@@ -91,6 +115,20 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
         copier->depthWidth = width;
         copier->depthHeight = height;
         buffer_copier_store(x, y, width, height);
+        return;
+    }
+    if (type == 0x8367 /* GL_UNSIGNED_INT_8_8_8_8_REV */) {
+        type = GL_UNSIGNED_BYTE;
+    }
+    if (format == GL_BGRA_EXT && type == GL_UNSIGNED_BYTE && data != NULL && width > 0 && height > 0) {
+        es3_functions.glReadPixels(x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        uint8_t* p = (uint8_t*)data;
+        size_t total = (size_t)width * (size_t)height;
+        for (size_t i = 0; i < total; i++) {
+            uint8_t r = p[i * 4 + 0];
+            p[i * 4 + 0] = p[i * 4 + 2];
+            p[i * 4 + 2] = r;
+        }
         return;
     }
     es3_functions.glReadPixels(x, y, width, height, format, type, data);
@@ -105,6 +143,7 @@ void glTexSubImage2D(GLenum target,
                      GLenum format,
                      GLenum type,
                      const void * data) {
+    emesis_ensure_current_context();
     if(!current_context) return;
     swizzle_process_upload(target, &format, &type);
     if(format == GL_DEPTH_COMPONENT) {
@@ -139,12 +178,12 @@ void texture_blit_framebuffer(GLenum target,
         fb_blit_bit = GL_COLOR_BUFFER_BIT;
     }
 
-    GLint texture;
-    es3_functions.glGetIntegerv(get_textarget_query_param(target), &texture);
+    GLuint texture = emesis_get_bound_texture(target);
+    if (texture == 0) return;
     es3_functions.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copier->destfb);
     es3_functions.glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, fb_attachment, target, texture, level);
     es3_functions.glBlitFramebuffer(x, y, width+x, height+y, xoffset, yoffset, width+xoffset, height+yoffset, fb_blit_bit, GL_NEAREST);
-    es3_functions.glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, fb_attachment, GL_TEXTURE_2D, 0, 0);
+    es3_functions.glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, fb_attachment, target, 0, 0);
     es3_functions.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, current_context->draw_framebuffer);
 }
 
@@ -156,8 +195,10 @@ void glCopyTexSubImage2D(GLenum target,
                          GLint y,
                          GLsizei width,
                          GLsizei height) {
-    if(current_context->es31) {
-        GLint depthtype;
+    emesis_ensure_current_context();
+    if (!current_context) return;
+    if(current_context->es31 && es3_functions.glGetTexLevelParameteriv) {
+        GLint depthtype = GL_NONE;
         es3_functions.glGetTexLevelParameteriv(target, level, GL_TEXTURE_DEPTH_TYPE, &depthtype);
         if(depthtype != GL_NONE) {
             texture_blit_framebuffer(target, level, xoffset, yoffset, x, y, width, height, true);
@@ -167,7 +208,6 @@ void glCopyTexSubImage2D(GLenum target,
     } else {
         es3_functions.glGetError();
         es3_functions.glCopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
-        // The QCOM driver is a pathological liar and emits wrong GL errors. Abuse this to decide when we actually need to at least try copying depth.
         if(es3_functions.glGetError() == GL_INVALID_OPERATION) {
             texture_blit_framebuffer(target, level, xoffset, yoffset, x, y, width, height, true);
         }

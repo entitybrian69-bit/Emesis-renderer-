@@ -8,24 +8,45 @@
 #define EMESIS_MODERN_EGL_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <EGL/egl.h>
 #include "proc.h"
 #include "unordered_map/unordered_map.h"
 
-#define MAX_BOUND_BUFFERS 9
-#define MAX_BOUND_BASEBUFFERS 4
+#define MAX_BOUND_BUFFERS 12
 #define MAX_DRAWBUFFERS 8
 #define MAX_FBTARGETS 8
-#define MAX_TMUS 8
-#define MAX_TEXTARGETS 8
+#define MAX_TMUS 32
+#define MAX_TEXTARGETS 10
+#define MAX_UBO_SLOTS 64
+
+typedef struct {
+    GLuint count;
+    GLuint instanceCount;
+    GLuint firstIndex;
+    GLint baseVertex;
+    GLuint reservedMustBeZero;
+} basevertex_indirect_cmd_t;
 
 typedef struct {
     bool ready;
     GLuint indirectRenderBuffer;
+    size_t indirectRingSize;
+    size_t indirectRingOffset;
+    basevertex_indirect_cmd_t* scratchPasses;
+    size_t scratchCap;
+    GLuint es30IndexBuffer;
+    size_t es30IndexRingSize;
+    size_t es30IndexRingOffset;
+    uint32_t* es30CpuScratch;
+    size_t es30CpuCap;
 } basevertex_renderer_t;
 
 typedef struct {
     bool available;
+    PFNGLENABLEIPROC enablei;
+    PFNGLDISABLEIPROC disablei;
+    PFNGLISENABLEDIPROC isenabledi;
     PFNGLBLENDEQUATIONIPROC blendequationi;
     PFNGLBLENDEQUATIONSEPARATEIPROC blendequationseparatei;
     PFNGLBLENDFUNCIPROC blendfunci;
@@ -34,12 +55,12 @@ typedef struct {
 } blending_functions_t;
 
 typedef struct {
-    GLuint index;
     GLuint buffer;
+    GLintptr offset;
+    GLsizeiptr size;
     bool ranged;
-    GLintptr  offset;
-    GLintptr  size;
-} basebuffer_binding_t;
+    bool valid;
+} ubo_slot_binding_t;
 
 typedef struct {
     GLuint color_targets[MAX_FBTARGETS];
@@ -69,18 +90,28 @@ typedef struct {
 typedef struct {
     EGLContext phys_context;
     bool context_rdy;
-    bool es31, es32, buffer_storage, buffer_texture_ext, multidraw_indirect, timer_query, base_instance, clear_texture;
+    bool es31, es32, buffer_storage, buffer_texture_ext, buffer_texture_oes, multidraw_indirect, timer_query, base_instance, clear_texture;
     GLint shader_version;
+    char gpu_vendor[64];
+    char gpu_renderer[96];
+    char gpu_version[96];
     basevertex_renderer_t basevertex;
     PFNGLDRAWELEMENTSBASEVERTEXPROC drawelementsbasevertex;
+    PFNGLMULTIDRAWELEMENTSBASEVERTEXEXTPROC multidrawelementsbasevertex;
     blending_functions_t blending;
     GLuint multidraw_element_buffer;
+    GLuint clear_fbo;
     framebuffer_copier_t framebuffer_copier;
     unordered_map* shader_map;
     unordered_map* program_map;
     unordered_map* framebuffer_map;
     unordered_map* texture_swztrack_map;
-    unordered_map* bound_basebuffers[MAX_BOUND_BASEBUFFERS];
+    unordered_map* vao_ebo_map;
+    GLuint current_vao;
+    GLuint default_vao_ebo;
+    GLuint active_tex_unit;
+    GLuint bound_textures[MAX_TMUS][MAX_TEXTARGETS];
+    ubo_slot_binding_t ubo_bindings[MAX_UBO_SLOTS];
     int proxy_width, proxy_height, proxy_intformat, maxTextureSize;
     GLint max_drawbuffers;
     GLuint bound_buffers[MAX_BOUND_BUFFERS];
@@ -97,5 +128,8 @@ extern thread_local context_t *current_context;
 extern void init_egl();
 extern void emesis_ensure_current_context();
 extern GLenum get_textarget_query_param(GLenum target);
+extern int emesis_tex_target_index(GLenum target);
+extern GLuint emesis_get_bound_texture(GLenum target);
+extern GLuint emesis_get_current_ebo(void);
 
 #endif //EMESIS_MODERN_EGL_H

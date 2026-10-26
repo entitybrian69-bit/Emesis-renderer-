@@ -101,9 +101,22 @@ void pick_format(GLint *internalformat, GLenum* type, GLenum* format) {
         // So, switch to that.
         case GL_R8_SNORM:
             *internalformat = GL_R16F;
+            break;
         case GL_RG8_SNORM:
             *internalformat = GL_RG16F;
+            break;
         case GL_RGBA8_SNORM:
+            *internalformat = GL_RGBA16F;
+            break;
+        case GL_R16:
+        case GL_R16_SNORM:
+            *internalformat = GL_R16F;
+            break;
+        case GL_RG16:
+        case GL_RG16_SNORM:
+            *internalformat = GL_RG16F;
+            break;
+        case GL_RGBA16_SNORM:
             *internalformat = GL_RGBA16F;
             break;
         // Fun fact: the only color renderable formats in GLES that have 3 components are
@@ -112,11 +125,14 @@ void pick_format(GLint *internalformat, GLenum* type, GLenum* format) {
         case GL_RGB16I:
         case GL_RGB32I:
         case GL_RGB8_SNORM:
+        case GL_RGB16_SNORM:
+        case GL_RGB10:
         case GL_RGB12:
         case GL_RGB16:
         case GL_RGB16F:
         case GL_RGB32F:
             *internalformat = GL_R11F_G11F_B10F;
+            break;
         case GL_RGB8UI:
             *internalformat = GL_RGB8;
             break;
@@ -194,16 +210,26 @@ void pick_format(GLint *internalformat, GLenum* type, GLenum* format) {
 }
 
 
+INTERNAL GLenum remap_tex_storage_internalformat(GLenum internalformat) {
+    GLint fmt = (GLint)internalformat;
+    GLenum dummy_type = GL_UNSIGNED_BYTE;
+    GLenum dummy_format = GL_RGBA;
+    pick_format(&fmt, &dummy_type, &dummy_format);
+    if (fmt == GL_RGBA) return GL_RGBA8;
+    if (fmt == GL_RGB) return GL_RGB8;
+    if (fmt == GL_RG) return GL_RG8;
+    if (fmt == GL_RED) return GL_R8;
+    return (GLenum)fmt;
+}
+
 INTERNAL void pick_internalformat(GLint *internalformat, GLenum* type, GLenum* format, GLvoid const** data) {
     if(*data == NULL) {
-        // Appears that desktop GL completely discards type and format without data. Pick a correct (sized if unsized is unavailable)
-        // format for the d
         pick_format(internalformat, type, format);
         return;
     }
     // Compared to OpenGL ES, desktop OpenGL implicitly supports way more depth/RGB formats without explicit sizing.
     // This function converts appropriate unsized formats to sized ones according to the type.
-    bool convert_data;
+    bool convert_data = false;
     switch (*internalformat) {
         case GL_DEPTH_COMPONENT32:
             // Select the equivalent type (32f for float, 24 for int)

@@ -131,16 +131,21 @@ def split_params(param_str: str):
 
 def main():
     seen = {}
+    decl_re = re.compile(
+        r"(?:GLAPI|WINGDIAPI)\s+([A-Za-z0-9_*\s]+?)\s+"
+        r"(?:GLAPIENTRY|APIENTRY)\s+(gl[A-Z][A-Za-z0-9_]*)\s*\(([^;{}]*)\)\s*;",
+        re.MULTILINE | re.DOTALL,
+    )
     for hdr in GL_HEADERS:
         if not hdr.exists():
             continue
-        for line in hdr.read_text(encoding="utf-8", errors="ignore").splitlines():
-            m = PROTO_RE.match(line)
-            if not m:
-                continue
+        text = hdr.read_text(encoding="utf-8", errors="ignore")
+        # Strip C comments so multiline declarations in GL/gl.h parse cleanly
+        text = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
+        for m in decl_re.finditer(text):
             ret_type = " ".join(m.group(1).split())
             name = m.group(2)
-            raw_params = m.group(3)
+            raw_params = " ".join(m.group(3).split())
             if name not in UNIVERSAL_CORE_GL_SYMBOLS or name in seen:
                 continue
             params = split_params(raw_params)

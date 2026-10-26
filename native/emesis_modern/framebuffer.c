@@ -10,22 +10,26 @@
 #include <stdio.h>
 
 static framebuffer_t* get_framebuffer(GLenum target) {
-    GLuint fb;
+    if (!current_context) return NULL;
+    GLuint fb = 0;
     switch (target) {
         case GL_FRAMEBUFFER:
         case GL_DRAW_FRAMEBUFFER: fb = current_context->draw_framebuffer; break;
         case GL_READ_FRAMEBUFFER: fb = current_context->read_framebuffer; break;
+        default: return NULL;
     }
-    return unordered_map_get(current_context->framebuffer_map, (void*)fb);
+    if (fb == 0) return NULL;
+    return unordered_map_get(current_context->framebuffer_map, (void*)(uintptr_t)fb);
 }
 
 static GLuint get_attachment_idx(GLenum attachment) {
     if(attachment == GL_DEPTH_ATTACHMENT ||
         attachment == GL_STENCIL_ATTACHMENT ||
         attachment == GL_DEPTH_STENCIL_ATTACHMENT ||
-        attachment == GL_NONE) return -1;
+        attachment == GL_NONE) return (GLuint)-1;
+    if (attachment < GL_COLOR_ATTACHMENT0) return (GLuint)-1;
     GLuint idx = attachment - GL_COLOR_ATTACHMENT0;
-    if(idx >= current_context->max_drawbuffers) return -1;
+    if(idx >= (GLuint)current_context->max_drawbuffers) return (GLuint)-1;
     return idx;
 }
 
@@ -68,10 +72,12 @@ void rebind_framebuffer(GLenum target, framebuffer_t *framebuffer, GLenum virt_a
 void glClearBufferiv( 	GLenum buffer,
                          GLint drawBuffer,
                          const GLint * value) {
+    emesis_ensure_current_context();
     framebuffer_t *framebuffer = get_framebuffer(GL_DRAW_FRAMEBUFFER);
     if(framebuffer && buffer == GL_COLOR) {
         GLenum attachment = map_attachment(framebuffer, GL_COLOR_ATTACHMENT0 + drawBuffer);
-        drawBuffer = attachment - GL_COLOR_ATTACHMENT0;
+        if (attachment == GL_NONE) return;
+        drawBuffer = (GLint)(attachment - GL_COLOR_ATTACHMENT0);
     }
     es3_functions.glClearBufferiv(buffer, drawBuffer, value);
 }
@@ -79,10 +85,12 @@ void glClearBufferiv( 	GLenum buffer,
 void glClearBufferuiv( 	GLenum buffer,
                           GLint drawBuffer,
                           const GLuint * value) {
+    emesis_ensure_current_context();
     framebuffer_t *framebuffer = get_framebuffer(GL_DRAW_FRAMEBUFFER);
     if(framebuffer && buffer == GL_COLOR) {
         GLenum attachment = map_attachment(framebuffer, GL_COLOR_ATTACHMENT0 + drawBuffer);
-        drawBuffer = attachment - GL_COLOR_ATTACHMENT0;
+        if (attachment == GL_NONE) return;
+        drawBuffer = (GLint)(attachment - GL_COLOR_ATTACHMENT0);
     }
     es3_functions.glClearBufferuiv(buffer, drawBuffer, value);
 }
@@ -90,24 +98,30 @@ void glClearBufferuiv( 	GLenum buffer,
 void glClearBufferfv( 	GLenum buffer,
                          GLint drawBuffer,
                          const GLfloat * value) {
+    emesis_ensure_current_context();
     framebuffer_t *framebuffer = get_framebuffer(GL_DRAW_FRAMEBUFFER);
     if(framebuffer && buffer == GL_COLOR) {
         GLenum attachment = map_attachment(framebuffer, GL_COLOR_ATTACHMENT0 + drawBuffer);
-        drawBuffer = attachment - GL_COLOR_ATTACHMENT0;
+        if (attachment == GL_NONE) return;
+        drawBuffer = (GLint)(attachment - GL_COLOR_ATTACHMENT0);
     }
     es3_functions.glClearBufferfv(buffer, drawBuffer, value);
 }
 
 void glDrawBuffers(GLsizei n, const GLenum* buffers) {
-    if(!current_context) return;
+    emesis_ensure_current_context();
+    if(!current_context || n < 0) return;
     framebuffer_t *framebuffer = get_framebuffer(GL_DRAW_FRAMEBUFFER);
     if(!framebuffer) {
         es3_functions.glDrawBuffers(n, buffers);
         return;
     }
+    if (n > MAX_DRAWBUFFERS) n = MAX_DRAWBUFFERS;
     framebuffer->nbuffers = n;
-    memcpy(framebuffer->virt_drawbuffers, buffers, n * sizeof(GLenum));
-    GLenum phys_drawbuffers[n];
+    if (n > 0 && buffers) {
+        memcpy(framebuffer->virt_drawbuffers, buffers, (size_t)n * sizeof(GLenum));
+    }
+    GLenum phys_drawbuffers[MAX_DRAWBUFFERS];
     for(GLsizei i = 0; i < n; i++) {
         GLenum buffer = buffers[i];
         rebind_framebuffer(GL_DRAW_FRAMEBUFFER, framebuffer, buffer);
@@ -122,13 +136,13 @@ void glDrawBuffer(GLenum buffer) {
 }
 
 GLenum glCheckFramebufferStatus( 	GLenum target) {
+    emesis_ensure_current_context();
     if(!current_context) return GL_FRAMEBUFFER_UNDEFINED;
     GLenum framebuffer_status = es3_functions.glCheckFramebufferStatus(target);
     if(framebuffer_status == GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT) {
         framebuffer_t *framebuffer = get_framebuffer(target);
+        if (!framebuffer) return GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
         for(GLint i = 0; i < MAX_FBTARGETS; i++) {
-            // At least one color target found, means we just optimized out all color targets on the physical device
-            // This will come back to normal after a call to `glDrawBuffers` if only the secondary buffers are in use.
             if(framebuffer->color_targets[i] != GL_NONE || framebuffer->color_objects[i] != 0) return GL_FRAMEBUFFER_COMPLETE;
         }
         return GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
@@ -141,15 +155,18 @@ void glFramebufferTexture2D( 	GLenum target,
                                 GLenum textarget,
                                 GLuint texture,
                                 GLint level) {
+    emesis_ensure_current_context();
     if(!current_context) return;
     framebuffer_t *framebuffer = get_framebuffer(target);
     GLuint attachment_idx = get_attachment_idx(attachment);
-    if(!framebuffer || attachment_idx == -1) {
+    if(!framebuffer || attachment_idx == (GLuint)-1) {
         es3_functions.glFramebufferTexture2D(target, attachment, textarget, texture, level);
         return;
     }
     if(texture == 0) {
         framebuffer->color_targets[attachment_idx] = GL_NONE;
+        framebuffer->color_objects[attachment_idx] = 0;
+        framebuffer->color_levels[attachment_idx] = 0;
         goto rebind;
     }
     framebuffer->color_targets[attachment_idx] = textarget;
@@ -163,18 +180,21 @@ void glFramebufferTextureLayer( 	GLenum target,
                                 GLenum attachment,
                                 GLuint texture,
                                 GLint level, GLint layer) {
+    emesis_ensure_current_context();
     if(!current_context) return;
     framebuffer_t *framebuffer = get_framebuffer(target);
     GLuint attachment_idx = get_attachment_idx(attachment);
-    if(!framebuffer || attachment_idx == -1) {
+    if(!framebuffer || attachment_idx == (GLuint)-1) {
         es3_functions.glFramebufferTextureLayer(target, attachment, texture, level, layer);
         return;
     }
     if(texture == 0) {
         framebuffer->color_targets[attachment_idx] = GL_NONE;
+        framebuffer->color_objects[attachment_idx] = 0;
+        framebuffer->color_levels[attachment_idx] = 0;
+        framebuffer->color_layers[attachment_idx] = 0;
         goto rebind;
     }
-    // I know that this is not a real target, we just need something to put there for the if conditions
     framebuffer->color_targets[attachment_idx] = GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LAYER;
     framebuffer->color_objects[attachment_idx] = texture;
     framebuffer->color_levels[attachment_idx] = level;
@@ -187,15 +207,17 @@ void glFramebufferRenderbuffer( 	GLenum target,
                                    GLenum attachment,
                                    GLenum renderbuffertarget,
                                    GLuint renderbuffer) {
+    emesis_ensure_current_context();
     if(!current_context) return;
     framebuffer_t *framebuffer = get_framebuffer(target);
     GLuint attachment_idx = get_attachment_idx(attachment);
-    if(!framebuffer || attachment_idx == -1) {
+    if(!framebuffer || attachment_idx == (GLuint)-1) {
         es3_functions.glFramebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer);
         return;
     }
     if(renderbuffer == 0) {
         framebuffer->color_targets[attachment_idx] = GL_NONE;
+        framebuffer->color_objects[attachment_idx] = 0;
         goto rebind;
     }
     framebuffer->color_targets[attachment_idx] = renderbuffertarget;
@@ -262,6 +284,7 @@ void glGetFramebufferAttachmentParameteriv(GLenum target,
 }
 
 void glGenFramebuffers(GLsizei n, GLuint* framebuffers) {
+    emesis_ensure_current_context();
     if(!current_context) return;
     es3_functions.glGenFramebuffers(n, framebuffers);
     framebuffer_t* fb;
@@ -269,22 +292,26 @@ void glGenFramebuffers(GLsizei n, GLuint* framebuffers) {
         fb = calloc(1, sizeof(framebuffer_t));
         fb->nbuffers = 1;
         fb->virt_drawbuffers[0] = GL_COLOR_ATTACHMENT0;
-        unordered_map_put(current_context->framebuffer_map, (void*)framebuffers[i], fb);
+        unordered_map_put(current_context->framebuffer_map, (void*)(uintptr_t)framebuffers[i], fb);
     }
 }
 
 void glDeleteFramebuffers(GLsizei n, const GLuint* framebuffers) {
+    emesis_ensure_current_context();
     if(!current_context) return;
     es3_functions.glDeleteFramebuffers(n, framebuffers);
     framebuffer_t* fb;
     for(GLsizei i = 0; i < n; i++) {
-        fb = unordered_map_remove(current_context->framebuffer_map, (void*)framebuffers[i]);
+        if (current_context->draw_framebuffer == framebuffers[i]) current_context->draw_framebuffer = 0;
+        if (current_context->read_framebuffer == framebuffers[i]) current_context->read_framebuffer = 0;
+        fb = unordered_map_remove(current_context->framebuffer_map, (void*)(uintptr_t)framebuffers[i]);
         if(fb == NULL) continue;
         free(fb);
     }
 }
 
 void glBindFramebuffer(GLenum target, GLuint framebuffer) {
+    emesis_ensure_current_context();
     if(!current_context) return;
     es3_functions.glBindFramebuffer(target, framebuffer);
     switch (target) {

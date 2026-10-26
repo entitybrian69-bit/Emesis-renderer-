@@ -90,6 +90,9 @@ char * GlslConvert::Optimize(
         case gl_shader_stage::MESA_SHADER_GEOMETRY:
             shader->Type = GL_GEOMETRY_SHADER;
             break;
+        case gl_shader_stage::MESA_SHADER_COMPUTE:
+            shader->Type = GL_COMPUTE_SHADER;
+            break;
         case gl_shader_stage::MESA_SHADER_KERNEL:
             // todo : opencl kernel target to generate after the others
             //shader->Type = GL_KERNEL_SHADER;
@@ -310,6 +313,9 @@ char * GlslConvert::Optimize(
 	if (program)
 	{
 		_mesa_clear_shader_program_data(ctx, program);
+		delete program->AttributeBindings;
+		delete program->FragDataBindings;
+		delete program->FragDataIndexBindings;
 		ralloc_free(program);
 	}
 	ralloc_free(state);
@@ -588,30 +594,50 @@ void GlslConvert::InitContext(struct gl_context* ctx, ApiTarget api, int vGlslVe
 	// Gl4es overrides
 	ctx->Const.MaxTextureCoordUnits = 16;
 
-    // Abused override
+    // Modern OpenGL / ES 3.x limits for Minecraft 26.x, Sodium 26.3, and Iris 26.3
     ctx->Const.MaxClipPlanes = 8;
     ctx->Const.MaxCombinedTextureImageUnits = 32;
-    ctx->Const.MaxDrawBuffers = 4;
+    ctx->Const.MaxDrawBuffers = 8;
     ctx->Const.MinProgramTexelOffset = -8;
     ctx->Const.MaxProgramTexelOffset = 7;
     ctx->Const.MaxLights = 0;
     ctx->Const.MaxTextureUnits = 0;
+    ctx->Extensions.ARB_shader_image_size = true;
+
     ctx->Const.MaxUniformBufferBindings = 84;
+    ctx->Const.MaxShaderStorageBufferBindings = 16;
+    ctx->Const.MaxShaderStorageBlockSize = 134217728;
+    ctx->Const.MaxCombinedShaderStorageBlocks = 64;
+    ctx->Const.MaxImageUnits = 16;
+    ctx->Const.MaxCombinedImageUniforms = 64;
+    ctx->Const.MaxCombinedShaderOutputResources = 64;
+    ctx->Const.MaxAtomicBufferBindings = 16;
+    ctx->Const.MaxCombinedAtomicBuffers = 16;
+    ctx->Const.MaxCombinedAtomicCounters = 64;
     ctx->Const.MaxVertexStreams = 4;
     ctx->Const.MaxTransformFeedbackBuffers = 4;
 
     ctx->Const.Program[MESA_SHADER_VERTEX].MaxAttribs = 16;
     ctx->Const.Program[MESA_SHADER_VERTEX].MaxTextureImageUnits = 16;
-    ctx->Const.Program[MESA_SHADER_VERTEX].MaxUniformComponents = 1024;
-    ctx->Const.Program[MESA_SHADER_VERTEX].MaxCombinedUniformComponents = 1024;
+    ctx->Const.Program[MESA_SHADER_VERTEX].MaxUniformComponents = 4096;
+    ctx->Const.Program[MESA_SHADER_VERTEX].MaxCombinedUniformComponents = 16384;
     ctx->Const.Program[MESA_SHADER_VERTEX].MaxInputComponents = 0; /* not used */
-    ctx->Const.Program[MESA_SHADER_VERTEX].MaxOutputComponents = 16 * 4;
+    ctx->Const.Program[MESA_SHADER_VERTEX].MaxOutputComponents = 32 * 4;
+    ctx->Const.Program[MESA_SHADER_VERTEX].MaxShaderStorageBlocks = 16;
+    ctx->Const.Program[MESA_SHADER_VERTEX].MaxImageUniforms = 16;
 
     ctx->Const.Program[MESA_SHADER_FRAGMENT].MaxTextureImageUnits = 16;
-    ctx->Const.Program[MESA_SHADER_FRAGMENT].MaxUniformComponents = 224;
-    ctx->Const.Program[MESA_SHADER_FRAGMENT].MaxCombinedUniformComponents = 224;
-    ctx->Const.Program[MESA_SHADER_FRAGMENT].MaxInputComponents = 15 * 4;
+    ctx->Const.Program[MESA_SHADER_FRAGMENT].MaxUniformComponents = 4096;
+    ctx->Const.Program[MESA_SHADER_FRAGMENT].MaxCombinedUniformComponents = 16384;
+    ctx->Const.Program[MESA_SHADER_FRAGMENT].MaxInputComponents = 32 * 4;
     ctx->Const.Program[MESA_SHADER_FRAGMENT].MaxOutputComponents = 0; /* not used */
+    ctx->Const.Program[MESA_SHADER_FRAGMENT].MaxShaderStorageBlocks = 16;
+    ctx->Const.Program[MESA_SHADER_FRAGMENT].MaxImageUniforms = 16;
+
+    ctx->Const.Program[MESA_SHADER_COMPUTE].MaxUniformComponents = 4096;
+    ctx->Const.Program[MESA_SHADER_COMPUTE].MaxCombinedUniformComponents = 16384;
+    ctx->Const.Program[MESA_SHADER_COMPUTE].MaxShaderStorageBlocks = 16;
+    ctx->Const.Program[MESA_SHADER_COMPUTE].MaxImageUniforms = 16;
 
     ctx->Const.MaxVarying = ctx->Const.Program[MESA_SHADER_FRAGMENT].MaxInputComponents / 4;
 }

@@ -10,5 +10,6 @@
 #include <GLES3/gl3.h>
 
 extern void pick_internalformat(GLint *internalformat, GLenum* type, GLenum* format, GLvoid const** data);
+extern GLenum remap_tex_storage_internalformat(GLenum internalformat);
 
 #endif //EMESIS_MODERN_GLFORMATS_H

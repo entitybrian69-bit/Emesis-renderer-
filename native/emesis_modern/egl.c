@@ -20,12 +20,12 @@ EGLContext (*host_eglGetCurrentContext)(void);
 void init_egl() {
     context_map = alloc_intmap();
     host_eglCreateContext = (EGLContext (*)(EGLDisplay, EGLConfig, EGLContext,
-                                            const EGLint *)) host_eglGetProcAddress("eglCreateContext");
-    host_eglDestroyContext = (EGLBoolean (*)(EGLDisplay, EGLContext)) host_eglGetProcAddress(
+                                            const EGLint *)) resolve_egl_symbol("eglCreateContext");
+    host_eglDestroyContext = (EGLBoolean (*)(EGLDisplay, EGLContext)) resolve_egl_symbol(
             "eglDestroyContext");
     host_eglMakeCurrent = (EGLBoolean (*)(EGLDisplay, EGLSurface, EGLSurface,
-                                          EGLContext)) host_eglGetProcAddress("eglMakeCurrent");
-    host_eglGetCurrentContext = (EGLContext (*)(void)) host_eglGetProcAddress("eglGetCurrentContext");
+                                          EGLContext)) resolve_egl_symbol("eglMakeCurrent");
+    host_eglGetCurrentContext = (EGLContext (*)(void)) resolve_egl_symbol("eglGetCurrentContext");
 }
 
 static bool init_context(context_t* tw_context) {
@@ -37,18 +37,13 @@ static bool init_context(context_t* tw_context) {
     if(!tw_context->program_map) goto fail_dealloc;
     tw_context->texture_swztrack_map = alloc_intmap_safe();
     if(!tw_context->texture_swztrack_map) goto fail_dealloc;
-    for(int i = 0; i < MAX_BOUND_BASEBUFFERS; i++) {
-        unordered_map *map = alloc_intmap_safe();
-        if(!map) goto fail_dealloc;
-        tw_context->bound_basebuffers[i] = map;
-    }
+    tw_context->vao_ebo_map = alloc_intmap_safe();
+    if(!tw_context->vao_ebo_map) goto fail_dealloc;
     return true;
 
     fail_dealloc:
-    for(int i = 0; i < MAX_BOUND_BASEBUFFERS; i++) {
-        unordered_map *map = tw_context->bound_basebuffers[i];
-        if(map) unordered_map_free(map);
-    }
+    if(tw_context->vao_ebo_map)
+        unordered_map_free(tw_context->vao_ebo_map);
     if(tw_context->shader_map)
         unordered_map_free(tw_context->shader_map);
     if(tw_context->framebuffer_map)
@@ -62,13 +57,16 @@ static bool init_context(context_t* tw_context) {
 }
 
 static void free_context(context_t* tw_context) {
-    unordered_map_free(tw_context->shader_map);
-    unordered_map_free(tw_context->program_map);
-    unordered_map_free(tw_context->framebuffer_map);
-    unordered_map_free(tw_context->texture_swztrack_map);
+    if(tw_context->shader_map) unordered_map_free(tw_context->shader_map);
+    if(tw_context->program_map) unordered_map_free(tw_context->program_map);
+    if(tw_context->framebuffer_map) unordered_map_free(tw_context->framebuffer_map);
+    if(tw_context->texture_swztrack_map) unordered_map_free(tw_context->texture_swztrack_map);
+    if(tw_context->vao_ebo_map) unordered_map_free(tw_context->vao_ebo_map);
+    if(tw_context->basevertex.scratchPasses) free(tw_context->basevertex.scratchPasses);
+    if(tw_context->basevertex.es30CpuScratch) free(tw_context->basevertex.es30CpuScratch);
     if(tw_context->extensions_string != NULL) free(tw_context->extensions_string);
     if(tw_context->nextras != 0 && tw_context->extra_extensions_array != NULL) {
-        for(int i = 0; i < tw_context->nextras; i++) {
+        for(size_t i = 0; i < tw_context->nextras; i++) {
             free((tw_context->extra_extensions_array[i]));
         }
         free(tw_context->extra_extensions_array);
@@ -77,6 +75,7 @@ static void free_context(context_t* tw_context) {
 
 void init_extra_extensions(context_t* context, int* length) {
     const char* es_extensions = (const char*)es3_functions.glGetString(GL_EXTENSIONS);
+    if (!es_extensions) es_extensions = "";
     *length = (int)strlen(es_extensions);
     context->extensions_string = malloc(*length + 1);
     memcpy(context->extensions_string, es_extensions, *length+1);
@@ -99,6 +98,7 @@ void add_extra_extension(context_t* context, int* length, const char* extension)
 }
 
 void fin_extra_extensions(context_t* context, int length) {
+    if(length < 2 || context->extensions_string == NULL) return;
     if(context->extensions_string[length-2] != ' ') return;
     char* orig_string = context->extensions_string;
     context->extensions_string = realloc(context->extensions_string, length - 1);
@@ -109,56 +109,77 @@ void fin_extra_extensions(context_t* context, int length) {
     context->extensions_string[length-2] = 0;
 }
 
+static bool should_hide_buffer_storage(void) {
+    if (sizeof(void*) == 4) {
+        if (env_istrue("EMESIS_FORCE_BUFFER_STORAGE")) return false;
+        return env_istrue_d("EMESIS_HIDE_BUFFER_STORAGE", true);
+    }
+    return env_istrue("EMESIS_HIDE_BUFFER_STORAGE");
+}
+
 void build_extension_string(context_t* context) {
     int length;
     init_extra_extensions(context, &length);
     if(context->buffer_storage) {
-        if(!env_istrue("EMESIS_HIDE_BUFFER_STORAGE"))
+        if(!should_hide_buffer_storage())
             add_extra_extension(context, &length, "GL_ARB_buffer_storage");
-        else printf("EmesisRenderer: The buffer storage extension is hidden.\n");
+        else
+            printf("EmesisRenderer: Hiding GL_ARB_buffer_storage (%zu-bit address space protection)\n", sizeof(void*) * 8);
     }
-    if(context->buffer_texture_ext || context->es32) {
+    if(context->buffer_texture_ext || context->buffer_texture_oes || context->es32) {
         add_extra_extension(context, &length, "GL_ARB_texture_buffer_object");
     }
     add_extra_extension(context, &length, "GL_ARB_draw_elements_base_vertex");
-    // Required by Iris. Indexed variants are available since ES3.2 or with OES/EXT_draw_buffers_indexed extensions
     if(context->blending.available)
         add_extra_extension(context, &length, "GL_ARB_draw_buffers_blend");
     add_extra_extension(context, &length, "GL_ARB_clear_texture");
-    // Used by Minecraft for the GPU usage counter (see Blaze3D TimerQuery)
+    // Used by Minecraft for the GPU usage counter (see Blaze3D TimerQuery; faked 1ns when hardware ext absent)
     add_extra_extension(context, &length, "GL_ARB_timer_query");
-    if(context->multidraw_indirect) {
-        add_extra_extension(context, &length, "GL_ARB_draw_indirect"); // Well, duh, we already should support it
+    if(context->es31) {
+        add_extra_extension(context, &length, "GL_ARB_draw_indirect");
         add_extra_extension(context, &length, "GL_ARB_multi_draw_indirect");
     }
-    // Additionally required by Minecraft for multidraw indirect rendering path
-    // Only ANGLE exposes this extension from what I know
     if(context->base_instance) {
         add_extra_extension(context, &length, "GL_ARB_base_instance");
     }
-    // Used by Minecraft for the GPU usage counter
-    if(context->timer_query)
-        add_extra_extension(context, &length, "GL_ARB_timer_query");
-    // Compute shaders are ES3.1+. No reason to support older devices
     if(context->es31) {
         add_extra_extension(context, &length, "GL_ARB_shader_image_load_store");
-        // Do we even implement enough features for it?
         add_extra_extension(context, &length, "GL_ARB_shader_storage_buffer_object");
         add_extra_extension(context, &length, "GL_ARB_compute_shader");
     }
-    // More extensions are possible, but will need way more wraps and tracking.
     fin_extra_extensions(context, length);
 }
 
 static void find_esversion(context_t* context) {
+    const char* vendor = (const char*) es3_functions.glGetString(GL_VENDOR);
+    const char* renderer = (const char*) es3_functions.glGetString(GL_RENDERER);
     const char* version = (const char*) es3_functions.glGetString(GL_VERSION);
     const char* shader_version = (const char*) es3_functions.glGetString(GL_SHADING_LANGUAGE_VERSION);
 
+    snprintf(context->gpu_vendor, sizeof(context->gpu_vendor), "%s", vendor ? vendor : "Unknown");
+    snprintf(context->gpu_renderer, sizeof(context->gpu_renderer), "%s", renderer ? renderer : "Unknown");
+    snprintf(context->gpu_version, sizeof(context->gpu_version), "%s", version ? version : "Unknown");
+
     int esmajor = 0, esminor = 0, shadermajor = 3, shaderminor = 0;
-    sscanf(version, " OpenGL ES %i.%i", &esmajor, &esminor);
-    sscanf(shader_version, " OpenGL ES GLSL ES %i.%i", &shadermajor, &shaderminor);
+    if (version) {
+        const char* p = strstr(version, "OpenGL ES");
+        if (p) {
+            if (sscanf(p, "OpenGL ES %i.%i", &esmajor, &esminor) < 2) {
+                sscanf(p, "OpenGL ES-%*[^ ] %i.%i", &esmajor, &esminor);
+            }
+        }
+    }
+    if (shader_version) {
+        const char* sp = strstr(shader_version, "GLSL ES");
+        char minor_str[8] = {0};
+        if (sp && sscanf(sp, "GLSL ES %i.%7[0-9]", &shadermajor, minor_str) == 2) {
+            shaderminor = atoi(minor_str);
+            if (strlen(minor_str) == 1) shaderminor *= 10;
+        }
+    }
     context->shader_version = shadermajor * 100 + shaderminor;
-    printf("EmesisRenderer: Running on OpenGL ES %i.%i with ESSL %i\n", esmajor, esminor, context->shader_version);
+    printf("EmesisRenderer: Running on OpenGL ES %i.%i with ESSL %i (%s)\n",
+           esmajor, esminor, context->shader_version, context->gpu_renderer);
     if(esmajor == 0 && esminor == 0) goto fail;
     if(esmajor < 3 || context->shader_version < 300) {
         printf("Unsupported OpenGL ES version. This will cause you problems down the line.\n");
@@ -172,42 +193,56 @@ static void find_esversion(context_t* context) {
     }
 
     const char* extensions = (const char*) es3_functions.glGetString(GL_EXTENSIONS);
+    if (!extensions) extensions = "";
     if(strstr(extensions, "GL_EXT_buffer_storage")) context->buffer_storage = true;
     if(strstr(extensions, "GL_EXT_texture_buffer")) context->buffer_texture_ext = true;
+    if(strstr(extensions, "GL_OES_texture_buffer")) context->buffer_texture_oes = true;
     if(strstr(extensions, "GL_EXT_multi_draw_indirect")) context->multidraw_indirect = true;
     if(strstr(extensions, "GL_EXT_base_instance")) context->base_instance = true;
     if(strstr(extensions, "GL_EXT_clear_texture")) context->clear_texture = true;
-
-    // EXT_disjoint_timer_query provides accurate int64 timer queries
-    // on Core Profile it's ARB_timer_query instead
-    // This enables real time queries via mentioned extension, otherwise faked ones are used (see query.c)
     if(strstr(extensions, "GL_EXT_disjoint_timer_query") || env_istrue_d("EMESIS_ENABLE_TIMER_QUERY", false)) context->timer_query = true;
 
-    bool basevertex_oes = strstr(extensions, "GL_OES_draw_elements_base_vertex");
-    bool basevertex_ext = strstr(extensions, "GL_EXT_draw_elements_base_vertex");
-    if(context->es32) context->drawelementsbasevertex = es3_functions.glDrawElementsBaseVertex;
-    else if(basevertex_oes) context->drawelementsbasevertex = es3_functions.glDrawElementsBaseVertexOES;
-    else if(basevertex_ext) context->drawelementsbasevertex = es3_functions.glDrawElementsBaseVertexEXT;
-    else context->drawelementsbasevertex = NULL;
+    bool basevertex_oes = strstr(extensions, "GL_OES_draw_elements_base_vertex") != NULL;
+    bool basevertex_ext = strstr(extensions, "GL_EXT_draw_elements_base_vertex") != NULL;
+    bool multidraw_ext = strstr(extensions, "GL_EXT_multi_draw_arrays") != NULL;
+    if(context->es32 && es3_functions.glDrawElementsBaseVertex)
+        context->drawelementsbasevertex = es3_functions.glDrawElementsBaseVertex;
+    else if(basevertex_oes && es3_functions.glDrawElementsBaseVertexOES)
+        context->drawelementsbasevertex = es3_functions.glDrawElementsBaseVertexOES;
+    else if(basevertex_ext && es3_functions.glDrawElementsBaseVertexEXT)
+        context->drawelementsbasevertex = es3_functions.glDrawElementsBaseVertexEXT;
+    else
+        context->drawelementsbasevertex = NULL;
 
-    bool drawbuffersi_oes = strstr(extensions, "GL_OES_draw_buffers_indexed");
-    bool drawbuffersi_ext = strstr(extensions, "GL_EXT_draw_buffers_indexed");
+    context->multidrawelementsbasevertex = NULL;
+    if (multidraw_ext && (context->es32 || basevertex_oes || basevertex_ext)) {
+        if (es3_functions.glMultiDrawElementsBaseVertexEXT)
+            context->multidrawelementsbasevertex = es3_functions.glMultiDrawElementsBaseVertexEXT;
+        else if (es3_functions.glMultiDrawElementsBaseVertexOES)
+            context->multidrawelementsbasevertex = es3_functions.glMultiDrawElementsBaseVertexOES;
+    }
+
+    bool drawbuffersi_oes = strstr(extensions, "GL_OES_draw_buffers_indexed") != NULL;
+    bool drawbuffersi_ext = strstr(extensions, "GL_EXT_draw_buffers_indexed") != NULL;
     blending_functions_t* blend = &context->blending;
     blend->available = true;
 #define SET_FUNC(type) \
+    blend->enablei = es3_functions.glEnablei ## type; \
+    blend->disablei = es3_functions.glDisablei ## type; \
+    blend->isenabledi = es3_functions.glIsEnabledi ## type; \
     blend->blendequationi = es3_functions.glBlendEquationi ## type; \
     blend->blendequationseparatei = es3_functions.glBlendEquationSeparatei ## type; \
     blend->blendfunci = es3_functions.glBlendFunci ## type; \
     blend->blendfuncseparatei = es3_functions.glBlendFuncSeparatei ## type; \
-    blend->colormaski = es3_functions.glColorMaski ## type; \
+    blend->colormaski = es3_functions.glColorMaski ## type;
 
-    if(context->es32){
+    if(context->es32 && es3_functions.glBlendEquationi){
         SET_FUNC()
     }
-    else if(drawbuffersi_oes){
+    else if(drawbuffersi_oes && es3_functions.glBlendEquationiOES){
         SET_FUNC(OES)
     }
-    else if(drawbuffersi_ext){
+    else if(drawbuffersi_ext && es3_functions.glBlendEquationiEXT){
         SET_FUNC(EXT)
     }
     else {
@@ -218,7 +253,7 @@ static void find_esversion(context_t* context) {
 
     return;
     fail:
-    printf("EmesisRenderer: Failed to detect OpenGL ES version");
+    printf("EmesisRenderer: Failed to detect OpenGL ES version\n");
 }
 
 void basevertex_init(context_t* context);
@@ -255,6 +290,9 @@ EGLBoolean eglDestroyContext (EGLDisplay dpy, EGLContext ctx) {
     if(!host_eglDestroyContext(dpy, ctx)) return EGL_FALSE;
     context_t* old_ctx = unordered_map_remove(context_map, ctx);
     if(old_ctx) {
+        if (current_context == old_ctx) {
+            current_context = NULL;
+        }
         free_context(old_ctx);
         free(old_ctx);
     }
@@ -273,6 +311,7 @@ static context_t* adopt_or_get_context(EGLContext ctx) {
         tw_context->phys_context = ctx;
         unordered_map_put(context_map, ctx, tw_context);
     }
+    current_context = tw_context;
     if(!tw_context->context_rdy) {
         init_incontext(tw_context);
         tw_context->context_rdy = true;

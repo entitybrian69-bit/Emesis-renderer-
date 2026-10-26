@@ -30,18 +30,18 @@ target_include_directories(emesis_modern PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 set(MODERN_OLD_CMAKE_SOURCE_DIR "${CMAKE_SOURCE_DIR}")
 set(CMAKE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 add_subdirectory(unordered_map)
-add_subdirectory(vgpu_shaderconv)
 add_subdirectory(glsl_optimizer)
 set(CMAKE_SOURCE_DIR "${MODERN_OLD_CMAKE_SOURCE_DIR}")
 
 target_compile_options(emesis_modern PRIVATE -O3 -ffunction-sections -fdata-sections -fPIC)
 target_link_options(emesis_modern PRIVATE
+    -Wl,-Bsymbolic
     "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/version.script"
     -Wl,--gc-sections
     -Wl,-z,max-page-size=16384
     -Wl,--strip-all
 )
-target_link_libraries(emesis_modern PRIVATE unordered_map vgpu_shaderconv glsl_optimizer)
+target_link_libraries(emesis_modern PRIVATE unordered_map glsl_optimizer)
 if(ANDROID)
     target_link_libraries(emesis_modern PRIVATE log dl m)
 endif()

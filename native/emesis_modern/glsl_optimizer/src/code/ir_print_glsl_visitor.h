@@ -41,7 +41,7 @@ public:
 		global_print_tracker();
 		~global_print_tracker();
 
-        const char* processed_uniform_blocks[64] = { 0 };
+        const char* processed_uniform_blocks[128] = { 0 };
         int   num_uniform_blocks = 0;
 		unsigned	var_counter;
 		hash_table*	var_hash;
@@ -49,6 +49,7 @@ public:
 		void* mem_ctx;
 		bool	main_function_done;
         bool enable_nan_check;
+        bool enable_wvaa;
 	};
 
 public:
@@ -73,6 +74,7 @@ public:
    void print_var_name(ir_variable* v);
    void print_generic_layout_block(ir_variable* v);
    const char *unique_name(ir_variable *var);
+   bool try_emit_wvaa_assignment(ir_dereference_array* lhs, ir_rvalue* rhs);
    void emit_assignment_part(ir_dereference* lhs, ir_rvalue* rhs, unsigned write_mask, ir_rvalue* dstIndex);
    bool can_emit_canonical_for(loop_variable_state *ls);
    bool emit_canonical_for(ir_loop* ir);

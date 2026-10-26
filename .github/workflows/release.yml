@@ -16,7 +16,7 @@ jobs:
       - name: Verify Universal Plugin APK with Official Android SDK Build-Tools
         run: |
           set -euo pipefail
-          APK="EmesisRenderer-Universal-v1.2.5.apk"
+          APK="EmesisRenderer-Universal-v1.2.6.apk"
           test -f "${APK}"
           ls -lh "${APK}"
           sha256sum "${APK}"
@@ -27,45 +27,45 @@ jobs:
           "${BT_DIR}/apksigner" verify --verbose --print-certs --min-sdk-version 21 --max-sdk-version 34 "${APK}"
           "${BT_DIR}/aapt2" dump badging "${APK}" | head -n 35
 
-      - name: Create or Update GitHub Release v1.2.5
+      - name: Create or Update GitHub Release v1.2.6
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 - << 'PY'
           import hashlib, pathlib, textwrap
 
-          apk = pathlib.Path("EmesisRenderer-Universal-v1.2.5.apk")
+          apk = pathlib.Path("EmesisRenderer-Universal-v1.2.6.apk")
           sha256 = hashlib.sha256(apk.read_bytes()).hexdigest()
 
           notes = textwrap.dedent(f"""\
           <div align="center">
-            # Emesis Renderer v1.2.5 — Smooth Mali/Adreno Draw Engine, Zero-Copy VBO Memory & Bliss/Complementary Shaders
+            # Emesis Renderer v1.2.6 — Minecraft 26.3 High-FPS Modern Core, 32-Bit Android Support & <1.17 Shader Accelerator
             ### **Made by Entitybrian**
           </div>
 
-          **Emesis Renderer v1.2.5** is a universal all-in-one Android Minecraft: Java Edition launcher renderer plugin APK created by **Entitybrian**, compatible across **all variants of Pojav** and 32-bit / 64-bit Android devices, with full `< 1.17` Shader Acceleration (`1.6.4` – `1.7.10` – `1.8.9` – `1.12.2` – `1.16.5`) and `> 1.16.5` Modern Core rendering (`1.17` – `1.21.x`, `26.x+`).
+          **Emesis Renderer v1.2.6** is a universal all-in-one Android Minecraft: Java Edition launcher renderer plugin APK created by **Entitybrian**, compatible across **all variants of Pojav** and 32-bit / 64-bit Android devices, delivering major frame-rate and 32-bit stability upgrades for **Minecraft `26.3` (`26.x+`)** alongside full `< 1.17` Shader Acceleration (`1.6.4` – `1.7.10` – `1.8.9` – `1.12.2` – `1.16.5`).
 
           ---
 
           ### Package Details
-          - **Asset:** `EmesisRenderer-Universal-v1.2.5.apk`
-          - **Application ID:** `com.entitybrian.emesis.renderer` (`versionName "1.2.5"`, `versionCode 125`, `compileSdkVersion 34`, `minSdkVersion 21`, `targetSdkVersion 34`, signed v1 + v2 + v3)
+          - **Asset:** `EmesisRenderer-Universal-v1.2.6.apk`
+          - **Application ID:** `com.entitybrian.emesis.renderer` (`versionName "1.2.6"`, `versionCode 126`, `compileSdkVersion 34`, `minSdkVersion 21`, `targetSdkVersion 34`, signed v1 + v2 + v3)
           - **SHA-256:** `{sha256}`
           """)
 
           pathlib.Path("/tmp/release_notes.md").write_text(notes, encoding="utf-8")
           PY
 
-          if gh release view v1.2.5 >/dev/null 2>&1; then
-            gh release edit v1.2.5 \
-              --title "Emesis Renderer v1.2.5 — Made by Entitybrian" \
+          if gh release view v1.2.6 >/dev/null 2>&1; then
+            gh release edit v1.2.6 \
+              --title "Emesis Renderer v1.2.6 — Made by Entitybrian" \
               --notes-file /tmp/release_notes.md \
               --latest
-            gh release upload v1.2.5 EmesisRenderer-Universal-v1.2.5.apk --clobber
+            gh release upload v1.2.6 EmesisRenderer-Universal-v1.2.6.apk --clobber
           else
-            gh release create v1.2.5 EmesisRenderer-Universal-v1.2.5.apk \
+            gh release create v1.2.6 EmesisRenderer-Universal-v1.2.6.apk \
               --target "${GITHUB_SHA}" \
-              --title "Emesis Renderer v1.2.5 — Made by Entitybrian" \
+              --title "Emesis Renderer v1.2.6 — Made by Entitybrian" \
               --notes-file /tmp/release_notes.md \
               --latest
           fi
