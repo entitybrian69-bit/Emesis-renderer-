@@ -635,68 +635,116 @@ static void draw_quads_arrays_fast(GLint first, GLsizei count, int instancecount
     GLsizei nquads = count / 4;
     if (nquads <= 0 || first < 0) return;
     GLsizei idx_count = nquads * 6;
-    size_t max_vert = (size_t)first + (size_t)(nquads * 4);
+    GLsizei used_verts = nquads * 4;
+    size_t max_vert = (size_t)first + (size_t)used_verts;
+    int only_vbo = (hardext.esversion > 1 && glstate->render_mode != GL_SELECT)
+                       ? emesis_vao_has_only_vbo_attribs(1)
+                       : 0;
 
-    /* ES 3.2+ basevertex fast path: handles ANY alignment and ANY arena offset using 16-bit quad_ibo_u16 */
-    if (instancecount == 1 && hardext.esversion > 1 && hardext.basevertex && glstate->render_mode != GL_SELECT &&
-        emesis_vao_has_only_vbo_attribs(1) &&
-        ensure_gpu_quad_ibo_u16((nquads <= 16384) ? (size_t)nquads : 16384)) {
-        LOAD_GLES3_OR_EXT(glDrawElementsBaseVertex);
-        if (gles_glDrawElementsBaseVertex) {
-            if (glstate->raster.bm_drawing) bitmap_flush();
-            glbuffer_t* prev_elem = glstate->vao->elements;
-            GLuint prev_want = glstate->bind_buffer.want_index;
-            glstate->vao->elements = &glstate->quad_ibo_u16;
+    /* 1. Pure GPU VBO fast paths: keep GPU quad_ibo bound lazily across consecutive draws (zero IBO ping-pong) */
+    if (only_vbo) {
+        if (instancecount == 1 && hardext.basevertex &&
+            ensure_gpu_quad_ibo_u16((nquads <= 16384) ? (size_t)nquads : 16384)) {
+            LOAD_GLES3_OR_EXT(glDrawElementsBaseVertex);
+            if (gles_glDrawElementsBaseVertex) {
+                if (glstate->raster.bm_drawing) bitmap_flush();
+                GLuint prev_want = glstate->bind_buffer.want_index;
+                realize_textures(1);
+                scratch_t scratch = {0};
+                realize_glenv(0, first, used_verts, 0, NULL, &scratch);
+                bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->quad_ibo_u16.real_buffer);
 
-            realize_textures(1);
-            scratch_t scratch = {0};
-            realize_glenv(0, 0, (int)max_vert, GL_UNSIGNED_SHORT, NULL, &scratch);
-            bindBuffer(GL_ELEMENT_ARRAY_BUFFER, glstate->quad_ibo_u16.real_buffer);
+                GLsizei rem_q = nquads;
+                GLint cur_first = first;
+                while (rem_q > 0) {
+                    GLsizei cq = (rem_q > 16384) ? 16384 : rem_q;
+                    gles_glDrawElementsBaseVertex(GL_TRIANGLES, cq * 6, GL_UNSIGNED_SHORT, NULL, cur_first);
+                    cur_first += cq * 4;
+                    rem_q -= cq;
+                }
 
-            GLsizei rem_q = nquads;
-            GLint cur_first = first;
-            while (rem_q > 0) {
-                GLsizei cq = (rem_q > 16384) ? 16384 : rem_q;
-                gles_glDrawElementsBaseVertex(GL_TRIANGLES, cq * 6, GL_UNSIGNED_SHORT, NULL, cur_first);
-                cur_first += cq * 4;
-                rem_q -= cq;
+                free_scratch(&scratch);
+                glstate->bind_buffer.want_index = prev_want;
+                return;
             }
+        }
 
-            free_scratch(&scratch);
-            glstate->vao->elements = prev_elem;
-            glstate->bind_buffer.want_index = prev_want;
-            return;
+        if ((first & 3) == 0) {
+            size_t q0 = (size_t)first >> 2;
+            size_t needed_quads = q0 + (size_t)nquads;
+            int use_u32 = (max_vert > 65536);
+            if ((!use_u32 && ensure_gpu_quad_ibo_u16(needed_quads)) ||
+                (use_u32 && ensure_gpu_quad_ibo_u32(needed_quads))) {
+                glbuffer_t* qibo = use_u32 ? &glstate->quad_ibo_u32 : &glstate->quad_ibo_u16;
+                size_t idx_bytes = use_u32 ? sizeof(GLuint) : sizeof(GLushort);
+                GLenum idx_type = use_u32 ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT;
+                const void* byte_off = (const void*)(q0 * 6u * idx_bytes);
+
+                if (instancecount == 1) {
+                    if (glstate->raster.bm_drawing) bitmap_flush();
+                    LOAD_GLES2(glDrawElements);
+                    GLuint prev_want = glstate->bind_buffer.want_index;
+                    realize_textures(1);
+                    scratch_t scratch = {0};
+                    realize_glenv(0, first, used_verts, 0, NULL, &scratch);
+                    bindBuffer(GL_ELEMENT_ARRAY_BUFFER, qibo->real_buffer);
+                    gles_glDrawElements(GL_TRIANGLES, idx_count, idx_type, byte_off);
+                    free_scratch(&scratch);
+                    glstate->bind_buffer.want_index = prev_want;
+                    return;
+                } else {
+                    glbuffer_t* prev_elem = glstate->vao->elements;
+                    GLuint prev_want = glstate->bind_buffer.want_index;
+                    glstate->vao->elements = qibo;
+                    if (use_u32) {
+                        const GLuint* iptr = (const GLuint*)qibo->data + (q0 * 6u);
+                        glDrawElementsCommon(GL_TRIANGLES, 0, idx_count, (GLuint)max_vert, NULL, iptr, instancecount);
+                    } else {
+                        const GLushort* sptr = (const GLushort*)qibo->data + (q0 * 6u);
+                        glDrawElementsCommon(GL_TRIANGLES, 0, idx_count, (GLuint)max_vert, sptr, NULL, instancecount);
+                    }
+                    glstate->vao->elements = prev_elem;
+                    glstate->bind_buffer.want_index = prev_want;
+                    return;
+                }
+            }
         }
     }
 
-    /* Fast path: persistent GPU GL_ELEMENT_ARRAY_BUFFER for 4-aligned `first` (covers first == 0 and all terrain/entity VBOs) */
-    if (hardext.esversion > 1 && ((first & 3) == 0)) {
+    /* 2. Client-pointer / GL_BGRA fast path (Tessellator / BufferUploader / HUD / entities):
+     * NEVER bind GPU GL_ELEMENT_ARRAY_BUFFER while vertex attribs are client-RAM pointers (avoids Mali GPU IBO
+     * readback/scan stalls); pass precomputed static CPU quad_ibo.data with ELEMENT_ARRAY_BUFFER=0 and O(1) range. */
+    if (!only_vbo && hardext.esversion > 1 && glstate->render_mode != GL_SELECT && instancecount == 1 &&
+        ((first & 3) == 0)) {
         size_t q0 = (size_t)first >> 2;
         size_t needed_quads = q0 + (size_t)nquads;
-        if (max_vert <= 65536 && ensure_gpu_quad_ibo_u16(needed_quads)) {
-            glbuffer_t* prev_elem = glstate->vao->elements;
-            GLuint prev_want = glstate->bind_buffer.want_index;
-            glstate->vao->elements = &glstate->quad_ibo_u16;
-            const GLushort* sptr = (const GLushort*)glstate->quad_ibo_u16.data + (q0 * 6);
-            glDrawElementsCommon(GL_TRIANGLES, 0, idx_count, (GLuint)max_vert, sptr, NULL, instancecount);
-            glstate->vao->elements = prev_elem;
-            glstate->bind_buffer.want_index = prev_want;
-            return;
-        }
-        if (max_vert > 65536 && ensure_gpu_quad_ibo_u32(needed_quads)) {
-            glbuffer_t* prev_elem = glstate->vao->elements;
-            GLuint prev_want = glstate->bind_buffer.want_index;
-            glstate->vao->elements = &glstate->quad_ibo_u32;
-            const GLuint* iptr = (const GLuint*)glstate->quad_ibo_u32.data + (q0 * 6);
-            glDrawElementsCommon(GL_TRIANGLES, 0, idx_count, (GLuint)max_vert, NULL, iptr, instancecount);
-            glstate->vao->elements = prev_elem;
-            glstate->bind_buffer.want_index = prev_want;
+        int use_u32 = (max_vert > 65536);
+        if ((!use_u32 && ensure_gpu_quad_ibo_u16(needed_quads)) ||
+            (use_u32 && ensure_gpu_quad_ibo_u32(needed_quads))) {
+            if (glstate->raster.bm_drawing) bitmap_flush();
+            LOAD_GLES2(glDrawElements);
+            GLuint old_want = wantBufferIndex(0);
+            realize_textures(1);
+            scratch_t scratch = {0};
+            realize_glenv(0, first, used_verts, 0, NULL, &scratch);
+            realize_bufferIndex();
+            if (use_u32) {
+                const GLuint* iptr = (const GLuint*)glstate->quad_ibo_u32.data + (q0 * 6u);
+                gles_glDrawElements(GL_TRIANGLES, idx_count, GL_UNSIGNED_INT, iptr);
+            } else {
+                const GLushort* sptr = (const GLushort*)glstate->quad_ibo_u16.data + (q0 * 6u);
+                gles_glDrawElements(GL_TRIANGLES, idx_count, GL_UNSIGNED_SHORT, sptr);
+            }
+            free_scratch(&scratch);
+            wantBufferIndex(old_want);
             return;
         }
     }
 
-    /* Unaligned `first` fallback (handles both <= 65536 and > 65536 cleanly) */
+    /* 3. Unaligned `first` / ES 1.1 / GL_SELECT fallback */
+    glbuffer_t* prev_elem = glstate->vao->elements;
     GLuint old_buffer = wantBufferIndex(0);
+    glstate->vao->elements = NULL;
     if (max_vert > 65536 && hardext.elementuint) {
         gl4es_scratch((size_t)idx_count * sizeof(GLuint));
         GLuint* p = (GLuint*)glstate->scratch;
@@ -720,6 +768,7 @@ static void draw_quads_arrays_fast(GLint first, GLsizei count, int instancecount
         glDrawElementsCommon(GL_TRIANGLES, 0, idx_count, (GLuint)max_vert, (const GLushort*)glstate->scratch, NULL,
                              instancecount);
     }
+    glstate->vao->elements = prev_elem;
     wantBufferIndex(old_buffer);
 }
 
@@ -960,8 +1009,8 @@ void APIENTRY_GL4ES gl4es_glDrawArrays(GLenum mode, GLint first, GLsizei count) 
         return;
     }
 
-    // special case for (very) large GL_QUADS array
-    if ((mode == GL_QUADS) && (count > 4 * 8000)) {
+    // special case for (very) large GL_QUADS array on ES 1.1 only (ES 2/3 handles arbitrary sizes in draw_quads_arrays_fast)
+    if (hardext.esversion == 1 && (mode == GL_QUADS) && (count > 4 * 8000)) {
         // split the array in manageable slice
         int cnt = 4 * 8000;
         for (int i = 0; i < count; i += 4 * 8000) {
@@ -1038,23 +1087,7 @@ void APIENTRY_GL4ES gl4es_glMultiDrawArrays(GLenum mode, const GLint* firsts, co
     if (!compiling && !intercept && glstate->polygon_mode != GL_LINE) {
         if (glstate->list.pending) gl4es_flush();
         GLenum draw_mode = (glstate->polygon_mode == GL_POINT && mode >= GL_TRIANGLES) ? GL_POINTS : mode;
-        int all_vbo_attribs = 0;
-        if (glstate->vao && hardext.esversion > 1) {
-            int any_en = 0;
-            all_vbo_attribs = 1;
-            for (int a = 0; a < hardext.maxvattrib; ++a) {
-                if (glstate->vao->vertexattrib[a].enabled) {
-                    any_en = 1;
-                    if (!glstate->vao->vertexattrib[a].real_buffer ||
-                        glstate->vao->vertexattrib[a].size == GL_BGRA ||
-                        glstate->vao->vertexattrib[a].type == GL_DOUBLE) {
-                        all_vbo_attribs = 0;
-                        break;
-                    }
-                }
-            }
-            if (!any_en) all_vbo_attribs = 0;
-        }
+        int all_vbo_attribs = emesis_vao_has_only_vbo_attribs(1);
 
         if (draw_mode == GL_QUADS && hardext.esversion > 1 && glstate->render_mode != GL_SELECT) {
             /* Coalesce contiguous (first, count) quad slices in-place (Sodium ChunkRenderBackendOneshot packs
@@ -1608,6 +1641,7 @@ static int emesis_collect_instanced_attribs(EmesisInstancedAttribInfo* out_info,
             if (!w->buffer->data) {
                 emesis_ensure_buffer_cpu_shadow(w->buffer, GL_ARRAY_BUFFER, 1);
             }
+            if (!w->buffer->data) continue;
         }
         int elem_bytes = gl_sizeof(w->type) * ((w->size == GL_BGRA) ? 4 : w->size);
         int stride = w->stride ? w->stride : elem_bytes;

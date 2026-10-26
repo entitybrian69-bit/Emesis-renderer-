@@ -98,11 +98,13 @@ void readfboEnd() {
                                                                       : glstate->fbo.mainfbo_fbo;
     if (hardext.esversion >= 3) {
         glstate->fbo.current_fb = glstate->fbo.fbo_draw;
-        if (dfb == rfb) {
+        int need_draw = (!(glstate->fbo.gles_fb_synced & 1) || glstate->fbo.gles_draw_fb != dfb);
+        int need_read = (!(glstate->fbo.gles_fb_synced & 2) || glstate->fbo.gles_read_fb != rfb);
+        if (need_draw && need_read && dfb == rfb) {
             gles_glBindFramebuffer(GL_FRAMEBUFFER, dfb);
         } else {
-            gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, rfb);
-            gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dfb);
+            if (need_read) gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, rfb);
+            if (need_draw) gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dfb);
         }
         glstate->fbo.gles_draw_fb = dfb;
         glstate->fbo.gles_read_fb = rfb;
@@ -1289,6 +1291,17 @@ void APIENTRY_GL4ES gl4es_glGenerateMipmap(GLenum target) {
 
     errorGL();
     if (GL4ES_AUTOMIPMAP_PLACEHOLDER != 3 && gles_glGenerateMipmap) {
+        int is_flt32_fmt = (hardext.esversion >= 3 &&
+                            (bound->internalformat == GL_RGBA32F || bound->internalformat == GL_RGB32F ||
+                             bound->internalformat == GL_RG32F || bound->internalformat == GL_R32F));
+        if (is_flt32_fmt) {
+            /* OpenGL ES 3.x Section 8.14.4: sized *32F formats (e.g. Bliss v2.1.2 colortex5 RGBA32F, RGB32F)
+             * fail gles_glGenerateMipmap with GL_INVALID_OPERATION on Mali/Adreno ES 3.2 drivers.
+             * Populate mip chain directly on GPU via cached FBO blits with zero glGetError() sync stalls. */
+            emesis_generate_float_mipmaps_gpu(bound, rtarget);
+            noerrorShim();
+            return;
+        }
         gles_glGenerateMipmap(rtarget);
         bound->mipmap_done = 1;
     }
@@ -1747,6 +1760,10 @@ static inline void ensure_gles_draw_fbo_synced(void) {
             glstate->fbo.gles_fb_synced |= 1;
         }
     }
+}
+
+void gl4es_ensure_draw_fbo_synced(void) {
+    ensure_gles_draw_fbo_synced();
 }
 
 void APIENTRY_GL4ES gl4es_glReadBuffer(GLenum src) {

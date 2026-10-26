@@ -190,7 +190,7 @@ void load_libs() {
 // user-defined getProcAddress
 void*(APIENTRY_GL4ES* gles_getProcAddress)(const char* name);
 
-static int is_external_driver_symbol(const void* cand) {
+int is_external_driver_symbol(const void* cand) {
     if (!cand) return 0;
 #ifndef _WIN32
     Dl_info self_info, cand_info;

@@ -374,7 +374,14 @@ void draw_renderlist(renderlist_t *list) {
     LOAD_GLES_FPE(glTexCoordPointer);
     LOAD_GLES_FPE(glEnable);
     LOAD_GLES_FPE(glDisable);
-    gl4es_glPushClientAttrib(GL_CLIENT_VERTEX_ARRAY_BIT);
+    int has_draws = 0;
+    for (const renderlist_t* it = list; it; it = it->next) {
+        if (it->len > 0) {
+            has_draws = 1;
+            break;
+        }
+    }
+    if (has_draws) gl4es_glPushClientAttrib(GL_CLIENT_VERTEX_ARRAY_BIT);
 
 	int old_tex;
     GLushort *indices;
@@ -866,5 +873,5 @@ void draw_renderlist(renderlist_t *list) {
         if(list->post_color) gl4es_glColor4fv(list->post_colors);
         if(list->post_normal) gl4es_glNormal3fv(list->post_normals);
     } while ((list = list->next));
-    gl4es_glPopClientAttrib();
+    if (has_draws) gl4es_glPopClientAttrib();
 }

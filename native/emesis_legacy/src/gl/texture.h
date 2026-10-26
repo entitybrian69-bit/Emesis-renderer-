@@ -185,6 +185,7 @@ extern "C"
     }
     gltexture_t* gl4es_getTexture(GLenum target, GLuint texture);
     gltexture_t* gl4es_getCurrentTexture(GLenum target);
+    void emesis_generate_float_mipmaps_gpu(gltexture_t* bound, GLenum rtarget);
 
     static inline GLuint what_target(GLenum target) {
         switch (target) {

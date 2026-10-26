@@ -1695,6 +1695,7 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
             }
         }
         gles_glLinkProgram(glprogram->id);
+        emesis_note_shader_compiler_activity();
         GLenum err = gles_glGetError();
         if (tmp_ufix_fs) {
             LOAD_GLES2(glDetachShader);
@@ -1717,6 +1718,21 @@ void APIENTRY_GL4ES gl4es_glLinkProgram(GLuint program) {
             free(caller_attrib_sig);
             fill_program(glprogram);
             apply_program_uniform_defaults(program, glprogram);
+            if (!glprogram->frag_data_changed && glprogram->last_frag && glprogram->last_frag->before_patch) {
+                free(glprogram->last_frag->before_patch);
+                glprogram->last_frag->before_patch = NULL;
+            }
+            if (glprogram->last_vert && glprogram->last_vert->is_converted_essl_320 &&
+                emesis_should_skip_fpe_alphatest(glprogram)) {
+                if (glprogram->vert_essl_copy) {
+                    free(glprogram->vert_essl_copy);
+                    glprogram->vert_essl_copy = NULL;
+                }
+                if (glprogram->frag_essl_copy) {
+                    free(glprogram->frag_essl_copy);
+                    glprogram->frag_essl_copy = NULL;
+                }
+            }
             noerrorShimNoPurge();
         } else {
             free(caller_attrib_sig);

@@ -30,8 +30,8 @@
 #define EMESIS_SC_MAGIC 0x43534D45U /* 'EMSC' */
 #define EMESIS_PC_MAGIC 0x42504D45U /* 'EMPB' */
 
-#define EMESIS_MEM_SHADER_SLOTS 128
-#define EMESIS_MEM_PROGBIN_SLOTS 64
+#define EMESIS_MEM_SHADER_SLOTS 32
+#define EMESIS_MEM_PROGBIN_SLOTS 16
 #define EMESIS_MAX_MEM_PROGBIN_ENTRY_BYTES (256 * 1024)
 #define EMESIS_MAX_DISK_SHADER_BYTES (4 * 1024 * 1024)
 #define EMESIS_MAX_DISK_PROGBIN_BYTES (16 * 1024 * 1024)
@@ -800,7 +800,10 @@ static void emesis_do_reclaim_compiler_memory(void) {
     g_compiler_dirty_count = 0;
     g_quiet_clears_since_compile = 0;
 
-    /* 1. Release native GLES driver's shader compiler AST/IR pools (e.g. libGLES_mali.so) */
+    /* 1. Release native GLES driver's shader compiler AST/IR pools (e.g. libGLES_mali.so)
+     * AND Emesis's glslang desktop-GLSL AST/symbol-table heap (~35-50 MB RSS). */
+    extern void emesis_glslang_reclaim_pool(void);
+    emesis_glslang_reclaim_pool();
     if (hardext.esversion > 1) {
         LOAD_GLES2(glReleaseShaderCompiler);
         if (gles_glReleaseShaderCompiler) {
@@ -835,6 +838,7 @@ static void emesis_do_reclaim_compiler_memory(void) {
         }
         if (fn_mallopt) {
             (void)fn_mallopt(-101 /* M_PURGE */, 0);
+            (void)fn_mallopt(-104 /* M_PURGE_ALL */, 0);
         }
 #endif
         typedef int (*malloc_trim_fn)(size_t);
@@ -856,10 +860,10 @@ void emesis_force_reclaim_compiler_memory(void) {
 }
 
 void emesis_maybe_reclaim_compiler_memory(void) {
-    /* Only run heavy driver compiler teardown + M_PURGE after a bulk shaderpack compile batch
-     * (>= 16 shaders) followed by >= 120 quiet glClear calls with zero new compiles, avoiding
-     * mid-frame stutters on lazy FPE / entity shader variants. */
-    if (g_compiler_dirty_count < 16u) return;
-    if (++g_quiet_clears_since_compile < 120u) return;
+    /* Run driver compiler teardown + M_PURGE after a bulk shaderpack compile/link batch
+     * (>= 8 shaders/programs) followed by >= 24 quiet glClear calls (~0.4s at 60 FPS),
+     * freeing Mali Bifrost compiler IR pools + Scudo/glibc arenas before gameplay/screenshots. */
+    if (g_compiler_dirty_count < 8u) return;
+    if (++g_quiet_clears_since_compile < 24u) return;
     emesis_do_reclaim_compiler_memory();
 }

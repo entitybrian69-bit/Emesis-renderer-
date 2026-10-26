@@ -1230,6 +1230,7 @@ void APIENTRY_GL4ES gl4es_glClear(GLbitfield mask) {
     PUSH_IF_COMPILING(glClear);
 
     emesis_maybe_reclaim_compiler_memory();
+    gl4es_ensure_draw_fbo_synced();
 
     mask &= GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
     LOAD_GLES(glClear);

@@ -461,22 +461,39 @@ void APIENTRY_GL4ES gl4es_glReadPixels(GLint x, GLint y, GLsizei width, GLsizei 
     errorGL();
 
     GLvoid* dst = data;
-    if (glstate->vao->pack) {
-        dst = (char*)dst + (uintptr_t)glstate->vao->pack->data;
+    uintptr_t pbo_off = 0;
+    glbuffer_t* pack_buf = glstate->vao->pack;
+    if (pack_buf) {
+        pbo_off = (uintptr_t)data;
+        if (!pack_buf->data) {
+            emesis_ensure_buffer_cpu_shadow(pack_buf, GL_PIXEL_PACK_BUFFER, 0);
+        }
+        if (!pack_buf->data) {
+            errorShim(GL_OUT_OF_MEMORY);
+            return;
+        }
+        size_t req_end = (size_t)pbo_off + (size_t)width * (size_t)height * (size_t)pixel_sizeof(format, type);
+        if (req_end > (size_t)pack_buf->size) {
+            errorShim(GL_INVALID_OPERATION);
+            return;
+        }
+        dst = (char*)pack_buf->data + pbo_off;
     }
 
     readfboBegin();
 
     if ((format == GL_RGBA && type == GL_UNSIGNED_BYTE) || (format == glstate->readf && type == glstate->readt) ||
+        (hardext.esversion >= 3 && format == GL_RGBA && (type == GL_FLOAT || type == GL_HALF_FLOAT)) ||
         (format == GL_DEPTH_COMPONENT && (type == GL_FLOAT || type == GL_HALF_FLOAT || type == GL_UNSIGNED_INT))) {
         gles_glReadPixels(x, y, width, height, format, type, dst);
+        if (pack_buf && pack_buf->real_buffer) pack_buf->gpu_dirty = 1;
         readfboEnd();
         return;
     }
 
     int use_bgra = (glstate->readf == GL_BGRA && glstate->readt == GL_UNSIGNED_BYTE) ? 1 : 0;
 
-    GLvoid* pixels = malloc(width * height * 4);
+    GLvoid* pixels = malloc((size_t)width * (size_t)height * 4u);
     if (!pixels) {
         LOGE("Memory allocation failed for temporary pixel buffer\n");
         readfboEnd();
@@ -490,9 +507,88 @@ void APIENTRY_GL4ES gl4es_glReadPixels(GLint x, GLint y, GLsizei width, GLsizei 
         LOGE("ReadPixels error: (%s, UNSIGNED_BYTE -> %s, %s )\n", PrintEnum(use_bgra ? GL_BGRA : GL_RGBA),
              PrintEnum(format), PrintEnum(type));
     }
+    if (pack_buf && pack_buf->real_buffer) pack_buf->gpu_dirty = 1;
 
     free(pixels);
     readfboEnd();
+}
+
+void emesis_generate_float_mipmaps_gpu(gltexture_t* bound, GLenum rtarget) {
+    if (!bound || !bound->glname || rtarget != GL_TEXTURE_2D || (bound->width <= 1 && bound->height <= 1)) return;
+    LOAD_GLES(glTexImage2D);
+    LOAD_GLES2_OR_OES(glBindFramebuffer);
+    LOAD_GLES3(glBlitFramebuffer);
+    if (!gles_glTexImage2D || !gles_glBindFramebuffer || !gles_glBlitFramebuffer) return;
+
+    int max_lvl = 0;
+    {
+        int w = bound->width, h = bound->height;
+        while (w > 1 || h > 1) {
+            w = (w > 1) ? (w >> 1) : 1;
+            h = (h > 1) ? (h >> 1) : 1;
+            ++max_lvl;
+        }
+    }
+    if (bound->max_level >= 0 && bound->max_level < max_lvl) max_lvl = bound->max_level;
+    if (max_lvl <= 0) return;
+
+    GLenum up_fmt = bound->format ? bound->format : GL_RGBA;
+    if (bound->internalformat == GL_R32F) up_fmt = GL_RED;
+    else if (bound->internalformat == GL_RG32F) up_fmt = GL_RG;
+    else if (bound->internalformat == GL_RGB32F) up_fmt = GL_RGB;
+    else if (bound->internalformat == GL_RGBA32F) up_fmt = GL_RGBA;
+
+    if (!bound->mipmap_done) {
+        int mw = bound->width, mh = bound->height;
+        for (int lvl = 1; lvl <= max_lvl; ++lvl) {
+            mw = (mw > 1) ? (mw >> 1) : 1;
+            mh = (mh > 1) ? (mh >> 1) : 1;
+            gles_glTexImage2D(GL_TEXTURE_2D, lvl, bound->internalformat, mw, mh, 0, up_fmt, GL_FLOAT, NULL);
+        }
+    }
+
+    GLuint prevDraw = (glstate && glstate->fbo.fbo_draw) ? glstate->fbo.fbo_draw->id : 0;
+    GLuint prevRead = (glstate && glstate->fbo.fbo_read) ? glstate->fbo.fbo_read->id : 0;
+
+    int had_scissor = glstate->enable.scissor;
+    if (had_scissor) {
+        LOAD_GLES(glDisable);
+        if (gles_glDisable) gles_glDisable(GL_SCISSOR_TEST);
+    }
+
+    GLenum filter = hardext.floatlinear ? GL_LINEAR : GL_NEAREST;
+    int pw = bound->width, ph = bound->height;
+    for (int lvl = 1; lvl <= max_lvl; ++lvl) {
+        int mw = (pw > 1) ? (pw >> 1) : 1;
+        int mh = (ph > 1) ? (ph >> 1) : 1;
+        int r_ok = 0, d_ok = 0;
+        bind_cached_copy_blit_fbo(GL_READ_FRAMEBUFFER, bound->glname, GL_TEXTURE_2D, lvl - 1, GL_COLOR_ATTACHMENT0,
+                                  &r_ok);
+        bind_cached_copy_blit_fbo(GL_DRAW_FRAMEBUFFER, bound->glname, GL_TEXTURE_2D, lvl, GL_COLOR_ATTACHMENT0,
+                                  &d_ok);
+        if (r_ok && d_ok) {
+            gles_glBlitFramebuffer(0, 0, pw, ph, 0, 0, mw, mh, GL_COLOR_BUFFER_BIT, filter);
+        }
+        pw = mw;
+        ph = mh;
+    }
+
+    if (had_scissor) {
+        LOAD_GLES(glEnable);
+        if (gles_glEnable) gles_glEnable(GL_SCISSOR_TEST);
+    }
+    if (prevRead == prevDraw) {
+        gles_glBindFramebuffer(GL_FRAMEBUFFER, prevDraw);
+    } else {
+        gles_glBindFramebuffer(GL_READ_FRAMEBUFFER, prevRead);
+        gles_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prevDraw);
+    }
+    if (glstate) {
+        glstate->fbo.gles_read_fb = prevRead;
+        glstate->fbo.gles_draw_fb = prevDraw;
+        glstate->fbo.gles_fb_synced = 3;
+    }
+    bound->mipmap_done = 1;
 }
 
 void APIENTRY_GL4ES gl4es_glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* img) {
@@ -504,6 +600,10 @@ void APIENTRY_GL4ES gl4es_glGetTexImage(GLenum target, GLint level, GLenum forma
     realize_bound(glstate->texture.active, target);
 
     gltexture_t* bound = glstate->texture.bound[glstate->texture.active][itarget];
+    if (!bound || bound->width <= 0 || bound->height <= 0) {
+        noerrorShim();
+        return;
+    }
     int width = bound->width;
     int height = bound->height;
     int nwidth = bound->nwidth;
@@ -534,12 +634,22 @@ void APIENTRY_GL4ES gl4es_glGetTexImage(GLenum target, GLint level, GLenum forma
                   PrintEnum(format), PrintEnum(type), img, bound->glname, width, height);)
 
     GLvoid* dst = img;
-    if (glstate->vao->pack) dst = (char*)dst + (uintptr_t)glstate->vao->pack->data;
+    if (glstate->vao->pack) {
+        if (!glstate->vao->pack->data) {
+            emesis_ensure_buffer_cpu_shadow(glstate->vao->pack, GL_PIXEL_PACK_BUFFER, 0);
+        }
+        if (!glstate->vao->pack->data) {
+            errorShim(GL_OUT_OF_MEMORY);
+            return;
+        }
+        dst = (char*)glstate->vao->pack->data + (uintptr_t)img;
+    }
 #ifdef TEXSTREAM
     if (globals4es.texstream && bound->streamed) {
         noerrorShim();
         pixel_convert(GetStreamingBuffer(bound->streamingID), &dst, width, height, GL_RGB, GL_UNSIGNED_SHORT_5_6_5,
                       format, type, 0, glstate->texture.unpack_align);
+        if (glstate->vao->pack && glstate->vao->pack->real_buffer) glstate->vao->pack->gpu_dirty = 1;
         readfboEnd();
         return;
     }
@@ -551,10 +661,41 @@ void APIENTRY_GL4ES gl4es_glGetTexImage(GLenum target, GLint level, GLenum forma
                            glstate->texture.pack_align)) {
             DBG(SHUT_LOGD("LIBGL: Error on pixel_convert while glGetTexImage\n"));
         }
+        if (glstate->vao->pack && glstate->vao->pack->real_buffer) glstate->vao->pack->gpu_dirty = 1;
+    } else if (hardext.esversion >= 3 && shrink == 0 && bound->glname &&
+               (bound->format == GL_RGBA || bound->format == GL_RGB || bound->format == GL_RED ||
+                bound->format == GL_RG)) {
+        /* Non-destructive ES 3+ path: attach texture to cached GL_READ_FRAMEBUFFER without disturbing GL_DRAW_FRAMEBUFFER */
+        int complete = 0;
+        bind_cached_copy_blit_fbo(GL_READ_FRAMEBUFFER, bound->glname, GL_TEXTURE_2D, 0, GL_COLOR_ATTACHMENT0, &complete);
+        if (complete) {
+            LOAD_GLES(glReadPixels);
+            if ((format == GL_RGBA && type == GL_UNSIGNED_BYTE && bound->type == GL_UNSIGNED_BYTE) ||
+                (format == GL_RGBA && type == GL_FLOAT &&
+                 (bound->type == GL_FLOAT || bound->type == GL_HALF_FLOAT || bound->type == GL_HALF_FLOAT_OES))) {
+                gles_glReadPixels(0, nheight - height, width, height, format, type, dst);
+            } else {
+                GLvoid* pixels = malloc((size_t)width * (size_t)height * 4u);
+                if (pixels) {
+                    gles_glReadPixels(0, nheight - height, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+                    pixel_convert(pixels, &dst, width, height, GL_RGBA, GL_UNSIGNED_BYTE, format, type, 0,
+                                  glstate->texture.pack_align);
+                    free(pixels);
+                }
+            }
+            if (glstate->vao->pack && glstate->vao->pack->real_buffer) glstate->vao->pack->gpu_dirty = 1;
+            readfboEnd();
+            noerrorShim();
+            return;
+        }
+        readfboEnd();
+        goto fallback_fbo_read;
     } else {
+    fallback_fbo_read:;
         // Setup an FBO the same size of the texture
         GLuint oldBind = bound->glname;
-        GLuint old_fbo = glstate->fbo.current_fb->id;
+        GLuint old_draw_fbo = glstate->fbo.fbo_draw ? glstate->fbo.fbo_draw->id : 0;
+        GLuint old_read_fbo = glstate->fbo.fbo_read ? glstate->fbo.fbo_read->id : old_draw_fbo;
         GLuint fbo;
 
         // if the texture is not RGBA or RGB or ALPHA, the "just attach texture to the fbo" trick will not work, and a
@@ -568,7 +709,12 @@ void APIENTRY_GL4ES gl4es_glGetTexImage(GLenum target, GLint level, GLenum forma
             // Read the pixels!
             gl4es_glReadPixels(0, nheight - height, width, height, format, type,
                                img); // using "full" version with conversion of format/type
-            gl4es_glBindFramebuffer(GL_FRAMEBUFFER_OES, old_fbo);
+            if (hardext.esversion >= 3 && old_draw_fbo != old_read_fbo) {
+                gl4es_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, old_draw_fbo);
+                gl4es_glBindFramebuffer(GL_READ_FRAMEBUFFER, old_read_fbo);
+            } else {
+                gl4es_glBindFramebuffer(GL_FRAMEBUFFER_OES, old_draw_fbo);
+            }
             gl4es_glDeleteFramebuffers(1, &fbo);
             noerrorShim();
         } else {
@@ -589,7 +735,12 @@ void APIENTRY_GL4ES gl4es_glGetTexImage(GLenum target, GLint level, GLenum forma
             // Read the pixels!
             gl4es_glReadPixels(0, (nheight - height) << shrink, width << shrink, height << shrink, format, type,
                                img); // using "full" version with conversion of format/type
-            gl4es_glBindFramebuffer(GL_FRAMEBUFFER_OES, old_fbo);
+            if (hardext.esversion >= 3 && old_draw_fbo != old_read_fbo) {
+                gl4es_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, old_draw_fbo);
+                gl4es_glBindFramebuffer(GL_READ_FRAMEBUFFER, old_read_fbo);
+            } else {
+                gl4es_glBindFramebuffer(GL_FRAMEBUFFER_OES, old_draw_fbo);
+            }
             gl4es_glDeleteFramebuffers(1, &fbo);
             gl4es_glDeleteTextures(1, &temptex);
             noerrorShim();

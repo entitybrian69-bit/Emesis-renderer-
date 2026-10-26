@@ -361,15 +361,11 @@ void APIENTRY_GL4ES gl4es_glBufferData(GLenum target, GLsizeiptr size, const GLv
     }
 
     int skip_cpu_shadow = 0;
-    if (!defer_gpu_upload && !is_cpu_emul_target &&
+    if (hardext.esversion >= 3 && !defer_gpu_upload && !is_cpu_emul_target &&
         target != GL_ELEMENT_ARRAY_BUFFER &&
         go_real && buff->real_buffer && emesis_has_gpu_copy_buffer() &&
         !buff->mapped && !buff->ever_mapped && !buff->used_by_divisor && !buff->is_indirect) {
-        if (target == GL_COPY_WRITE_BUFFER || target == GL_COPY_READ_BUFFER ||
-            usage == GL_STREAM_COPY || usage == GL_DYNAMIC_COPY || usage == GL_STATIC_COPY ||
-            (data == NULL && size >= 65536)) {
-            skip_cpu_shadow = 1;
-        }
+        skip_cpu_shadow = 1;
     }
     if (skip_cpu_shadow) {
         if (buff->data) {
@@ -488,15 +484,12 @@ void APIENTRY_GL4ES gl4es_glNamedBufferData(GLuint buffer, GLsizeiptr size, cons
     }
 
     int skip_cpu_shadow = 0;
-    if (go_real && buff->real_buffer && emesis_has_gpu_copy_buffer() &&
+    if (hardext.esversion >= 3 && go_real && buff->real_buffer && emesis_has_gpu_copy_buffer() &&
         buff->type != GL_ELEMENT_ARRAY_BUFFER &&
+        buff->type != GL_PIXEL_PACK_BUFFER && buff->type != GL_PIXEL_UNPACK_BUFFER &&
+        buff->type != GL_DRAW_INDIRECT_BUFFER &&
         !buff->mapped && !buff->ever_mapped && !buff->used_by_divisor && !buff->is_indirect) {
-        if (buff->type == GL_COPY_WRITE_BUFFER || buff->type == GL_COPY_READ_BUFFER ||
-            buff->type == GL_PIXEL_PACK_BUFFER || buff->type == GL_PIXEL_UNPACK_BUFFER ||
-            usage == GL_STREAM_COPY || usage == GL_DYNAMIC_COPY || usage == GL_STATIC_COPY ||
-            (data == NULL && size >= 65536)) {
-            skip_cpu_shadow = 1;
-        }
+        skip_cpu_shadow = 1;
     }
 
     if (skip_cpu_shadow) {
@@ -572,7 +565,11 @@ void APIENTRY_GL4ES gl4es_glBufferSubData(GLenum target, GLintptr offset, GLsize
         return;
     }
 
-    if ((target == GL_ARRAY_BUFFER || target == GL_ELEMENT_ARRAY_BUFFER || target == GL_UNIFORM_BUFFER ||
+    int is_cpu_emul = (target == GL_PIXEL_PACK_BUFFER || target == GL_PIXEL_UNPACK_BUFFER ||
+                       target == GL_DRAW_INDIRECT_BUFFER);
+
+    if (!is_cpu_emul &&
+        (target == GL_ARRAY_BUFFER || target == GL_ELEMENT_ARRAY_BUFFER || target == GL_UNIFORM_BUFFER ||
          target == GL_COPY_WRITE_BUFFER || target == GL_COPY_READ_BUFFER || target == GL_TEXTURE_BUFFER) &&
         buff->real_buffer && !buff->gpu_dirty) {
         LOAD_GLES(glBufferSubData);
@@ -583,9 +580,8 @@ void APIENTRY_GL4ES gl4es_glBufferSubData(GLenum target, GLintptr offset, GLsize
         buff->gpu_dirty = 1;
     }
 
-    if (!buff->data && !buff->real_buffer && buff->size > 0) {
-        buff->data = calloc(1, (size_t)buff->size);
-        buff->cap = buff->data ? buff->size : 0;
+    if (!buff->data && (is_cpu_emul || !buff->real_buffer || buff->gpu_dirty) && buff->size > 0) {
+        emesis_ensure_buffer_cpu_shadow(buff, target, buff->real_buffer != 0);
     }
     if (buff->data && data && size > 0) memcpy((char*)buff->data + offset, data, (size_t)size);
     noerrorShim();
@@ -779,16 +775,13 @@ void APIENTRY_GL4ES gl4es_glGetNamedBufferParameteriv(GLuint buffer, GLenum valu
 }
 
 void emesis_ensure_buffer_cpu_shadow(glbuffer_t* buff, GLenum target, int need_read) {
+    (void)target;
     if (!buff || buff->data) return;
     size_t alloc_sz = (buff->size > 0) ? (size_t)buff->size : 16u;
     buff->data = calloc(1, alloc_sz);
     buff->cap = buff->data ? (GLsizeiptr)alloc_sz : 0;
     if (buff->data && need_read && buff->real_buffer && buff->size > 0 && hardext.esversion >= 3) {
-        GLenum map_target = target ? target : (buff->type ? buff->type : GL_COPY_READ_BUFFER);
-        if (map_target == GL_PIXEL_PACK_BUFFER || map_target == GL_PIXEL_UNPACK_BUFFER ||
-            map_target == GL_DRAW_INDIRECT_BUFFER) {
-            map_target = GL_COPY_READ_BUFFER;
-        }
+        const GLenum map_target = GL_COPY_READ_BUFFER;
         LOAD_GLES3(glMapBufferRange);
         LOAD_GLES3(glUnmapBuffer);
         if (gles_glMapBufferRange && gles_glUnmapBuffer) {

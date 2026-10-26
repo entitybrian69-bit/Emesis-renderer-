@@ -41,6 +41,7 @@ for abi in "${ABIS[@]}"; do
     cp -f "${bdir}/emesis_router/libemesis_renderer.so"   "${OUT_JNILIBS}/${abi}/libemesis_renderer.so"
 
     ls -lh "${OUT_JNILIBS}/${abi}/"*.so
+    rm -rf "${bdir}"
 done
 
 echo "=== ALL 12 NATIVE .SO BINARIES BUILT SUCCESSFULLY ==="

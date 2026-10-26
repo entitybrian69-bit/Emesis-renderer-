@@ -3,7 +3,7 @@
 
 #define MAJOR 1
 #define MINOR 2
-#define REVISION 4
+#define REVISION 5
 #define VERSION_TYPE "v"
 #define VERSION_SUFFIX " (Shader Accelerator)"
 #define RELEASE 1

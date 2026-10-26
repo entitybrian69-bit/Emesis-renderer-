@@ -954,10 +954,11 @@ void realize_1texture(GLenum target, int wantedTMU, gltexture_t* tex, glsampler_
         if (wantedTMU == -1) {                                                                                         \
             realize_textures(0);                                                                                       \
             TMU = glstate->gleshard->active;                                                                           \
-            oldtex = (TMU >= 0 && TMU < MAX_TEX) ? glstate->actual_tex2d[TMU] : 0;                                     \
+            oldtex = (TMU >= 0 && TMU < MAX_TEX_UNITS) ? glstate->actual_tex2d[TMU] : 0;                               \
             if (oldtex != tex->glname) {                                                                               \
                 gles_glBindTexture(GL_TEXTURE_2D, tex->glname);                                                        \
-                if (target == GL_TEXTURE_2D && TMU >= 0 && TMU < MAX_TEX) glstate->actual_tex2d[TMU] = tex->glname;    \
+                if (target == GL_TEXTURE_2D && TMU >= 0 && TMU < MAX_TEX_UNITS)                                        \
+                    glstate->actual_tex2d[TMU] = tex->glname;                                                          \
             }                                                                                                          \
             wantedTMU = -2;                                                                                            \
         } else if (glstate->gleshard->active != TMU) {                                                                 \
@@ -1014,7 +1015,7 @@ void realize_1texture(GLenum target, int wantedTMU, gltexture_t* tex, glsampler_
         }
         if (oldtex != tex->glname) {
             gles_glBindTexture(GL_TEXTURE_2D, oldtex);
-            if (target == GL_TEXTURE_2D && TMU >= 0 && TMU < MAX_TEX) glstate->actual_tex2d[TMU] = oldtex;
+            if (target == GL_TEXTURE_2D && TMU >= 0 && TMU < MAX_TEX_UNITS) glstate->actual_tex2d[TMU] = oldtex;
         }
     }
 }

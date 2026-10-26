@@ -10,6 +10,8 @@ extern "C"
 #include "gles.h"
 #include "logs.h"
 
+int is_external_driver_symbol(const void* cand);
+
 #ifndef NOEGL
 // Typedef for egl to be able to call LOAD_EGL...
 #include <EGL/egl.h>
@@ -256,7 +258,10 @@ extern "C"
                 gles_##name = (name##_PTR)proc_address(gles, #name "OES");                                             \
                 if (!gles_##name) {                                                                                    \
                     LOAD_EGL(eglGetProcAddress);                                                                       \
-                    if (egl_eglGetProcAddress) gles_##name = (name##_PTR)egl_eglGetProcAddress(#name "OES");           \
+                    if (egl_eglGetProcAddress) {                                                                       \
+                        name##_PTR cand = (name##_PTR)egl_eglGetProcAddress(#name "OES");                              \
+                        if (cand && is_external_driver_symbol((void*)cand)) gles_##name = cand;                        \
+                    }                                                                                                  \
                 }                                                                                                      \
             }                                                                                                          \
             WARN_NULL(gles_##name);                                                                                    \
@@ -273,7 +278,10 @@ extern "C"
                 gles_##name = (name##_PTR)proc_address(gles, #name "EXT");                                             \
                 if (!gles_##name) {                                                                                    \
                     LOAD_EGL(eglGetProcAddress);                                                                       \
-                    if (egl_eglGetProcAddress) gles_##name = (name##_PTR)egl_eglGetProcAddress(#name "EXT");           \
+                    if (egl_eglGetProcAddress) {                                                                       \
+                        name##_PTR cand = (name##_PTR)egl_eglGetProcAddress(#name "EXT");                              \
+                        if (cand && is_external_driver_symbol((void*)cand)) gles_##name = cand;                        \
+                    }                                                                                                  \
                 }                                                                                                      \
             }                                                                                                          \
             WARN_NULL(gles_##name);                                                                                    \
@@ -292,8 +300,12 @@ extern "C"
                 if (!origin) {                                                                                         \
                     LOAD_EGL(eglGetProcAddress);                                                                       \
                     if (egl_eglGetProcAddress) {                                                                       \
-                        origin = (name##_PTR)egl_eglGetProcAddress(#name);                                             \
-                        if (!origin) origin = (name##_PTR)egl_eglGetProcAddress(#name "EXT");                          \
+                        name##_PTR cand = (name##_PTR)egl_eglGetProcAddress(#name);                                    \
+                        if (cand && is_external_driver_symbol((void*)cand)) origin = cand;                             \
+                        if (!origin) {                                                                                 \
+                            cand = (name##_PTR)egl_eglGetProcAddress(#name "EXT");                                     \
+                            if (cand && is_external_driver_symbol((void*)cand)) origin = cand;                         \
+                        }                                                                                              \
                     }                                                                                                  \
                 }                                                                                                      \
                 gles_##name = origin;                                                                                  \
@@ -305,10 +317,31 @@ extern "C"
 #define LOAD_GLES2_OR_OES(name)                                                                                        \
     DEFINE_RAW(gles, name);                                                                                            \
     {                                                                                                                  \
-        LOAD_EGL(eglGetProcAddress);                                                                                   \
-        LOAD_RAW_SILENT(                                                                                               \
-            gles, name,                                                                                                \
-            ((hardext.esversion == 1) ? ((void*)egl_eglGetProcAddress(#name "OES")) : ((void*)dlsym(gles, #name))));   \
+        static bool first = true;                                                                                      \
+        if (first) {                                                                                                   \
+            first = false;                                                                                             \
+            if (gles != NULL) {                                                                                        \
+                if (hardext.esversion == 1) {                                                                          \
+                    gles_##name = (name##_PTR)proc_address(gles, #name "OES");                                         \
+                    if (!gles_##name) {                                                                                \
+                        LOAD_EGL(eglGetProcAddress);                                                                   \
+                        if (egl_eglGetProcAddress) {                                                                   \
+                            name##_PTR cand = (name##_PTR)egl_eglGetProcAddress(#name "OES");                          \
+                            if (cand && is_external_driver_symbol((void*)cand)) gles_##name = cand;                    \
+                        }                                                                                              \
+                    }                                                                                                  \
+                } else {                                                                                               \
+                    gles_##name = (name##_PTR)proc_address(gles, #name);                                               \
+                    if (!gles_##name) {                                                                                \
+                        LOAD_EGL(eglGetProcAddress);                                                                   \
+                        if (egl_eglGetProcAddress) {                                                                   \
+                            name##_PTR cand = (name##_PTR)egl_eglGetProcAddress(#name);                                \
+                            if (cand && is_external_driver_symbol((void*)cand)) gles_##name = cand;                    \
+                        }                                                                                              \
+                    }                                                                                                  \
+                }                                                                                                      \
+            }                                                                                                          \
+        }                                                                                                              \
     }
 #endif // defined(AMIGAOS4) || defined(NOEGL)
 

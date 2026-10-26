@@ -471,7 +471,7 @@ static int has_standalone_token_fast(const char* src, const char* tok) {
     return 0;
 }
 
-static int emesis_should_skip_fpe_alphatest(program_t* glprogram) {
+int emesis_should_skip_fpe_alphatest(program_t* glprogram) {
     if (!glprogram) return 1;
     if (glprogram->skip_fpe_alphatest_cache != 0) {
         return (glprogram->skip_fpe_alphatest_cache == 2) ? 1 : 0;
@@ -1061,6 +1061,24 @@ void APIENTRY_GL4ES fpe_glColor4f(GLfloat red, GLfloat green, GLfloat blue, GLfl
 
 void APIENTRY_GL4ES fpe_glNormal3f(GLfloat nx, GLfloat ny, GLfloat nz) {
     noerrorShim();
+}
+
+static void* emesis_get_bgra_scratch(int slot, size_t bytes) {
+    static __thread void* s_bgra_buf[8] = {0};
+    static __thread size_t s_bgra_cap[8] = {0};
+    if (slot < 0 || slot >= 8) return malloc(bytes ? bytes : 16u);
+    if (bytes == 0) bytes = 16u;
+    if (s_bgra_cap[slot] < bytes || !s_bgra_buf[slot]) {
+        size_t new_cap = (bytes < 4096u) ? 4096u : bytes;
+        if (s_bgra_cap[slot] > 0 && new_cap < s_bgra_cap[slot] * 2u && new_cap <= (4u * 1024u * 1024u)) {
+            new_cap = s_bgra_cap[slot] * 2u;
+        }
+        void* p = realloc(s_bgra_buf[slot], new_cap);
+        if (!p) return NULL;
+        s_bgra_buf[slot] = p;
+        s_bgra_cap[slot] = new_cap;
+    }
+    return s_bgra_buf[slot];
 }
 
 void APIENTRY_GL4ES fpe_glDrawArrays(GLenum mode, GLint first, GLsizei count) {
@@ -1853,25 +1871,47 @@ void realize_glenv(int ispoint, int first, int count, GLenum type, const void* i
                         (w->real_buffer == 0 && v->pointer != ptr) || v->real_buffer != w->real_buffer ||
                         (w->real_buffer != 0 && v->real_pointer != w->real_pointer)) {
                         if ((w->size == GL_BGRA || w->type == GL_DOUBLE) && scratch->size < 8) {
-                            int imin, imax;
+                            int imin = 0, imax = 0;
                             if (type == 0) {
                                 imin = first;
-                                imax = count;
+                                imax = first + count;
                             } else {
-                                if (type == GL_UNSIGNED_INT)
-                                    getminmax_indices_ui(indices, &imax, &imin, count);
-                                else
-                                    getminmax_indices_us(indices, &imax, &imin, count);
-                                ++imax;
+                                const void* cpu_idx = indices;
+                                if (glstate->vao->elements) {
+                                    if (!glstate->vao->elements->data) {
+                                        emesis_ensure_buffer_cpu_shadow(glstate->vao->elements,
+                                                                        GL_ELEMENT_ARRAY_BUFFER, 1);
+                                    }
+                                    if (glstate->vao->elements->data &&
+                                        !(indices >= glstate->vao->elements->data &&
+                                          indices < (const void*)((const char*)glstate->vao->elements->data +
+                                                                  glstate->vao->elements->size))) {
+                                        cpu_idx = (const void*)((const char*)glstate->vao->elements->data +
+                                                                (uintptr_t)indices);
+                                    }
+                                }
+                                if (cpu_idx) {
+                                    if (type == GL_UNSIGNED_INT)
+                                        getminmax_indices_ui(cpu_idx, &imax, &imin, count);
+                                    else
+                                        getminmax_indices_us(cpu_idx, &imax, &imin, count);
+                                    ++imax;
+                                }
                             }
-                            if (w->size == GL_BGRA) {
+                            if (w->size == GL_BGRA && imax > imin && ptr) {
+                                size_t n_verts = (size_t)(imax - imin);
+                                void* bgra_dst = emesis_get_bgra_scratch(i & 7, n_verts * 4u * sizeof(GLfloat));
+                                if (bgra_dst) {
+                                    copy_gl_pointer_color_bgra_noalloc(bgra_dst, ptr, w->stride, 4, imin, imax);
+                                } else {
+                                    bgra_dst = scratch->scratch[scratch->size++] =
+                                        copy_gl_pointer_color_bgra(ptr, w->stride, 4, imin, imax);
+                                }
                                 v->size = 4;
                                 v->type = GL_FLOAT;
                                 v->normalized = 0;
                                 v->integer = 0;
-                                v->pointer = scratch->scratch[scratch->size++] =
-                                    copy_gl_pointer_color_bgra(ptr, w->stride, 4, imin, imax);
-                                v->pointer = (char*)v->pointer - imin * 4 * sizeof(GLfloat);
+                                v->pointer = bgra_dst ? ((char*)bgra_dst - (size_t)imin * 4u * sizeof(GLfloat)) : NULL;
                                 v->stride = 0;
                                 v->buffer = NULL;
                                 v->real_buffer = 0;

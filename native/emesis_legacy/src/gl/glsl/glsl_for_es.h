@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 char* GLSLtoGLSLES_c(const char* glsl_code, GLenum glsl_type, unsigned int essl_version, unsigned int glsl_version, int* return_code);
+void emesis_glslang_reclaim_pool(void);
 
 extern int getGLSLVersion(const char* glsl_code);
 #ifdef __cplusplus

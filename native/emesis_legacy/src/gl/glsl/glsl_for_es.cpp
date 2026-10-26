@@ -1476,9 +1476,25 @@ static std::string spirv_to_essl(const std::vector<unsigned int>& spirv, GLenum 
     return essl;
 }
 
+static std::mutex s_glslang_proc_mtx;
+static bool s_glslang_proc_initialized = false;
+
+extern "C" void emesis_glslang_reclaim_pool(void) {
+    std::lock_guard<std::mutex> lk(s_glslang_proc_mtx);
+    if (s_glslang_proc_initialized) {
+        glslang::FinalizeProcess();
+        s_glslang_proc_initialized = false;
+    }
+}
+
 std::string GLSLtoGLSLES_2(const char* glsl_code, GLenum glsl_type, unsigned int essl_version, int& return_code) {
-    static std::once_flag s_glslang_once;
-    std::call_once(s_glslang_once, []() { glslang::InitializeProcess(); });
+    {
+        std::lock_guard<std::mutex> lk(s_glslang_proc_mtx);
+        if (!s_glslang_proc_initialized) {
+            glslang::InitializeProcess();
+            s_glslang_proc_initialized = true;
+        }
+    }
 
     bool atomicCounterEmulated = false;
     bool keepVertexInLocs = false;

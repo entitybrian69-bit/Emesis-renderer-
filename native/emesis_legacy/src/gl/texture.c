@@ -1917,7 +1917,12 @@ void APIENTRY_GL4ES gl4es_glTexImage2D(GLenum target, GLint level, GLint interna
 
     GLvoid* datab = (GLvoid*)data;
 
-    if (glstate->vao->unpack) datab = (char*)datab + (uintptr_t)glstate->vao->unpack->data;
+    if (glstate->vao->unpack) {
+        if (!glstate->vao->unpack->data) {
+            emesis_ensure_buffer_cpu_shadow(glstate->vao->unpack, GL_PIXEL_UNPACK_BUFFER, 1);
+        }
+        datab = glstate->vao->unpack->data ? ((char*)datab + (uintptr_t)glstate->vao->unpack->data) : NULL;
+    }
 
     GLvoid* pixels = (GLvoid*)datab;
     border = 0; // TODO: something?
@@ -2654,7 +2659,12 @@ void old_glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffse
         type = GL_UNSIGNED_BYTE;
 
     GLvoid* datab = (GLvoid*)data;
-    if (glstate->vao->unpack) datab = (char*)datab + (uintptr_t)glstate->vao->unpack->data;
+    if (glstate->vao->unpack) {
+        if (!glstate->vao->unpack->data) {
+            emesis_ensure_buffer_cpu_shadow(glstate->vao->unpack, GL_PIXEL_UNPACK_BUFFER, 1);
+        }
+        datab = glstate->vao->unpack->data ? ((char*)datab + (uintptr_t)glstate->vao->unpack->data) : NULL;
+    }
     GLvoid* pixels = (GLvoid*)datab;
 
     const GLuint itarget = what_target(target);
@@ -2950,6 +2960,34 @@ static inline void emesis_swizzle_bgra_row(GLubyte* dst, const GLubyte* src, siz
     }
 }
 
+static inline void emesis_swizzle_argb_to_rgba_row(GLubyte* dst, const GLubyte* src, size_t npx) {
+    /* GL_BGRA + GL_UNSIGNED_INT_8_8_8_8 on little-endian: memory bytes [A, R, G, B] -> [R, G, B, A] */
+    for (size_t i = 0; i < npx; ++i) {
+        const GLubyte a = src[i * 4 + 0];
+        const GLubyte r = src[i * 4 + 1];
+        const GLubyte g = src[i * 4 + 2];
+        const GLubyte b = src[i * 4 + 3];
+        dst[i * 4 + 0] = r;
+        dst[i * 4 + 1] = g;
+        dst[i * 4 + 2] = b;
+        dst[i * 4 + 3] = a;
+    }
+}
+
+static inline void emesis_swizzle_abgr_to_rgba_row(GLubyte* dst, const GLubyte* src, size_t npx) {
+    /* GL_RGBA + GL_UNSIGNED_INT_8_8_8_8 on little-endian: memory bytes [A, B, G, R] -> [R, G, B, A] */
+    for (size_t i = 0; i < npx; ++i) {
+        const GLubyte a = src[i * 4 + 0];
+        const GLubyte b = src[i * 4 + 1];
+        const GLubyte g = src[i * 4 + 2];
+        const GLubyte r = src[i * 4 + 3];
+        dst[i * 4 + 0] = r;
+        dst[i * 4 + 1] = g;
+        dst[i * 4 + 2] = b;
+        dst[i * 4 + 3] = a;
+    }
+}
+
 void APIENTRY_GL4ES gl4es_glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
                                           GLsizei height, GLenum format, GLenum type, const GLvoid* data) {
     if (width <= 0 || height <= 0) {
@@ -2959,10 +2997,21 @@ void APIENTRY_GL4ES gl4es_glTexSubImage2D(GLenum target, GLint level, GLint xoff
 
     GLenum norm_format = (format == GL_BGRA8_EXT) ? GL_BGRA : format;
     GLenum norm_type = type;
+    int swizzle_u32_8888_mode = 0; /* 1: BGRA+UINT_8888 (ARGB->RGBA), 2: RGBA+UINT_8888 (ABGR->RGBA) */
 #ifdef __BIG_ENDIAN__
     if (norm_type == GL_UNSIGNED_INT_8_8_8_8) norm_type = GL_UNSIGNED_BYTE;
 #else
-    if (norm_type == GL_UNSIGNED_INT_8_8_8_8_REV) norm_type = GL_UNSIGNED_BYTE;
+    if (norm_type == GL_UNSIGNED_INT_8_8_8_8_REV) {
+        norm_type = GL_UNSIGNED_BYTE;
+    } else if (norm_type == GL_UNSIGNED_INT_8_8_8_8 && !hardext.rgba8888) {
+        if (norm_format == GL_BGRA) {
+            norm_type = GL_UNSIGNED_BYTE;
+            swizzle_u32_8888_mode = 1;
+        } else if (norm_format == GL_RGBA) {
+            norm_type = GL_UNSIGNED_BYTE;
+            swizzle_u32_8888_mode = 2;
+        }
+    }
 #endif
     if (hardext.esversion >= 3 && norm_type == GL_HALF_FLOAT_OES &&
         norm_format != GL_RGBA && norm_format != GL_RGB &&
@@ -2974,15 +3023,17 @@ void APIENTRY_GL4ES gl4es_glTexSubImage2D(GLenum target, GLint level, GLint xoff
     const GLuint itarget = what_target(target);
     gltexture_t* bound = glstate->texture.bound[glstate->texture.active][itarget];
     const int is_bgra_u8_to_rgba =
-        (norm_format == GL_BGRA && norm_type == GL_UNSIGNED_BYTE &&
-         bound && bound->format == GL_RGBA && bound->type == GL_UNSIGNED_BYTE && !hardext.bgra8888);
+        (swizzle_u32_8888_mode == 0 && norm_format == GL_BGRA && norm_type == GL_UNSIGNED_BYTE &&
+         bound && bound->format == GL_RGBA && bound->type == GL_UNSIGNED_BYTE);
+    const int is_u32_8888_to_rgba =
+        (swizzle_u32_8888_mode != 0 && bound && bound->format == GL_RGBA && bound->type == GL_UNSIGNED_BYTE);
     const int is_direct_match =
-        (bound && norm_format == bound->format && norm_type == bound->type &&
+        (swizzle_u32_8888_mode == 0 && bound && norm_format == bound->format && norm_type == bound->type &&
          norm_format != GL_BGR && (norm_format != GL_BGRA || hardext.bgra8888));
 
     if (!bound || !bound->valid || glstate->vao->unpack || bound->streamed || bound->shrink || bound->useratio ||
         raster_need_transform() ||
-        (!is_direct_match && !is_bgra_u8_to_rgba) ||
+        (!is_direct_match && !is_bgra_u8_to_rgba && !is_u32_8888_to_rgba) ||
         ((target == GL_TEXTURE_2D) && globals4es.texcopydata &&
          ((globals4es.texstream && !bound->streamed) || !globals4es.texstream))) {
         old_glTexSubImage2D(target, level, xoffset, yoffset, width, height, format, type, data);
@@ -3015,7 +3066,7 @@ void APIENTRY_GL4ES gl4es_glTexSubImage2D(GLenum target, GLint level, GLint xoff
         (glstate->texture.unpack_row_length != 0 && glstate->texture.unpack_row_length != (GLuint)width) ||
         glstate->texture.unpack_skip_pixels != 0 || glstate->texture.unpack_skip_rows != 0;
 
-    if (need_repack || is_bgra_u8_to_rgba) {
+    if (need_repack || is_bgra_u8_to_rgba || is_u32_8888_to_rgba) {
         size_t ui_width = (size_t)width;
         size_t ui_height = (size_t)height;
         size_t up_row_pixels =
@@ -3083,6 +3134,27 @@ void APIENTRY_GL4ES gl4es_glTexSubImage2D(GLenum target, GLint level, GLint xoff
             } else {
                 for (size_t y = 0; y < ui_height; ++y) {
                     emesis_swizzle_bgra_row(temp_pixels + y * dst_row_bytes, src_start + y * src_row_bytes, ui_width);
+                }
+            }
+            norm_format = GL_RGBA;
+        } else if (is_u32_8888_to_rgba) {
+            if (swizzle_u32_8888_mode == 1) {
+                if (!need_repack && src_row_bytes == dst_row_bytes && dst_row_bytes == ui_width * 4u) {
+                    emesis_swizzle_argb_to_rgba_row(temp_pixels, src_start, ui_width * ui_height);
+                } else {
+                    for (size_t y = 0; y < ui_height; ++y) {
+                        emesis_swizzle_argb_to_rgba_row(temp_pixels + y * dst_row_bytes,
+                                                        src_start + y * src_row_bytes, ui_width);
+                    }
+                }
+            } else {
+                if (!need_repack && src_row_bytes == dst_row_bytes && dst_row_bytes == ui_width * 4u) {
+                    emesis_swizzle_abgr_to_rgba_row(temp_pixels, src_start, ui_width * ui_height);
+                } else {
+                    for (size_t y = 0; y < ui_height; ++y) {
+                        emesis_swizzle_abgr_to_rgba_row(temp_pixels + y * dst_row_bytes,
+                                                        src_start + y * src_row_bytes, ui_width);
+                    }
                 }
             }
             norm_format = GL_RGBA;
