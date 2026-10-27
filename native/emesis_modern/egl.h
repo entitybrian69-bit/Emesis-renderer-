@@ -98,6 +98,7 @@ typedef struct {
     basevertex_renderer_t basevertex;
     PFNGLDRAWELEMENTSBASEVERTEXPROC drawelementsbasevertex;
     PFNGLMULTIDRAWELEMENTSBASEVERTEXEXTPROC multidrawelementsbasevertex;
+    PFNGLCOPYIMAGESUBDATAPROC copyimagesubdata;
     blending_functions_t blending;
     GLuint multidraw_element_buffer;
     GLuint clear_fbo;

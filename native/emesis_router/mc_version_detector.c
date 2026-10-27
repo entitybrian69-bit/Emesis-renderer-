@@ -65,12 +65,13 @@ int emesis_classify_mc_version_string(const char* raw) {
         return EMESIS_ENGINE_MODERN;
     }
 
-    /* Strip common prefixes like "fabric-loader-0.16.9-1.20.1", "quilt-loader-...", "mc-" */
-    if (starts_with_ci(s, "fabric-loader-") || starts_with_ci(s, "quilt-loader-")) {
-        const char* last_dash = strrchr(s, '-');
-        if (last_dash && isdigit((unsigned char)last_dash[1])) {
-            s = last_dash + 1;
-        }
+    /* Strip common prefixes like "fabric-loader-0.16.9-1.21.1", "fabric-loader-0.18.4-26.3-pre-1", "quilt-loader-..." */
+    if (starts_with_ci(s, "fabric-loader-")) {
+        const char* after_loader = strchr(s + 14, '-');
+        if (after_loader && after_loader[1]) s = after_loader + 1;
+    } else if (starts_with_ci(s, "quilt-loader-")) {
+        const char* after_loader = strchr(s + 13, '-');
+        if (after_loader && after_loader[1]) s = after_loader + 1;
     } else if (starts_with_ci(s, "mc-") || starts_with_ci(s, "minecraft-")) {
         const char* dash = strchr(s, '-');
         if (dash && dash[1]) s = dash + 1;

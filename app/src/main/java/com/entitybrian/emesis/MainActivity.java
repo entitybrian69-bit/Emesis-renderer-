@@ -3,21 +3,17 @@ package com.entitybrian.emesis;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.UriPermission;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
-import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -31,7 +27,6 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -95,7 +90,7 @@ public class MainActivity extends Activity {
         heroCard.addView(logoView, logoLp);
 
         TextView titleView = new TextView(this);
-        titleView.setText("EMESIS RENDERER v1.2.6");
+        titleView.setText("EMESIS RENDERER v1.2.7");
         titleView.setTextColor(Color.parseColor("#F3F7FA"));
         titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 23);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
@@ -182,10 +177,10 @@ public class MainActivity extends Activity {
         pojavCard.addView(infoLine("Plugin-Aware Pojav Variants (Zero Config)",
                 "Pojav Glow Worm (PGW), Pojav Beta-Zink, Pojav Firefly, ZalithLauncher 1 & 2, and FoldCraftLauncher automatically list 'Emesis Renderer' in Renderer Settings."));
         pojavCard.addView(infoLine("Official PojavLauncher / Debug / Amethyst / Mojo Setup",
-                "1) Tap 'Install to Pojav' below and tap 'Use this folder' -> 'Allow' when PojavLauncher's folder opens.\n"
+                "1) Tap 'Install to Pojav' below and tap 'Use this folder' -> 'Allow' when PojavLauncher's folder opens (future APK updates auto-sync custom_env.txt in the background automatically!).\n"
                 + "2) In Official PojavLauncher Video Settings, keep Renderer on default 'Holy GL4ES (OpenGL ES 2)' — do NOT select raw 'OpenGL ES 3 (DesktopGL)'. Emesis automatically promotes the context to GLES 3.2/3.1/3.0 + Shader Accelerator!"));
 
-        activeCustomEnvContent = buildPojavCustomEnv(routerPath);
+        activeCustomEnvContent = PojavBridgeSync.buildPojavCustomEnv(routerPath);
 
         TextView envPreview = new TextView(this);
         envPreview.setText(activeCustomEnvContent);
@@ -224,8 +219,8 @@ public class MainActivity extends Activity {
         bridgeStatusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         pojavCard.addView(bridgeStatusText, marginTop(8));
 
-        // Automatically keep linked Pojav SAF folders synced whenever this app opens (even after APK updates)
-        List<String> autoSynced = syncPersistedSafTrees(activeCustomEnvContent);
+        // Automatically keep linked Pojav SAF folders + legacy dirs synced whenever this app opens
+        List<String> autoSynced = PojavBridgeSync.syncAllLauncherConfigs(this);
         if (!autoSynced.isEmpty()) {
             StringBuilder sb = new StringBuilder("Auto-synced custom_env.txt to linked launcher folder(s):\n");
             for (int i = 0; i < autoSynced.size(); i++) {
@@ -363,21 +358,6 @@ public class MainActivity extends Activity {
         setContentView(scroll);
     }
 
-    private String buildPojavCustomEnv(String routerPath) {
-        return "POJAV_RENDERER=opengles2\n"
-             + "POJAVEXEC_EGL=" + routerPath + "\n"
-             + "LIBGL_ES=3\n"
-             + "LIBGL_GL=31\n"
-             + "LIBGL_MIPMAP=3\n"
-             + "LIBGL_NORMALIZE=1\n"
-             + "LIBGL_NOERROR=1\n"
-             + "LIBGL_NOINTOVLHACK=1\n"
-             + "LIBGL_USE_MC_COLOR=1\n"
-             + "SDL_OPENGL_LIBRARY=" + routerPath + "\n"
-             + "SDL_EGL_LIBRARY=" + routerPath + "\n"
-             + "_JAVA_OPTIONS=-Dorg.lwjgl.opengl.libname=" + routerPath;
-    }
-
     private String scanInstalledLaunchers() {
         PackageManager pm = getPackageManager();
         List<String> found = new ArrayList<String>();
@@ -412,8 +392,8 @@ public class MainActivity extends Activity {
         }
 
         List<String> written = new ArrayList<String>();
-        written.addAll(syncPersistedSafTrees(content));
-        written.addAll(writeDirectLegacyLauncherDirs(content));
+        written.addAll(PojavBridgeSync.syncPersistedSafTrees(this, content));
+        written.addAll(PojavBridgeSync.writeDirectLegacyLauncherDirs(content));
 
         if (!written.isEmpty()) {
             StringBuilder sb = new StringBuilder("Installed custom_env.txt to PojavLauncher (& copied to clipboard):\n");
@@ -429,63 +409,6 @@ public class MainActivity extends Activity {
 
         // On Android 11+ Scoped Storage, open PojavLauncher's FolderProvider SAF root directly
         openPojavSafFolderPicker();
-    }
-
-    private List<String> writeDirectLegacyLauncherDirs(String content) {
-        String[] legacyLauncherDirs = new String[] {
-            "/sdcard/games/PojavLauncher",
-            "/sdcard/Android/data/net.kdt.pojavlaunch/files",
-            "/sdcard/Android/data/net.kdt.pojavlaunch.debug/files",
-            "/sdcard/Android/data/org.angelauramc.amethyst/files",
-            "/sdcard/Android/data/org.angelauramc.amethyst.debug/files",
-            "/sdcard/Android/data/git.artdeell.mojo/files",
-            "/sdcard/Android/data/git.artdeell.mojo.debug/files"
-        };
-        List<String> written = new ArrayList<String>();
-        byte[] bytes;
-        try {
-            bytes = content.getBytes("UTF-8");
-        } catch (Throwable t) {
-            return written;
-        }
-        for (int i = 0; i < legacyLauncherDirs.length; i++) {
-            try {
-                File dir = new File(legacyLauncherDirs[i]);
-                if (dir.exists() && dir.isDirectory() && dir.canWrite()) {
-                    File out = new File(dir, "custom_env.txt");
-                    FileOutputStream fos = new FileOutputStream(out, false);
-                    fos.write(bytes);
-                    fos.flush();
-                    fos.close();
-                    if (out.exists() && out.length() == bytes.length) {
-                        written.add(out.getAbsolutePath());
-                    }
-                }
-            } catch (Throwable ignored) {
-            }
-        }
-        return written;
-    }
-
-    private List<String> syncPersistedSafTrees(String content) {
-        List<String> synced = new ArrayList<String>();
-        if (Build.VERSION.SDK_INT < 21) return synced;
-        try {
-            ContentResolver cr = getContentResolver();
-            List<UriPermission> perms = cr.getPersistedUriPermissions();
-            if (perms == null) return synced;
-            for (int i = 0; i < perms.size(); i++) {
-                UriPermission perm = perms.get(i);
-                if (perm != null && perm.isWritePermission() && perm.getUri() != null) {
-                    String saved = writeCustomEnvToTreeUri(perm.getUri(), content);
-                    if (saved != null) {
-                        synced.add(saved);
-                    }
-                }
-            }
-        } catch (Throwable ignored) {
-        }
-        return synced;
     }
 
     private boolean isLegacyV10Installed() {
@@ -588,7 +511,7 @@ public class MainActivity extends Activity {
                 } catch (Throwable ignored) {
                 }
 
-                String writtenDesc = writeCustomEnvToTreeUri(treeUri, activeCustomEnvContent);
+                String writtenDesc = PojavBridgeSync.writeCustomEnvToTreeUri(this, treeUri, activeCustomEnvContent);
                 if (writtenDesc != null) {
                     bridgeStatusText.setText(
                         "Successfully wrote custom_env.txt -> " + writtenDesc
@@ -598,92 +521,6 @@ public class MainActivity extends Activity {
                     bridgeStatusText.setText(
                         "Could not write custom_env.txt into selected folder (" + treeUri + "). Please select PojavLauncher's root folder from the top-left menu.");
                     bridgeStatusText.setTextColor(Color.parseColor("#EF4444"));
-                }
-            }
-        }
-    }
-
-    private String writeCustomEnvToTreeUri(Uri treeUri, String content) {
-        if (Build.VERSION.SDK_INT < 21 || treeUri == null || content == null) return null;
-        ContentResolver cr = getContentResolver();
-        Cursor cursor = null;
-        try {
-            String treeDocId = DocumentsContract.getTreeDocumentId(treeUri);
-            Uri parentDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocId);
-            Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, treeDocId);
-
-            Uri targetDocUri = null;
-            cursor = cr.query(
-                    childrenUri,
-                    new String[] {
-                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                        DocumentsContract.Document.COLUMN_DISPLAY_NAME
-                    },
-                    null,
-                    null,
-                    null);
-            if (cursor != null) {
-                while (cursor.moveToNext()) {
-                    String docId = cursor.getString(0);
-                    String name = cursor.getString(1);
-                    if ("custom_env.txt".equals(name) && docId != null) {
-                        targetDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId);
-                        break;
-                    }
-                }
-            }
-            if (cursor != null) {
-                cursor.close();
-                cursor = null;
-            }
-
-            if (targetDocUri == null) {
-                targetDocUri = DocumentsContract.createDocument(cr, parentDocUri, "text/plain", "custom_env.txt");
-            }
-            if (targetDocUri == null) return null;
-
-            byte[] bytes = content.getBytes("UTF-8");
-            boolean wrote = false;
-            try {
-                ParcelFileDescriptor pfd = cr.openFileDescriptor(targetDocUri, "rwt");
-                if (pfd == null) {
-                    pfd = cr.openFileDescriptor(targetDocUri, "wt");
-                }
-                if (pfd != null) {
-                    FileOutputStream fos = new FileOutputStream(pfd.getFileDescriptor());
-                    try {
-                        fos.getChannel().truncate(0);
-                    } catch (Throwable ignored) {
-                    }
-                    fos.write(bytes);
-                    fos.flush();
-                    fos.close();
-                    pfd.close();
-                    wrote = true;
-                }
-            } catch (Throwable ignored) {
-            }
-
-            if (!wrote) {
-                OutputStream os = cr.openOutputStream(targetDocUri, "wt");
-                if (os == null) {
-                    os = cr.openOutputStream(targetDocUri);
-                }
-                if (os == null) return null;
-                os.write(bytes);
-                os.flush();
-                os.close();
-            }
-
-            String authority = treeUri.getAuthority() != null ? treeUri.getAuthority() : "SAF";
-            return authority + " :: " + treeDocId + "/custom_env.txt";
-        } catch (Throwable t) {
-            return null;
-        } finally {
-            if (cursor != null) {
-                try {
-                    cursor.close();
-                } catch (Throwable ignored) {
                 }
             }
         }

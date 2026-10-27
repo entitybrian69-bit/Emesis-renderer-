@@ -147,6 +147,9 @@ void build_extension_string(context_t* context) {
         add_extra_extension(context, &length, "GL_ARB_shader_storage_buffer_object");
         add_extra_extension(context, &length, "GL_ARB_compute_shader");
     }
+    if(context->copyimagesubdata != NULL) {
+        add_extra_extension(context, &length, "GL_ARB_copy_image");
+    }
     fin_extra_extensions(context, length);
 }
 
@@ -201,6 +204,17 @@ static void find_esversion(context_t* context) {
     if(strstr(extensions, "GL_EXT_base_instance")) context->base_instance = true;
     if(strstr(extensions, "GL_EXT_clear_texture")) context->clear_texture = true;
     if(strstr(extensions, "GL_EXT_disjoint_timer_query") || env_istrue_d("EMESIS_ENABLE_TIMER_QUERY", false)) context->timer_query = true;
+
+    bool copy_oes = strstr(extensions, "GL_OES_copy_image") != NULL;
+    bool copy_ext = strstr(extensions, "GL_EXT_copy_image") != NULL;
+    if(context->es32 && es3_functions.glCopyImageSubData)
+        context->copyimagesubdata = es3_functions.glCopyImageSubData;
+    else if(copy_oes && es3_functions.glCopyImageSubDataOES)
+        context->copyimagesubdata = es3_functions.glCopyImageSubDataOES;
+    else if(copy_ext && es3_functions.glCopyImageSubDataEXT)
+        context->copyimagesubdata = es3_functions.glCopyImageSubDataEXT;
+    else
+        context->copyimagesubdata = NULL;
 
     bool basevertex_oes = strstr(extensions, "GL_OES_draw_elements_base_vertex") != NULL;
     bool basevertex_ext = strstr(extensions, "GL_EXT_draw_elements_base_vertex") != NULL;

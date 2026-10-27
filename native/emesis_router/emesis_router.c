@@ -849,7 +849,7 @@ __attribute__((visibility("default"))) void* glXGetProcAddressARB(const char* pr
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL
 Java_com_entitybrian_emesis_EmesisNative_getEngineVersion(JNIEnv* env, jclass cls) {
     (void)cls;
-    return (*env)->NewStringUTF(env, "Emesis Renderer v1.2.6 (26.3 + <1.17 Accelerator) — Made by Entitybrian");
+    return (*env)->NewStringUTF(env, "Emesis Renderer v1.2.7 (26.3 + 1.21 + <1.17 Accelerator) — Made by Entitybrian");
 }
 
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL

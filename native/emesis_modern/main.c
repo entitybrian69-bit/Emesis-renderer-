@@ -753,6 +753,16 @@ void glTexBufferRangeARB(GLenum target, GLenum internalFormat, GLuint buffer, GL
     glTexBufferRange(target, internalFormat, buffer, offset, size);
 }
 
+void glCopyImageSubData(GLuint srcName, GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ,
+                        GLuint dstName, GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ,
+                        GLsizei srcWidth, GLsizei srcHeight, GLsizei srcDepth) {
+    emesis_ensure_current_context();
+    if (!current_context || !current_context->copyimagesubdata) return;
+    current_context->copyimagesubdata(srcName, srcTarget, srcLevel, srcX, srcY, srcZ,
+                                      dstName, dstTarget, dstLevel, dstX, dstY, dstZ,
+                                      srcWidth, srcHeight, srcDepth);
+}
+
 static int clear_fmt_components(GLenum format) {
     switch (format) {
         case GL_RED:
