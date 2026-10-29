@@ -14,10 +14,12 @@ target_include_directories(emesis_renderer PRIVATE
 )
 
 target_compile_options(emesis_renderer PRIVATE
-    -O2
+    -O3
     -fPIC
     -ffunction-sections
     -fdata-sections
+    -fno-math-errno
+    -fno-trapping-math
 )
 
 target_link_options(emesis_renderer PRIVATE

@@ -149,6 +149,8 @@ target_compile_options(emesis_legacy PRIVATE
     -ffunction-sections
     -fdata-sections
     -fvisibility=hidden
+    -fno-math-errno
+    -fno-trapping-math
     -Wno-date-time
 )
 

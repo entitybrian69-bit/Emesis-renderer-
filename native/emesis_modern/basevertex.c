@@ -3,308 +3,562 @@
  * Copyright (c) 2025 artDev, SerpentSpirale, CADIndie.
  * For use under LGPL-3.0
  */
-#include <GLES3/gl31.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#include "proc.h"
-#include "egl.h"
-#include "main.h"
 
-#define EMESIS_INDIRECT_RING_BYTES (256u * 1024u)
-#define EMESIS_ES30_INDEX_RING_BYTES (512u * 1024u)
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include "egl.h"
+#include "proc.h"
+#include "main.h"
+#include "basevertex.h"
+
+#ifndef GL_MAP_PERSISTENT_BIT_EXT
+#define GL_MAP_PERSISTENT_BIT_EXT 0x0040
+#endif
+#ifndef GL_MAP_COHERENT_BIT_EXT
+#define GL_MAP_COHERENT_BIT_EXT 0x0080
+#endif
+
+#define EMESIS_INDIRECT_RING_SIZE_32 (1024u * 1024u)
+#define EMESIS_INDIRECT_RING_SIZE_64 (2u * 1024u * 1024u)
+#define EMESIS_ES30_IDX_RING_SIZE    (512u * 1024u)
 
 void basevertex_init(context_t* context) {
-    basevertex_renderer_t *renderer = &context->basevertex;
-    if(context->drawelementsbasevertex != NULL) {
-        printf("EmesisRenderer: BaseVertex render calls will use host driver (%s)\n",
-               context->multidrawelementsbasevertex ? "MultiDrawElementsBaseVertex" : "DrawElementsBaseVertex");
-        renderer->ready = true;
-        return;
-    }
-    if(context->es31) {
-        es3_functions.glGenBuffers(1, &renderer->indirectRenderBuffer);
-        if (renderer->indirectRenderBuffer != 0) {
-            renderer->indirectRingSize = EMESIS_INDIRECT_RING_BYTES;
-            renderer->indirectRingOffset = 0;
-            es3_functions.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, renderer->indirectRenderBuffer);
-            es3_functions.glBufferData(GL_DRAW_INDIRECT_BUFFER, (GLsizeiptr)renderer->indirectRingSize, NULL, GL_STREAM_DRAW);
-            es3_functions.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
-            renderer->ready = true;
-            printf("EmesisRenderer: BaseVertex render calls using ring-buffered ES 3.1 DrawElementsIndirect\n");
-            return;
+    if (!context || !context->es31) return;
+
+    int di_idx = get_buffer_index(GL_DRAW_INDIRECT_BUFFER);
+    GLuint prev_di = (di_idx >= 0) ? context->bound_buffers[di_idx] : 0;
+
+    size_t ring_size = (sizeof(void*) == 4) ? EMESIS_INDIRECT_RING_SIZE_32 : EMESIS_INDIRECT_RING_SIZE_64;
+    es3_functions.glGenBuffers(1, &context->basevertex.indirectRenderBuffer);
+    if (context->basevertex.indirectRenderBuffer == 0) return;
+
+    es3_functions.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, context->basevertex.indirectRenderBuffer);
+    context->basevertex.indirectRingSize = ring_size;
+    context->basevertex.indirectRingOffset = 0;
+    context->basevertex.indirectMappedPtr = NULL;
+
+    if (context->buffer_storage && es3_functions.glBufferStorageEXT) {
+        GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT;
+        es3_functions.glBufferStorageEXT(GL_DRAW_INDIRECT_BUFFER, (GLsizeiptr)ring_size, NULL, flags);
+        void* mapped = es3_functions.glMapBufferRange(GL_DRAW_INDIRECT_BUFFER, 0, (GLsizeiptr)ring_size, flags);
+        if (mapped != NULL) {
+            context->basevertex.indirectMappedPtr = mapped;
         }
     }
-    /* Pure OpenGL ES 3.0 fallback (crucial for older 32-bit Android GPUs without ES 3.1 or OES_draw_elements_base_vertex) */
-    es3_functions.glGenBuffers(1, &renderer->es30IndexBuffer);
-    if (renderer->es30IndexBuffer != 0) {
-        renderer->es30IndexRingSize = EMESIS_ES30_INDEX_RING_BYTES;
-        renderer->es30IndexRingOffset = 0;
-        es3_functions.glBindBuffer(GL_COPY_WRITE_BUFFER, renderer->es30IndexBuffer);
-        es3_functions.glBufferData(GL_COPY_WRITE_BUFFER, (GLsizeiptr)renderer->es30IndexRingSize, NULL, GL_STREAM_DRAW);
-        es3_functions.glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
-        renderer->ready = true;
-        printf("EmesisRenderer: BaseVertex render calls using ES 3.0 index-offset ring fallback\n");
+    if (context->basevertex.indirectMappedPtr == NULL) {
+        es3_functions.glBufferData(GL_DRAW_INDIRECT_BUFFER, (GLsizeiptr)ring_size, NULL, GL_STREAM_DRAW);
     }
+
+    es3_functions.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, prev_di);
+    context->basevertex.ready = true;
 }
 
 GLint type_bytes(GLenum type) {
     switch (type) {
-        case GL_UNSIGNED_BYTE: return 1;
         case GL_UNSIGNED_SHORT: return 2;
         case GL_UNSIGNED_INT: return 4;
+        case GL_UNSIGNED_BYTE: return 1;
         default: return -1;
     }
 }
 
-static void restore_indirect_buffer(void) {
-    int idx = get_buffer_index(GL_DRAW_INDIRECT_BUFFER);
-    GLuint prev = (idx >= 0) ? current_context->bound_buffers[idx] : 0;
-    es3_functions.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, prev);
-}
-
-static bool ensure_es30_cpu_scratch(basevertex_renderer_t* renderer, size_t count) {
-    if (count <= renderer->es30CpuCap) return true;
-    size_t new_cap = renderer->es30CpuCap ? renderer->es30CpuCap : 4096;
+static bool ensure_indirect_scratch(basevertex_renderer_t* bv, size_t count) {
+    if (count <= bv->scratchCap) return true;
+    size_t new_cap = bv->scratchCap ? bv->scratchCap : 256;
     while (new_cap < count) new_cap *= 2;
-    uint32_t* p = realloc(renderer->es30CpuScratch, new_cap * sizeof(uint32_t));
+    basevertex_indirect_cmd_t* p = realloc(bv->scratchPasses, new_cap * sizeof(basevertex_indirect_cmd_t));
     if (!p) return false;
-    renderer->es30CpuScratch = p;
-    renderer->es30CpuCap = new_cap;
+    bv->scratchPasses = p;
+    bv->scratchCap = new_cap;
     return true;
 }
 
-static size_t alloc_es30_ring(basevertex_renderer_t* renderer, size_t byte_len) {
-    byte_len = (byte_len + 3u) & ~3u;
-    if (byte_len > renderer->es30IndexRingSize) {
-        size_t new_ring = renderer->es30IndexRingSize ? renderer->es30IndexRingSize : EMESIS_ES30_INDEX_RING_BYTES;
-        while (new_ring < byte_len) new_ring *= 2;
-        renderer->es30IndexRingSize = new_ring;
-        renderer->es30IndexRingOffset = 0;
-        es3_functions.glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)new_ring, NULL, GL_STREAM_DRAW);
-    } else if (renderer->es30IndexRingOffset + byte_len > renderer->es30IndexRingSize) {
-        es3_functions.glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)renderer->es30IndexRingSize, NULL, GL_STREAM_DRAW);
-        renderer->es30IndexRingOffset = 0;
-    }
-    size_t off = renderer->es30IndexRingOffset;
-    renderer->es30IndexRingOffset += byte_len;
-    return off;
+static bool ensure_es30_cpu_scratch(basevertex_renderer_t* bv, size_t index_count) {
+    if (index_count <= bv->es30CpuCap) return true;
+    size_t new_cap = bv->es30CpuCap ? bv->es30CpuCap : 4096;
+    while (new_cap < index_count) new_cap *= 2;
+    uint32_t* p = realloc(bv->es30CpuScratch, new_cap * sizeof(uint32_t));
+    if (!p) return false;
+    bv->es30CpuScratch = p;
+    bv->es30CpuCap = new_cap;
+    return true;
 }
 
-static void translate_indices_u32(uint32_t* dst, const uint8_t* src, GLsizei count, GLenum type, GLint basevertex) {
-    if (!src) {
-        memset(dst, 0, (size_t)count * sizeof(uint32_t));
-        return;
+static bool upload_indirect_ring(context_t* ctx, const basevertex_indirect_cmd_t* cmds,
+                                 GLsizei valid_draws, GLintptr* out_offset) {
+    basevertex_renderer_t* bv = &ctx->basevertex;
+    if (!bv->ready || bv->indirectRenderBuffer == 0 || valid_draws <= 0) return false;
+
+    size_t byte_len = (size_t)valid_draws * sizeof(basevertex_indirect_cmd_t);
+    size_t aligned_len = (byte_len + 15u) & ~15u;
+
+    if (byte_len > bv->indirectRingSize) {
+        if (bv->indirectMappedPtr != NULL) {
+            /* Oversized batch > ring size: reallocate non-mapped streaming buffer safely */
+            es3_functions.glUnmapBuffer(GL_DRAW_INDIRECT_BUFFER);
+            bv->indirectMappedPtr = NULL;
+        }
+        size_t new_ring = bv->indirectRingSize ? bv->indirectRingSize : EMESIS_INDIRECT_RING_SIZE_32;
+        while (new_ring < aligned_len * 2u) new_ring *= 2u;
+        es3_functions.glBufferData(GL_DRAW_INDIRECT_BUFFER, (GLsizeiptr)new_ring, NULL, GL_STREAM_DRAW);
+        bv->indirectRingSize = new_ring;
+        bv->indirectRingOffset = 0;
     }
-    if (type == GL_UNSIGNED_INT) {
-        const uint32_t* s = (const uint32_t*)src;
-        for (GLsizei i = 0; i < count; i++) dst[i] = (uint32_t)((int64_t)s[i] + basevertex);
-    } else if (type == GL_UNSIGNED_SHORT) {
-        const uint16_t* s = (const uint16_t*)src;
-        for (GLsizei i = 0; i < count; i++) dst[i] = (uint32_t)((int32_t)s[i] + basevertex);
+
+    if (bv->indirectMappedPtr != NULL) {
+        if (bv->indirectRingOffset + aligned_len > bv->indirectRingSize) {
+            bv->indirectRingOffset = 0;
+        }
+        size_t off = bv->indirectRingOffset;
+        memcpy((uint8_t*)bv->indirectMappedPtr + off, cmds, byte_len);
+        bv->indirectRingOffset = off + aligned_len;
+        *out_offset = (GLintptr)off;
+        return true;
+    }
+
+    GLbitfield map_flags = GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT;
+    if (bv->indirectRingOffset + aligned_len > bv->indirectRingSize) {
+        bv->indirectRingOffset = 0;
+        map_flags = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT;
+    }
+    size_t off = bv->indirectRingOffset;
+    void* dst = es3_functions.glMapBufferRange(GL_DRAW_INDIRECT_BUFFER, (GLintptr)off, (GLsizeiptr)byte_len, map_flags);
+    if (dst != NULL) {
+        memcpy(dst, cmds, byte_len);
+        es3_functions.glUnmapBuffer(GL_DRAW_INDIRECT_BUFFER);
     } else {
-        for (GLsizei i = 0; i < count; i++) dst[i] = (uint32_t)((int32_t)src[i] + basevertex);
+        es3_functions.glBufferSubData(GL_DRAW_INDIRECT_BUFFER, (GLintptr)off, (GLsizeiptr)byte_len, cmds);
     }
+    bv->indirectRingOffset = off + aligned_len;
+    *out_offset = (GLintptr)off;
+    return true;
 }
 
-static void es30_draw_basevertex_batch(GLenum mode,
-                                       const GLsizei* counts,
-                                       GLenum type,
-                                       const void* const* indices,
-                                       GLsizei drawcount,
-                                       const GLint* basevertices) {
-    basevertex_renderer_t* renderer = &current_context->basevertex;
-    GLint tb = type_bytes(type);
-    if (tb <= 0 || renderer->es30IndexBuffer == 0) return;
+bool emesis_dispatch_mdi_commands(context_t* ctx, GLenum mode, GLenum type,
+                                  const basevertex_indirect_cmd_t* cmds, GLsizei valid_draws) {
+    if (!ctx || !ctx->es31 || !ctx->basevertex.ready || valid_draws <= 0) return false;
 
-    GLuint ebo = emesis_get_current_ebo();
-    size_t total_indices = 0;
-    uintptr_t min_off = UINTPTR_MAX;
-    uintptr_t max_end = 0;
-    for (GLsizei i = 0; i < drawcount; i++) {
-        if (counts[i] <= 0) continue;
-        total_indices += (size_t)counts[i];
-        if (ebo != 0) {
-            uintptr_t off = (uintptr_t)indices[i];
-            uintptr_t end = off + (size_t)counts[i] * (size_t)tb;
-            if (off < min_off) min_off = off;
-            if (end > max_end) max_end = end;
+    int di_idx = get_buffer_index(GL_DRAW_INDIRECT_BUFFER);
+    GLuint prev_di = (di_idx >= 0) ? ctx->bound_buffers[di_idx] : 0;
+    if (prev_di != ctx->basevertex.indirectRenderBuffer) {
+        es3_functions.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ctx->basevertex.indirectRenderBuffer);
+    }
+
+    GLintptr byte_offset = 0;
+    if (!upload_indirect_ring(ctx, cmds, valid_draws, &byte_offset)) {
+        if (prev_di != ctx->basevertex.indirectRenderBuffer) {
+            es3_functions.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, prev_di);
+        }
+        return false;
+    }
+
+    bool dispatched = false;
+    if (valid_draws > 1 && ctx->multidraw_indirect &&
+        es3_functions.glMultiDrawElementsIndirectEXT && ctx->mdi_probe_state >= 0) {
+        if (ctx->mdi_probe_state == 0) {
+            while (es3_functions.glGetError() != GL_NO_ERROR) {}
+            es3_functions.glMultiDrawElementsIndirectEXT(mode, type, (const void*)byte_offset, valid_draws, 0);
+            if (es3_functions.glGetError() == GL_NO_ERROR) {
+                ctx->mdi_probe_state = 1;
+                dispatched = true;
+            } else {
+                ctx->mdi_probe_state = -1;
+            }
+        } else {
+            es3_functions.glMultiDrawElementsIndirectEXT(mode, type, (const void*)byte_offset, valid_draws, 0);
+            dispatched = true;
         }
     }
-    if (total_indices == 0) return;
-    if (!ensure_es30_cpu_scratch(renderer, total_indices)) return;
 
-    const uint8_t* mapped_base = NULL;
-    if (ebo != 0) {
-        if (max_end <= min_off) return;
-        mapped_base = (const uint8_t*)es3_functions.glMapBufferRange(
-            GL_ELEMENT_ARRAY_BUFFER, (GLintptr)min_off, (GLsizeiptr)(max_end - min_off), GL_MAP_READ_BIT);
-        if (!mapped_base) return;
+    if (!dispatched && es3_functions.glDrawElementsIndirect) {
+        for (GLsizei i = 0; i < valid_draws; i++) {
+            GLintptr cmd_off = byte_offset + (GLintptr)((size_t)i * sizeof(basevertex_indirect_cmd_t));
+            es3_functions.glDrawElementsIndirect(mode, type, (const void*)cmd_off);
+        }
+        dispatched = true;
     }
+
+    if (prev_di != ctx->basevertex.indirectRenderBuffer) {
+        es3_functions.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, prev_di);
+    }
+    return dispatched;
+}
+
+static void rebase_indices_to_u32(uint32_t* restrict dst, const uint8_t* restrict src,
+                                  GLsizei count, GLint tbytes, GLint basevtx) {
+    if (tbytes == 4) {
+        const uint32_t* s32 = (const uint32_t*)src;
+        uint32_t bv = (uint32_t)basevtx;
+        for (GLsizei i = 0; i < count; i++) {
+            dst[i] = s32[i] + bv;
+        }
+    } else if (tbytes == 2) {
+        const uint16_t* s16 = (const uint16_t*)src;
+        for (GLsizei i = 0; i < count; i++) {
+            int32_t v = (int32_t)s16[i] + (int32_t)basevtx;
+            dst[i] = (v > 0) ? (uint32_t)v : 0u;
+        }
+    } else {
+        for (GLsizei i = 0; i < count; i++) {
+            int32_t v = (int32_t)src[i] + (int32_t)basevtx;
+            dst[i] = (v > 0) ? (uint32_t)v : 0u;
+        }
+    }
+}
+
+static bool es30_upload_rebased_ring(context_t* ctx, const uint32_t* data, size_t total_indices, GLintptr* out_offset) {
+    basevertex_renderer_t* bv = &ctx->basevertex;
+    size_t byte_len = total_indices * sizeof(uint32_t);
+    size_t aligned_len = (byte_len + 15u) & ~15u;
+
+    if (bv->es30IndexBuffer == 0) {
+        es3_functions.glGenBuffers(1, &bv->es30IndexBuffer);
+        if (bv->es30IndexBuffer == 0) return false;
+        bv->es30IndexRingSize = EMESIS_ES30_IDX_RING_SIZE;
+        if (bv->es30IndexRingSize < aligned_len * 2u) bv->es30IndexRingSize = aligned_len * 2u;
+        bv->es30IndexRingOffset = 0;
+        es3_functions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, bv->es30IndexBuffer);
+        es3_functions.glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)bv->es30IndexRingSize, NULL, GL_STREAM_DRAW);
+    } else {
+        es3_functions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, bv->es30IndexBuffer);
+        if (byte_len > bv->es30IndexRingSize) {
+            size_t new_ring = bv->es30IndexRingSize * 2u;
+            while (new_ring < aligned_len * 2u) new_ring *= 2u;
+            es3_functions.glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)new_ring, NULL, GL_STREAM_DRAW);
+            bv->es30IndexRingSize = new_ring;
+            bv->es30IndexRingOffset = 0;
+        }
+    }
+
+    GLbitfield map_flags = GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT;
+    if (bv->es30IndexRingOffset + aligned_len > bv->es30IndexRingSize) {
+        bv->es30IndexRingOffset = 0;
+        map_flags = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT;
+    }
+    size_t off = bv->es30IndexRingOffset;
+    void* dst = es3_functions.glMapBufferRange(GL_ELEMENT_ARRAY_BUFFER, (GLintptr)off, (GLsizeiptr)byte_len, map_flags);
+    if (dst != NULL) {
+        memcpy(dst, data, byte_len);
+        es3_functions.glUnmapBuffer(GL_ELEMENT_ARRAY_BUFFER);
+    } else {
+        es3_functions.glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, (GLintptr)off, (GLsizeiptr)byte_len, data);
+    }
+    bv->es30IndexRingOffset = off + aligned_len;
+    *out_offset = (GLintptr)off;
+    return true;
+}
+
+static void es30_draw_elements_basevertex(context_t* ctx, GLenum mode, GLsizei count, GLenum type,
+                                          const void* indices, GLsizei instancecount,
+                                          GLint basevertex, bool instanced) {
+    if (count <= 0 || instancecount <= 0) return;
+    if (basevertex == 0) {
+        if (instanced) es3_functions.glDrawElementsInstanced(mode, count, type, indices, instancecount);
+        else es3_functions.glDrawElements(mode, count, type, indices);
+        return;
+    }
+    GLint tbytes = type_bytes(type);
+    if (tbytes == -1) return;
+
+    GLuint prev_ebo = emesis_get_current_ebo();
+    const uint8_t* src_bytes = NULL;
+
+    if (prev_ebo != 0) {
+        size_t byte_off = (size_t)(uintptr_t)indices;
+        size_t needed_end = byte_off + (size_t)count * (size_t)tbytes;
+        const uint8_t* mirror = emesis_es30_get_ebo_cpu_ptr(ctx, prev_ebo, needed_end);
+        if (!mirror) return;
+        src_bytes = mirror + byte_off;
+    } else {
+        if (!indices) return;
+        src_bytes = (const uint8_t*)indices;
+    }
+
+    if (!ensure_es30_cpu_scratch(&ctx->basevertex, (size_t)count)) return;
+    rebase_indices_to_u32(ctx->basevertex.es30CpuScratch, src_bytes, count, tbytes, basevertex);
+
+    GLintptr ring_off = 0;
+    if (es30_upload_rebased_ring(ctx, ctx->basevertex.es30CpuScratch, (size_t)count, &ring_off)) {
+        if (instanced) {
+            es3_functions.glDrawElementsInstanced(mode, count, GL_UNSIGNED_INT, (const void*)ring_off, instancecount);
+        } else {
+            es3_functions.glDrawElements(mode, count, GL_UNSIGNED_INT, (const void*)ring_off);
+        }
+    }
+    es3_functions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, prev_ebo);
+}
+
+static void es30_multidraw_elements_basevertex(context_t* ctx, GLenum mode, const GLsizei* count,
+                                               GLenum type, const void* const* indices,
+                                               GLsizei drawcount, const GLint* basevertex) {
+    if (drawcount <= 0 || !count || !indices || !basevertex) return;
+    GLint tbytes = type_bytes(type);
+    if (tbytes == -1) return;
+
+    /* Fast check: if all valid draws have basevertex == 0, no rebasing needed! */
+    bool any_nonzero_bv = false;
+    size_t total_indices = 0;
+    size_t max_needed_end = 0;
+    for (GLsizei i = 0; i < drawcount; i++) {
+        if (count[i] <= 0) continue;
+        if (basevertex[i] != 0) any_nonzero_bv = true;
+        total_indices += (size_t)count[i];
+        size_t end_off = (size_t)(uintptr_t)indices[i] + (size_t)count[i] * (size_t)tbytes;
+        if (end_off > max_needed_end) max_needed_end = end_off;
+    }
+    if (total_indices == 0) return;
+
+    if (!any_nonzero_bv) {
+        for (GLsizei i = 0; i < drawcount; i++) {
+            if (count[i] > 0) es3_functions.glDrawElements(mode, count[i], type, indices[i]);
+        }
+        return;
+    }
+
+    GLuint prev_ebo = emesis_get_current_ebo();
+    const uint8_t* mirror = NULL;
+    if (prev_ebo != 0) {
+        mirror = emesis_es30_get_ebo_cpu_ptr(ctx, prev_ebo, max_needed_end);
+        if (!mirror) return;
+    }
+
+    if (!ensure_es30_cpu_scratch(&ctx->basevertex, total_indices)) return;
 
     size_t cursor = 0;
     for (GLsizei i = 0; i < drawcount; i++) {
-        GLsizei c = counts[i];
+        GLsizei c = count[i];
         if (c <= 0) continue;
-        const uint8_t* src = (ebo != 0)
-            ? (mapped_base + ((uintptr_t)indices[i] - min_off))
+        const uint8_t* src_ptr = (prev_ebo != 0)
+            ? (mirror + (size_t)(uintptr_t)indices[i])
             : (const uint8_t*)indices[i];
-        translate_indices_u32(renderer->es30CpuScratch + cursor, src, c, type, basevertices[i]);
+        if (!src_ptr) continue;
+        rebase_indices_to_u32(ctx->basevertex.es30CpuScratch + cursor, src_ptr, c, tbytes, basevertex[i]);
         cursor += (size_t)c;
     }
+    if (cursor == 0) return;
 
-    if (ebo != 0) {
-        es3_functions.glUnmapBuffer(GL_ELEMENT_ARRAY_BUFFER);
-    }
-
-    size_t byte_len = total_indices * sizeof(uint32_t);
-    es3_functions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->es30IndexBuffer);
-    size_t ring_off = alloc_es30_ring(renderer, byte_len);
-    es3_functions.glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, (GLintptr)ring_off, (GLsizeiptr)byte_len, renderer->es30CpuScratch);
-
-    bool mergeable = (mode == GL_TRIANGLES || mode == GL_LINES || mode == GL_POINTS);
-    if (mergeable || drawcount == 1) {
-        es3_functions.glDrawElements(mode, (GLsizei)total_indices, GL_UNSIGNED_INT, (const void*)(uintptr_t)ring_off);
-    } else {
-        size_t sub_off = ring_off;
-        for (GLsizei i = 0; i < drawcount; i++) {
-            if (counts[i] <= 0) continue;
-            es3_functions.glDrawElements(mode, counts[i], GL_UNSIGNED_INT, (const void*)(uintptr_t)sub_off);
-            sub_off += (size_t)counts[i] * sizeof(uint32_t);
+    GLintptr ring_off = 0;
+    if (es30_upload_rebased_ring(ctx, ctx->basevertex.es30CpuScratch, cursor, &ring_off)) {
+        if (mode == GL_TRIANGLES || mode == GL_LINES || mode == GL_POINTS) {
+            /* Separable primitive topologies fuse into ONE single GPU draw call! */
+            es3_functions.glDrawElements(mode, (GLsizei)cursor, GL_UNSIGNED_INT, (const void*)ring_off);
+        } else {
+            size_t sub_off = (size_t)ring_off;
+            for (GLsizei i = 0; i < drawcount; i++) {
+                if (count[i] <= 0) continue;
+                es3_functions.glDrawElements(mode, count[i], GL_UNSIGNED_INT, (const void*)(uintptr_t)sub_off);
+                sub_off += (size_t)count[i] * sizeof(uint32_t);
+            }
         }
     }
-
-    es3_functions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    es3_functions.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, prev_ebo);
 }
 
-static size_t upload_indirect_ring(basevertex_renderer_t* renderer, const basevertex_indirect_cmd_t* cmds, size_t cmd_count) {
-    size_t byte_len = cmd_count * sizeof(basevertex_indirect_cmd_t);
-    es3_functions.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, renderer->indirectRenderBuffer);
-    if (byte_len > renderer->indirectRingSize) {
-        size_t new_ring = renderer->indirectRingSize ? renderer->indirectRingSize : EMESIS_INDIRECT_RING_BYTES;
-        while (new_ring < byte_len) new_ring *= 2;
-        renderer->indirectRingSize = new_ring;
-        renderer->indirectRingOffset = 0;
-        es3_functions.glBufferData(GL_DRAW_INDIRECT_BUFFER, (GLsizeiptr)new_ring, NULL, GL_STREAM_DRAW);
-    } else if (renderer->indirectRingOffset + byte_len > renderer->indirectRingSize) {
-        es3_functions.glBufferData(GL_DRAW_INDIRECT_BUFFER, (GLsizeiptr)renderer->indirectRingSize, NULL, GL_STREAM_DRAW);
-        renderer->indirectRingOffset = 0;
+void glDrawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void *indices,
+                                       GLsizei instancecount, GLint basevertex) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || count <= 0 || instancecount <= 0) return;
+
+    if (basevertex == 0) {
+        es3_functions.glDrawElementsInstanced(mode, count, type, indices, instancecount);
+        return;
     }
-    size_t off = renderer->indirectRingOffset;
-    renderer->indirectRingOffset += byte_len;
-    es3_functions.glBufferSubData(GL_DRAW_INDIRECT_BUFFER, (GLintptr)off, (GLsizeiptr)byte_len, cmds);
-    return off;
+    if (ctx->es32 && es3_functions.glDrawElementsInstancedBaseVertex) {
+        es3_functions.glDrawElementsInstancedBaseVertex(mode, count, type, indices, instancecount, basevertex);
+        return;
+    }
+    if (ctx->drawelementsbasevertex != NULL && instancecount == 1) {
+        ctx->drawelementsbasevertex(mode, count, type, indices, basevertex);
+        return;
+    }
+    GLint tbytes = type_bytes(type);
+    if (tbytes == -1) return;
+
+    if (ctx->es31 && ctx->basevertex.ready) {
+        basevertex_indirect_cmd_t cmd;
+        cmd.count = (GLuint)count;
+        cmd.instanceCount = (GLuint)instancecount;
+        cmd.firstIndex = (GLuint)((uintptr_t)indices / (uintptr_t)tbytes);
+        cmd.baseVertex = basevertex;
+        cmd.reservedMustBeZero = 0;
+        if (emesis_dispatch_mdi_commands(ctx, mode, type, &cmd, 1)) return;
+    }
+
+    es30_draw_elements_basevertex(ctx, mode, count, type, indices, instancecount, basevertex, true);
 }
 
 void glDrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const void *indices, GLint basevertex) {
-    emesis_ensure_current_context();
-    if(!current_context || count <= 0) return;
-    if(basevertex == 0) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || count <= 0) return;
+
+    if (basevertex == 0) {
         es3_functions.glDrawElements(mode, count, type, indices);
         return;
     }
-    if(current_context->drawelementsbasevertex != NULL) {
-        current_context->drawelementsbasevertex(mode, count, type, indices, basevertex);
+    if (ctx->drawelementsbasevertex != NULL) {
+        ctx->drawelementsbasevertex(mode, count, type, indices, basevertex);
         return;
     }
-    basevertex_renderer_t *renderer = &current_context->basevertex;
-    if(!renderer->ready) return;
-    if(!current_context->es31 || renderer->indirectRenderBuffer == 0) {
-        es30_draw_basevertex_batch(mode, &count, type, &indices, 1, &basevertex);
-        return;
+    GLint tbytes = type_bytes(type);
+    if (tbytes == -1) return;
+
+    if (ctx->es31 && ctx->basevertex.ready) {
+        basevertex_indirect_cmd_t cmd;
+        cmd.count = (GLuint)count;
+        cmd.instanceCount = 1;
+        cmd.firstIndex = (GLuint)((uintptr_t)indices / (uintptr_t)tbytes);
+        cmd.baseVertex = basevertex;
+        cmd.reservedMustBeZero = 0;
+        if (emesis_dispatch_mdi_commands(ctx, mode, type, &cmd, 1)) return;
     }
-    GLuint elementbuffer = emesis_get_current_ebo();
-    if(elementbuffer == 0) {
-        es30_draw_basevertex_batch(mode, &count, type, &indices, 1, &basevertex);
-        return;
-    }
-    GLint typeBytes = type_bytes(type);
-    if (typeBytes <= 0) return;
-    uintptr_t indicesPointer = (uintptr_t)indices;
-    if(indicesPointer % (uintptr_t)typeBytes != 0) {
-        es30_draw_basevertex_batch(mode, &count, type, &indices, 1, &basevertex);
-        return;
-    }
-    basevertex_indirect_cmd_t cmd;
-    cmd.count = (GLuint)count;
-    cmd.instanceCount = 1;
-    cmd.firstIndex = (GLuint)(indicesPointer / (uintptr_t)typeBytes);
-    cmd.baseVertex = basevertex;
-    cmd.reservedMustBeZero = 0;
-    size_t ring_off = upload_indirect_ring(renderer, &cmd, 1);
-    es3_functions.glDrawElementsIndirect(mode, type, (const void*)(uintptr_t)ring_off);
-    restore_indirect_buffer();
+
+    es30_draw_elements_basevertex(ctx, mode, count, type, indices, 1, basevertex, false);
 }
 
-void glMultiDrawElementsBaseVertex(GLenum mode,
-                                   const GLsizei *count,
-                                   GLenum type,
-                                   const void * const *indices,
-                                   GLsizei drawcount,
-                                   const GLint *basevertex) {
-    emesis_ensure_current_context();
-    if(!current_context || drawcount <= 0 || !count || !indices || !basevertex) return;
-    if(current_context->multidrawelementsbasevertex != NULL) {
-        current_context->multidrawelementsbasevertex(mode, count, type, indices, drawcount, basevertex);
+void glMultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum type,
+                                   const void *const*indices, GLsizei drawcount, const GLint *basevertex) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || drawcount <= 0 || !count || !indices || !basevertex) return;
+
+    if (drawcount == 1) {
+        if (count[0] > 0) {
+            glDrawElementsBaseVertex(mode, count[0], type, indices[0], basevertex[0]);
+        }
         return;
     }
-    if(current_context->drawelementsbasevertex != NULL) {
-        for(GLsizei i = 0; i < drawcount; i++) {
-            if (count[i] <= 0) continue;
+
+    /* Tier 1: Hardware glMultiDrawElementsBaseVertexEXT/OES (1 call, zero ring upload) */
+    if (ctx->multidrawelementsbasevertex != NULL && ctx->mdbv_probe_state >= 0) {
+        if (ctx->mdbv_probe_state == 0) {
+            while (es3_functions.glGetError() != GL_NO_ERROR) {}
+            ctx->multidrawelementsbasevertex(mode, count, type, indices, drawcount, basevertex);
+            if (es3_functions.glGetError() == GL_NO_ERROR) {
+                ctx->mdbv_probe_state = 1;
+                return;
+            }
+            ctx->mdbv_probe_state = -1;
+        } else {
+            ctx->multidrawelementsbasevertex(mode, count, type, indices, drawcount, basevertex);
+            return;
+        }
+    }
+
+    GLint tbytes = type_bytes(type);
+    if (tbytes == -1) return;
+
+    /* Tier 2: Hardware GL_EXT_multi_draw_indirect via persistent coherent ring -> 1 driver call!
+     * Collapses 256-512 Sodium/Blaze3D chunk sub-draws into a single GPU command submission! */
+    if (ctx->es31 && ctx->basevertex.ready && ctx->multidraw_indirect &&
+        es3_functions.glMultiDrawElementsIndirectEXT && ctx->mdi_probe_state >= 0 &&
+        emesis_get_current_ebo() != 0) {
+        if (ensure_indirect_scratch(&ctx->basevertex, (size_t)drawcount)) {
+            basevertex_indirect_cmd_t* cmds = ctx->basevertex.scratchPasses;
+            GLsizei valid_draws = 0;
+            uintptr_t shift = (tbytes == 4) ? 2u : (tbytes == 2 ? 1u : 0u);
+            for (GLsizei i = 0; i < drawcount; i++) {
+                GLsizei c = count[i];
+                if (c <= 0) continue;
+                cmds[valid_draws].count = (GLuint)c;
+                cmds[valid_draws].instanceCount = 1u;
+                cmds[valid_draws].firstIndex = (GLuint)(((uintptr_t)indices[i]) >> shift);
+                cmds[valid_draws].baseVertex = basevertex[i];
+                cmds[valid_draws].reservedMustBeZero = 0u;
+                valid_draws++;
+            }
+            if (valid_draws == 0) return;
+            if (emesis_dispatch_mdi_commands(ctx, mode, type, cmds, valid_draws)) {
+                return;
+            }
+        }
+    }
+
+    /* Tier 3: Direct hardware glDrawElementsBaseVertex loop (ES 3.2 or OES/EXT_draw_elements_base_vertex) */
+    if (ctx->drawelementsbasevertex != NULL) {
+        PFNGLDRAWELEMENTSBASEVERTEXPROC fn_bv = ctx->drawelementsbasevertex;
+        for (GLsizei i = 0; i < drawcount; i++) {
+            GLsizei c = count[i];
+            if (c <= 0) continue;
             if (basevertex[i] == 0) {
-                es3_functions.glDrawElements(mode, count[i], type, indices[i]);
+                es3_functions.glDrawElements(mode, c, type, indices[i]);
             } else {
-                current_context->drawelementsbasevertex(mode, count[i], type, indices[i], basevertex[i]);
+                fn_bv(mode, c, type, indices[i], basevertex[i]);
             }
         }
         return;
     }
-    basevertex_renderer_t *renderer = &current_context->basevertex;
-    if(!renderer->ready) return;
-    if(!current_context->es31 || renderer->indirectRenderBuffer == 0) {
-        es30_draw_basevertex_batch(mode, count, type, indices, drawcount, basevertex);
-        return;
-    }
-    GLuint elementbuffer = emesis_get_current_ebo();
-    if(elementbuffer == 0) {
-        es30_draw_basevertex_batch(mode, count, type, indices, drawcount, basevertex);
-        return;
-    }
-    GLint typeBytes = type_bytes(type);
-    if (typeBytes <= 0) return;
-    if ((size_t)drawcount > renderer->scratchCap) {
-        size_t new_cap = renderer->scratchCap ? renderer->scratchCap : 256;
-        while (new_cap < (size_t)drawcount) new_cap *= 2;
-        basevertex_indirect_cmd_t* p = realloc(renderer->scratchPasses, new_cap * sizeof(basevertex_indirect_cmd_t));
-        if (!p) return;
-        renderer->scratchPasses = p;
-        renderer->scratchCap = new_cap;
-    }
-    GLsizei valid = 0;
-    for(GLsizei i = 0; i < drawcount; i++) {
-        if (count[i] <= 0) continue;
-        uintptr_t indicesPointer = (uintptr_t)indices[i];
-        if(indicesPointer % (uintptr_t)typeBytes != 0) {
-            es30_draw_basevertex_batch(mode, count, type, indices, drawcount, basevertex);
-            return;
+
+    /* Tier 4: ES 3.1 glDrawElementsIndirect ring fallback */
+    if (ctx->es31 && ctx->basevertex.ready && emesis_get_current_ebo() != 0) {
+        if (ensure_indirect_scratch(&ctx->basevertex, (size_t)drawcount)) {
+            basevertex_indirect_cmd_t* cmds = ctx->basevertex.scratchPasses;
+            GLsizei valid_draws = 0;
+            uintptr_t shift = (tbytes == 4) ? 2u : (tbytes == 2 ? 1u : 0u);
+            for (GLsizei i = 0; i < drawcount; i++) {
+                GLsizei c = count[i];
+                if (c <= 0) continue;
+                cmds[valid_draws].count = (GLuint)c;
+                cmds[valid_draws].instanceCount = 1u;
+                cmds[valid_draws].firstIndex = (GLuint)(((uintptr_t)indices[i]) >> shift);
+                cmds[valid_draws].baseVertex = basevertex[i];
+                cmds[valid_draws].reservedMustBeZero = 0u;
+                valid_draws++;
+            }
+            if (valid_draws == 0) return;
+            if (emesis_dispatch_mdi_commands(ctx, mode, type, cmds, valid_draws)) {
+                return;
+            }
         }
-        basevertex_indirect_cmd_t* pass = &renderer->scratchPasses[valid++];
-        pass->count = (GLuint)count[i];
-        pass->instanceCount = 1;
-        pass->firstIndex = (GLuint)(indicesPointer / (uintptr_t)typeBytes);
-        pass->baseVertex = basevertex[i];
-        pass->reservedMustBeZero = 0;
     }
-    if (valid == 0) return;
-    size_t ring_off = upload_indirect_ring(renderer, renderer->scratchPasses, (size_t)valid);
-    if(current_context->multidraw_indirect && es3_functions.glMultiDrawElementsIndirectEXT) {
-        es3_functions.glMultiDrawElementsIndirectEXT(mode, type, (const void*)(uintptr_t)ring_off, valid, 0);
+
+    /* Tier 5: Pure ES 3.0 zero-readback cached CPU mirror + fused single glDrawElements */
+    es30_multidraw_elements_basevertex(ctx, mode, count, type, indices, drawcount, basevertex);
+}
+
+void glDrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count,
+                                       GLsizei instancecount, GLuint baseinstance) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || count <= 0 || instancecount <= 0) return;
+    if (baseinstance == 0) {
+        es3_functions.glDrawArraysInstanced(mode, first, count, instancecount);
+        return;
+    }
+    if (ctx->base_instance && es3_functions.glDrawArraysInstancedBaseInstanceEXT) {
+        es3_functions.glDrawArraysInstancedBaseInstanceEXT(mode, first, count, instancecount, baseinstance);
     } else {
-        for(GLsizei i = 0; i < valid; i++) {
-            es3_functions.glDrawElementsIndirect(mode, type,
-                (const void*)(uintptr_t)(ring_off + (size_t)i * sizeof(basevertex_indirect_cmd_t)));
-        }
+        es3_functions.glDrawArraysInstanced(mode, first, count, instancecount);
     }
-    restore_indirect_buffer();
+}
+
+void glDrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type,
+                                         const void *indices, GLsizei instancecount, GLuint baseinstance) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || count <= 0 || instancecount <= 0) return;
+    if (baseinstance == 0) {
+        es3_functions.glDrawElementsInstanced(mode, count, type, indices, instancecount);
+        return;
+    }
+    if (ctx->base_instance && es3_functions.glDrawElementsInstancedBaseInstanceEXT) {
+        es3_functions.glDrawElementsInstancedBaseInstanceEXT(mode, count, type, indices, instancecount, baseinstance);
+    } else {
+        es3_functions.glDrawElementsInstanced(mode, count, type, indices, instancecount);
+    }
+}
+
+void glDrawElementsInstancedBaseVertexBaseInstance(GLenum mode, GLsizei count, GLenum type,
+                                                   const void *indices, GLsizei instancecount,
+                                                   GLint basevertex, GLuint baseinstance) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || count <= 0 || instancecount <= 0) return;
+    if (baseinstance == 0) {
+        glDrawElementsInstancedBaseVertex(mode, count, type, indices, instancecount, basevertex);
+        return;
+    }
+    if (ctx->base_instance && es3_functions.glDrawElementsInstancedBaseVertexBaseInstanceEXT) {
+        es3_functions.glDrawElementsInstancedBaseVertexBaseInstanceEXT(
+            mode, count, type, indices, instancecount, basevertex, baseinstance);
+    } else {
+        glDrawElementsInstancedBaseVertex(mode, count, type, indices, instancecount, basevertex);
+    }
 }

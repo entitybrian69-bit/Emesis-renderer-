@@ -33,7 +33,7 @@ add_subdirectory(unordered_map)
 add_subdirectory(glsl_optimizer)
 set(CMAKE_SOURCE_DIR "${MODERN_OLD_CMAKE_SOURCE_DIR}")
 
-target_compile_options(emesis_modern PRIVATE -O3 -ffunction-sections -fdata-sections -fPIC)
+target_compile_options(emesis_modern PRIVATE -O3 -ffunction-sections -fdata-sections -fPIC -fno-math-errno -fno-trapping-math)
 target_link_options(emesis_modern PRIVATE
     -Wl,-Bsymbolic
     "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/version.script"

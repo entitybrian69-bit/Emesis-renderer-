@@ -4,2958 +4,2689 @@
 __attribute__((visibility("default"))) void glActiveTexture(GLenum a0) {
     typedef void (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glActiveTexture");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glActiveTexture");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glAttachShader(GLuint a0, GLuint a1) {
     typedef void (*fn_t)(GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glAttachShader");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glAttachShader");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glBeginQuery(GLenum a0, GLuint a1) {
     typedef void (*fn_t)(GLenum, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBeginQuery");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBeginQuery");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glBindAttribLocation(GLuint a0, GLuint a1, const GLchar * a2) {
     typedef void (*fn_t)(GLuint, GLuint, const GLchar *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBindAttribLocation");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBindAttribLocation");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glBindBuffer(GLenum a0, GLuint a1) {
     typedef void (*fn_t)(GLenum, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBindBuffer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBindBuffer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glBindBufferBase(GLenum a0, GLuint a1, GLuint a2) {
     typedef void (*fn_t)(GLenum, GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBindBufferBase");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBindBufferBase");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glBindBufferRange(GLenum a0, GLuint a1, GLuint a2, GLintptr a3, GLsizeiptr a4) {
     typedef void (*fn_t)(GLenum, GLuint, GLuint, GLintptr, GLsizeiptr);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBindBufferRange");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBindBufferRange");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glBindFragDataLocation(GLuint a0, GLuint a1, const GLchar * a2) {
     typedef void (*fn_t)(GLuint, GLuint, const GLchar *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBindFragDataLocation");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBindFragDataLocation");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glBindFramebuffer(GLenum a0, GLuint a1) {
     typedef void (*fn_t)(GLenum, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBindFramebuffer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBindFramebuffer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glBindRenderbuffer(GLenum a0, GLuint a1) {
     typedef void (*fn_t)(GLenum, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBindRenderbuffer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBindRenderbuffer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glBindSampler(GLuint a0, GLuint a1) {
     typedef void (*fn_t)(GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBindSampler");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBindSampler");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glBindTexture(GLenum a0, GLuint a1) {
     typedef void (*fn_t)(GLenum, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBindTexture");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBindTexture");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glBindVertexArray(GLuint a0) {
     typedef void (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBindVertexArray");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBindVertexArray");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glBlendColor(GLclampf a0, GLclampf a1, GLclampf a2, GLclampf a3) {
     typedef void (*fn_t)(GLclampf, GLclampf, GLclampf, GLclampf);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBlendColor");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBlendColor");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glBlendEquation(GLenum a0) {
     typedef void (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBlendEquation");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBlendEquation");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glBlendEquationSeparate(GLenum a0, GLenum a1) {
     typedef void (*fn_t)(GLenum, GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBlendEquationSeparate");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBlendEquationSeparate");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glBlendFunc(GLenum a0, GLenum a1) {
     typedef void (*fn_t)(GLenum, GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBlendFunc");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBlendFunc");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glBlendFuncSeparate(GLenum a0, GLenum a1, GLenum a2, GLenum a3) {
     typedef void (*fn_t)(GLenum, GLenum, GLenum, GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBlendFuncSeparate");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBlendFuncSeparate");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glBlitFramebuffer(GLint a0, GLint a1, GLint a2, GLint a3, GLint a4, GLint a5, GLint a6, GLint a7, GLbitfield a8, GLenum a9) {
     typedef void (*fn_t)(GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBlitFramebuffer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBlitFramebuffer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9);
 }
 
 __attribute__((visibility("default"))) void glBufferData(GLenum a0, GLsizeiptr a1, const void * a2, GLenum a3) {
     typedef void (*fn_t)(GLenum, GLsizeiptr, const void *, GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBufferData");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBufferData");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glBufferSubData(GLenum a0, GLintptr a1, GLsizeiptr a2, const void * a3) {
     typedef void (*fn_t)(GLenum, GLintptr, GLsizeiptr, const void *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glBufferSubData");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glBufferSubData");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) GLenum glCheckFramebufferStatus(GLenum a0) {
     typedef GLenum (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCheckFramebufferStatus");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glCheckFramebufferStatus");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLenum)0;
 }
 
 __attribute__((visibility("default"))) void glClear(GLbitfield a0) {
     typedef void (*fn_t)(GLbitfield);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glClear");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glClear");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glClearBufferfi(GLenum a0, GLint a1, GLfloat a2, GLint a3) {
     typedef void (*fn_t)(GLenum, GLint, GLfloat, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glClearBufferfi");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glClearBufferfi");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glClearBufferfv(GLenum a0, GLint a1, const GLfloat * a2) {
     typedef void (*fn_t)(GLenum, GLint, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glClearBufferfv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glClearBufferfv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glClearBufferiv(GLenum a0, GLint a1, const GLint * a2) {
     typedef void (*fn_t)(GLenum, GLint, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glClearBufferiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glClearBufferiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glClearBufferuiv(GLenum a0, GLint a1, const GLuint * a2) {
     typedef void (*fn_t)(GLenum, GLint, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glClearBufferuiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glClearBufferuiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glClearColor(GLclampf a0, GLclampf a1, GLclampf a2, GLclampf a3) {
     typedef void (*fn_t)(GLclampf, GLclampf, GLclampf, GLclampf);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glClearColor");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glClearColor");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glClearDepth(GLclampd a0) {
     typedef void (*fn_t)(GLclampd);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glClearDepth");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glClearDepth");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glClearDepthf(GLfloat a0) {
     typedef void (*fn_t)(GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glClearDepthf");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glClearDepthf");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glClearStencil(GLint a0) {
     typedef void (*fn_t)(GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glClearStencil");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glClearStencil");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) GLenum glClientWaitSync(GLsync a0, GLbitfield a1, GLuint64 a2) {
     typedef GLenum (*fn_t)(GLsync, GLbitfield, GLuint64);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glClientWaitSync");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0, a1, a2);
+    f = (fn_t)emesis_resolve_gl_symbol("glClientWaitSync");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0, a1, a2) : (GLenum)0;
 }
 
 __attribute__((visibility("default"))) void glColorMask(GLboolean a0, GLboolean a1, GLboolean a2, GLboolean a3) {
     typedef void (*fn_t)(GLboolean, GLboolean, GLboolean, GLboolean);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glColorMask");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glColorMask");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glCompileShader(GLuint a0) {
     typedef void (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCompileShader");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glCompileShader");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glCompressedTexImage2D(GLenum a0, GLint a1, GLenum a2, GLsizei a3, GLsizei a4, GLint a5, GLsizei a6, const GLvoid * a7) {
     typedef void (*fn_t)(GLenum, GLint, GLenum, GLsizei, GLsizei, GLint, GLsizei, const GLvoid *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCompressedTexImage2D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6, a7); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glCompressedTexImage2D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6, a7);
 }
 
 __attribute__((visibility("default"))) void glCompressedTexImage3D(GLenum a0, GLint a1, GLenum a2, GLsizei a3, GLsizei a4, GLsizei a5, GLint a6, GLsizei a7, const GLvoid * a8) {
     typedef void (*fn_t)(GLenum, GLint, GLenum, GLsizei, GLsizei, GLsizei, GLint, GLsizei, const GLvoid *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCompressedTexImage3D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6, a7, a8); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glCompressedTexImage3D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6, a7, a8);
 }
 
 __attribute__((visibility("default"))) void glCompressedTexSubImage2D(GLenum a0, GLint a1, GLint a2, GLint a3, GLsizei a4, GLsizei a5, GLenum a6, GLsizei a7, const GLvoid * a8) {
     typedef void (*fn_t)(GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLsizei, const GLvoid *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCompressedTexSubImage2D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6, a7, a8); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glCompressedTexSubImage2D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6, a7, a8);
 }
 
 __attribute__((visibility("default"))) void glCompressedTexSubImage3D(GLenum a0, GLint a1, GLint a2, GLint a3, GLint a4, GLsizei a5, GLsizei a6, GLsizei a7, GLenum a8, GLsizei a9, const GLvoid * a10) {
     typedef void (*fn_t)(GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLsizei, const GLvoid *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCompressedTexSubImage3D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glCompressedTexSubImage3D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
 }
 
 __attribute__((visibility("default"))) void glCopyBufferSubData(GLenum a0, GLenum a1, GLintptr a2, GLintptr a3, GLsizeiptr a4) {
     typedef void (*fn_t)(GLenum, GLenum, GLintptr, GLintptr, GLsizeiptr);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCopyBufferSubData");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glCopyBufferSubData");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glCopyTexImage2D(GLenum a0, GLint a1, GLenum a2, GLint a3, GLint a4, GLsizei a5, GLsizei a6, GLint a7) {
     typedef void (*fn_t)(GLenum, GLint, GLenum, GLint, GLint, GLsizei, GLsizei, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCopyTexImage2D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6, a7); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glCopyTexImage2D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6, a7);
 }
 
 __attribute__((visibility("default"))) void glCopyTexSubImage2D(GLenum a0, GLint a1, GLint a2, GLint a3, GLint a4, GLint a5, GLsizei a6, GLsizei a7) {
     typedef void (*fn_t)(GLenum, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCopyTexSubImage2D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6, a7); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glCopyTexSubImage2D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6, a7);
 }
 
 __attribute__((visibility("default"))) void glCopyTexSubImage3D(GLenum a0, GLint a1, GLint a2, GLint a3, GLint a4, GLint a5, GLint a6, GLsizei a7, GLsizei a8) {
     typedef void (*fn_t)(GLenum, GLint, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCopyTexSubImage3D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6, a7, a8); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glCopyTexSubImage3D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6, a7, a8);
 }
 
 __attribute__((visibility("default"))) GLuint glCreateProgram(void) {
     typedef GLuint (*fn_t)(void);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCreateProgram");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f();
+    f = (fn_t)emesis_resolve_gl_symbol("glCreateProgram");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f() : (GLuint)0;
 }
 
 __attribute__((visibility("default"))) GLuint glCreateShader(GLenum a0) {
     typedef GLuint (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCreateShader");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glCreateShader");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLuint)0;
 }
 
 __attribute__((visibility("default"))) void glCullFace(GLenum a0) {
     typedef void (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glCullFace");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glCullFace");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glDeleteBuffers(GLsizei a0, const GLuint * a1) {
     typedef void (*fn_t)(GLsizei, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDeleteBuffers");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDeleteBuffers");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glDeleteFramebuffers(GLsizei a0, const GLuint * a1) {
     typedef void (*fn_t)(GLsizei, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDeleteFramebuffers");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDeleteFramebuffers");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glDeleteProgram(GLuint a0) {
     typedef void (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDeleteProgram");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDeleteProgram");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glDeleteQueries(GLsizei a0, const GLuint * a1) {
     typedef void (*fn_t)(GLsizei, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDeleteQueries");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDeleteQueries");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glDeleteRenderbuffers(GLsizei a0, const GLuint * a1) {
     typedef void (*fn_t)(GLsizei, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDeleteRenderbuffers");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDeleteRenderbuffers");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glDeleteSamplers(GLsizei a0, const GLuint * a1) {
     typedef void (*fn_t)(GLsizei, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDeleteSamplers");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDeleteSamplers");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glDeleteShader(GLuint a0) {
     typedef void (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDeleteShader");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDeleteShader");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glDeleteSync(GLsync a0) {
     typedef void (*fn_t)(GLsync);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDeleteSync");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDeleteSync");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glDeleteTextures(GLsizei a0, const GLuint * a1) {
     typedef void (*fn_t)(GLsizei, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDeleteTextures");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDeleteTextures");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glDeleteVertexArrays(GLsizei a0, const GLuint * a1) {
     typedef void (*fn_t)(GLsizei, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDeleteVertexArrays");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDeleteVertexArrays");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glDepthFunc(GLenum a0) {
     typedef void (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDepthFunc");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDepthFunc");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glDepthMask(GLboolean a0) {
     typedef void (*fn_t)(GLboolean);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDepthMask");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDepthMask");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glDepthRange(GLclampd a0, GLclampd a1) {
     typedef void (*fn_t)(GLclampd, GLclampd);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDepthRange");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDepthRange");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glDepthRangef(GLfloat a0, GLfloat a1) {
     typedef void (*fn_t)(GLfloat, GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDepthRangef");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDepthRangef");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glDetachShader(GLuint a0, GLuint a1) {
     typedef void (*fn_t)(GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDetachShader");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDetachShader");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glDisable(GLenum a0) {
     typedef void (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDisable");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDisable");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glDisableVertexAttribArray(GLuint a0) {
     typedef void (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDisableVertexAttribArray");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDisableVertexAttribArray");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glDrawArrays(GLenum a0, GLint a1, GLsizei a2) {
     typedef void (*fn_t)(GLenum, GLint, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDrawArrays");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDrawArrays");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glDrawArraysInstanced(GLenum a0, GLint a1, GLsizei a2, GLsizei a3) {
     typedef void (*fn_t)(GLenum, GLint, GLsizei, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDrawArraysInstanced");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDrawArraysInstanced");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glDrawBuffer(GLenum a0) {
     typedef void (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDrawBuffer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDrawBuffer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glDrawBuffers(GLsizei a0, const GLenum * a1) {
     typedef void (*fn_t)(GLsizei, const GLenum *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDrawBuffers");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDrawBuffers");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glDrawElements(GLenum a0, GLsizei a1, GLenum a2, const GLvoid * a3) {
     typedef void (*fn_t)(GLenum, GLsizei, GLenum, const GLvoid *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDrawElements");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDrawElements");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glDrawElementsBaseVertex(GLenum a0, GLsizei a1, GLenum a2, const void * a3, GLint a4) {
     typedef void (*fn_t)(GLenum, GLsizei, GLenum, const void *, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDrawElementsBaseVertex");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDrawElementsBaseVertex");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glDrawElementsInstanced(GLenum a0, GLsizei a1, GLenum a2, const void * a3, GLsizei a4) {
     typedef void (*fn_t)(GLenum, GLsizei, GLenum, const void *, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDrawElementsInstanced");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDrawElementsInstanced");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glDrawRangeElements(GLenum a0, GLuint a1, GLuint a2, GLsizei a3, GLenum a4, const GLvoid * a5) {
     typedef void (*fn_t)(GLenum, GLuint, GLuint, GLsizei, GLenum, const GLvoid *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glDrawRangeElements");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glDrawRangeElements");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5);
 }
 
 __attribute__((visibility("default"))) void glEnable(GLenum a0) {
     typedef void (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glEnable");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glEnable");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glEnableVertexAttribArray(GLuint a0) {
     typedef void (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glEnableVertexAttribArray");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glEnableVertexAttribArray");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glEndQuery(GLenum a0) {
     typedef void (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glEndQuery");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glEndQuery");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) GLsync glFenceSync(GLenum a0, GLbitfield a1) {
     typedef GLsync (*fn_t)(GLenum, GLbitfield);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glFenceSync");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0, a1);
+    f = (fn_t)emesis_resolve_gl_symbol("glFenceSync");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0, a1) : (GLsync)0;
 }
 
 __attribute__((visibility("default"))) void glFinish(void) {
     typedef void (*fn_t)(void);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glFinish");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glFinish");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f();
 }
 
 __attribute__((visibility("default"))) void glFlush(void) {
     typedef void (*fn_t)(void);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glFlush");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glFlush");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f();
 }
 
 __attribute__((visibility("default"))) void glFlushMappedBufferRange(GLenum a0, GLintptr a1, GLsizeiptr a2) {
     typedef void (*fn_t)(GLenum, GLintptr, GLsizeiptr);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glFlushMappedBufferRange");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glFlushMappedBufferRange");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glFramebufferRenderbuffer(GLenum a0, GLenum a1, GLenum a2, GLuint a3) {
     typedef void (*fn_t)(GLenum, GLenum, GLenum, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glFramebufferRenderbuffer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glFramebufferRenderbuffer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glFramebufferTexture2D(GLenum a0, GLenum a1, GLenum a2, GLuint a3, GLint a4) {
     typedef void (*fn_t)(GLenum, GLenum, GLenum, GLuint, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glFramebufferTexture2D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glFramebufferTexture2D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glFramebufferTextureLayer(GLenum a0, GLenum a1, GLuint a2, GLint a3, GLint a4) {
     typedef void (*fn_t)(GLenum, GLenum, GLuint, GLint, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glFramebufferTextureLayer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glFramebufferTextureLayer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glFrontFace(GLenum a0) {
     typedef void (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glFrontFace");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glFrontFace");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glGenBuffers(GLsizei a0, GLuint * a1) {
     typedef void (*fn_t)(GLsizei, GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGenBuffers");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGenBuffers");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glGenFramebuffers(GLsizei a0, GLuint * a1) {
     typedef void (*fn_t)(GLsizei, GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGenFramebuffers");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGenFramebuffers");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glGenQueries(GLsizei a0, GLuint * a1) {
     typedef void (*fn_t)(GLsizei, GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGenQueries");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGenQueries");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glGenRenderbuffers(GLsizei a0, GLuint * a1) {
     typedef void (*fn_t)(GLsizei, GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGenRenderbuffers");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGenRenderbuffers");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glGenSamplers(GLsizei a0, GLuint * a1) {
     typedef void (*fn_t)(GLsizei, GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGenSamplers");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGenSamplers");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glGenTextures(GLsizei a0, GLuint * a1) {
     typedef void (*fn_t)(GLsizei, GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGenTextures");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGenTextures");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glGenVertexArrays(GLsizei a0, GLuint * a1) {
     typedef void (*fn_t)(GLsizei, GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGenVertexArrays");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGenVertexArrays");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glGenerateMipmap(GLenum a0) {
     typedef void (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGenerateMipmap");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGenerateMipmap");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glGetActiveAttrib(GLuint a0, GLuint a1, GLsizei a2, GLsizei * a3, GLint * a4, GLenum * a5, GLchar * a6) {
     typedef void (*fn_t)(GLuint, GLuint, GLsizei, GLsizei *, GLint *, GLenum *, GLchar *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetActiveAttrib");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetActiveAttrib");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6);
 }
 
 __attribute__((visibility("default"))) void glGetActiveUniform(GLuint a0, GLuint a1, GLsizei a2, GLsizei * a3, GLint * a4, GLenum * a5, GLchar * a6) {
     typedef void (*fn_t)(GLuint, GLuint, GLsizei, GLsizei *, GLint *, GLenum *, GLchar *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetActiveUniform");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetActiveUniform");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6);
 }
 
 __attribute__((visibility("default"))) void glGetAttachedShaders(GLuint a0, GLsizei a1, GLsizei * a2, GLuint * a3) {
     typedef void (*fn_t)(GLuint, GLsizei, GLsizei *, GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetAttachedShaders");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetAttachedShaders");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) GLint glGetAttribLocation(GLuint a0, const GLchar * a1) {
     typedef GLint (*fn_t)(GLuint, const GLchar *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetAttribLocation");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0, a1);
+    f = (fn_t)emesis_resolve_gl_symbol("glGetAttribLocation");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0, a1) : (GLint)0;
 }
 
 __attribute__((visibility("default"))) void glGetBooleanv(GLenum a0, GLboolean * a1) {
     typedef void (*fn_t)(GLenum, GLboolean *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetBooleanv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetBooleanv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glGetBufferParameteriv(GLenum a0, GLenum a1, GLint * a2) {
     typedef void (*fn_t)(GLenum, GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetBufferParameteriv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetBufferParameteriv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetBufferPointerv(GLenum a0, GLenum a1, void ** a2) {
     typedef void (*fn_t)(GLenum, GLenum, void **);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetBufferPointerv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetBufferPointerv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) GLenum glGetError(void) {
     typedef GLenum (*fn_t)(void);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetError");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f();
+    f = (fn_t)emesis_resolve_gl_symbol("glGetError");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f() : (GLenum)0;
 }
 
 __attribute__((visibility("default"))) void glGetFloatv(GLenum a0, GLfloat * a1) {
     typedef void (*fn_t)(GLenum, GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetFloatv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetFloatv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glGetFramebufferAttachmentParameteriv(GLenum a0, GLenum a1, GLenum a2, GLint * a3) {
     typedef void (*fn_t)(GLenum, GLenum, GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetFramebufferAttachmentParameteriv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetFramebufferAttachmentParameteriv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glGetInteger64i_v(GLenum a0, GLuint a1, GLint64 * a2) {
     typedef void (*fn_t)(GLenum, GLuint, GLint64 *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetInteger64i_v");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetInteger64i_v");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetInteger64v(GLenum a0, GLint64 * a1) {
     typedef void (*fn_t)(GLenum, GLint64 *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetInteger64v");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetInteger64v");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glGetIntegeri_v(GLenum a0, GLuint a1, GLint * a2) {
     typedef void (*fn_t)(GLenum, GLuint, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetIntegeri_v");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetIntegeri_v");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetIntegerv(GLenum a0, GLint * a1) {
     typedef void (*fn_t)(GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetIntegerv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetIntegerv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glGetProgramBinary(GLuint a0, GLsizei a1, GLsizei * a2, GLenum * a3, void * a4) {
     typedef void (*fn_t)(GLuint, GLsizei, GLsizei *, GLenum *, void *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetProgramBinary");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetProgramBinary");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glGetProgramInfoLog(GLuint a0, GLsizei a1, GLsizei * a2, GLchar * a3) {
     typedef void (*fn_t)(GLuint, GLsizei, GLsizei *, GLchar *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetProgramInfoLog");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetProgramInfoLog");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glGetProgramiv(GLuint a0, GLenum a1, GLint * a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetProgramiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetProgramiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetQueryObjecti64v(GLuint a0, GLenum a1, GLint64 * a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLint64 *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetQueryObjecti64v");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetQueryObjecti64v");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetQueryObjectiv(GLuint a0, GLenum a1, GLint * a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetQueryObjectiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetQueryObjectiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetQueryObjectui64v(GLuint a0, GLenum a1, GLuint64 * a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLuint64 *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetQueryObjectui64v");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetQueryObjectui64v");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetQueryObjectuiv(GLuint a0, GLenum a1, GLuint * a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetQueryObjectuiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetQueryObjectuiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetQueryiv(GLenum a0, GLenum a1, GLint * a2) {
     typedef void (*fn_t)(GLenum, GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetQueryiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetQueryiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetRenderbufferParameteriv(GLenum a0, GLenum a1, GLint * a2) {
     typedef void (*fn_t)(GLenum, GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetRenderbufferParameteriv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetRenderbufferParameteriv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetSamplerParameterfv(GLuint a0, GLenum a1, GLfloat * a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetSamplerParameterfv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetSamplerParameterfv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetSamplerParameteriv(GLuint a0, GLenum a1, GLint * a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetSamplerParameteriv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetSamplerParameteriv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetShaderInfoLog(GLuint a0, GLsizei a1, GLsizei * a2, GLchar * a3) {
     typedef void (*fn_t)(GLuint, GLsizei, GLsizei *, GLchar *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetShaderInfoLog");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetShaderInfoLog");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glGetShaderPrecisionFormat(GLenum a0, GLenum a1, GLint * a2, GLint * a3) {
     typedef void (*fn_t)(GLenum, GLenum, GLint *, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetShaderPrecisionFormat");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetShaderPrecisionFormat");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glGetShaderSource(GLuint a0, GLsizei a1, GLsizei * a2, GLchar * a3) {
     typedef void (*fn_t)(GLuint, GLsizei, GLsizei *, GLchar *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetShaderSource");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetShaderSource");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glGetShaderiv(GLuint a0, GLenum a1, GLint * a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetShaderiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetShaderiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) const GLubyte * glGetString(GLenum a0) {
     typedef const GLubyte * (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetString");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glGetString");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (const GLubyte *)0;
 }
 
 __attribute__((visibility("default"))) void glGetSynciv(GLsync a0, GLenum a1, GLsizei a2, GLsizei * a3, GLint * a4) {
     typedef void (*fn_t)(GLsync, GLenum, GLsizei, GLsizei *, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetSynciv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetSynciv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glGetTexImage(GLenum a0, GLint a1, GLenum a2, GLenum a3, GLvoid * a4) {
     typedef void (*fn_t)(GLenum, GLint, GLenum, GLenum, GLvoid *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetTexImage");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetTexImage");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glGetTexLevelParameterfv(GLenum a0, GLint a1, GLenum a2, GLfloat * a3) {
     typedef void (*fn_t)(GLenum, GLint, GLenum, GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetTexLevelParameterfv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetTexLevelParameterfv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glGetTexLevelParameteriv(GLenum a0, GLint a1, GLenum a2, GLint * a3) {
     typedef void (*fn_t)(GLenum, GLint, GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetTexLevelParameteriv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetTexLevelParameteriv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glGetTexParameterfv(GLenum a0, GLenum a1, GLfloat * a2) {
     typedef void (*fn_t)(GLenum, GLenum, GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetTexParameterfv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetTexParameterfv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetTexParameteriv(GLenum a0, GLenum a1, GLint * a2) {
     typedef void (*fn_t)(GLenum, GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetTexParameteriv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetTexParameteriv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) GLuint glGetUniformBlockIndex(GLuint a0, const GLchar * a1) {
     typedef GLuint (*fn_t)(GLuint, const GLchar *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetUniformBlockIndex");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0, a1);
+    f = (fn_t)emesis_resolve_gl_symbol("glGetUniformBlockIndex");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0, a1) : (GLuint)0;
 }
 
 __attribute__((visibility("default"))) GLint glGetUniformLocation(GLuint a0, const GLchar * a1) {
     typedef GLint (*fn_t)(GLuint, const GLchar *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetUniformLocation");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0, a1);
+    f = (fn_t)emesis_resolve_gl_symbol("glGetUniformLocation");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0, a1) : (GLint)0;
 }
 
 __attribute__((visibility("default"))) void glGetUniformfv(GLuint a0, GLint a1, GLfloat * a2) {
     typedef void (*fn_t)(GLuint, GLint, GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetUniformfv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetUniformfv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetUniformiv(GLuint a0, GLint a1, GLint * a2) {
     typedef void (*fn_t)(GLuint, GLint, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetUniformiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetUniformiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetUniformuiv(GLuint a0, GLint a1, GLuint * a2) {
     typedef void (*fn_t)(GLuint, GLint, GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetUniformuiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetUniformuiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetVertexAttribIiv(GLuint a0, GLenum a1, GLint * a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetVertexAttribIiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetVertexAttribIiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetVertexAttribIuiv(GLuint a0, GLenum a1, GLuint * a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetVertexAttribIuiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetVertexAttribIuiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetVertexAttribPointerv(GLuint a0, GLenum a1, void ** a2) {
     typedef void (*fn_t)(GLuint, GLenum, void **);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetVertexAttribPointerv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetVertexAttribPointerv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetVertexAttribfv(GLuint a0, GLenum a1, GLfloat * a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetVertexAttribfv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetVertexAttribfv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glGetVertexAttribiv(GLuint a0, GLenum a1, GLint * a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glGetVertexAttribiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glGetVertexAttribiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glHint(GLenum a0, GLenum a1) {
     typedef void (*fn_t)(GLenum, GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glHint");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glHint");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) GLboolean glIsBuffer(GLuint a0) {
     typedef GLboolean (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glIsBuffer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glIsBuffer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLboolean)0;
 }
 
 __attribute__((visibility("default"))) GLboolean glIsEnabled(GLenum a0) {
     typedef GLboolean (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glIsEnabled");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glIsEnabled");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLboolean)0;
 }
 
 __attribute__((visibility("default"))) GLboolean glIsFramebuffer(GLuint a0) {
     typedef GLboolean (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glIsFramebuffer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glIsFramebuffer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLboolean)0;
 }
 
 __attribute__((visibility("default"))) GLboolean glIsProgram(GLuint a0) {
     typedef GLboolean (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glIsProgram");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glIsProgram");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLboolean)0;
 }
 
 __attribute__((visibility("default"))) GLboolean glIsQuery(GLuint a0) {
     typedef GLboolean (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glIsQuery");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glIsQuery");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLboolean)0;
 }
 
 __attribute__((visibility("default"))) GLboolean glIsRenderbuffer(GLuint a0) {
     typedef GLboolean (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glIsRenderbuffer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glIsRenderbuffer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLboolean)0;
 }
 
 __attribute__((visibility("default"))) GLboolean glIsSampler(GLuint a0) {
     typedef GLboolean (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glIsSampler");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glIsSampler");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLboolean)0;
 }
 
 __attribute__((visibility("default"))) GLboolean glIsShader(GLuint a0) {
     typedef GLboolean (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glIsShader");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glIsShader");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLboolean)0;
 }
 
 __attribute__((visibility("default"))) GLboolean glIsSync(GLsync a0) {
     typedef GLboolean (*fn_t)(GLsync);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glIsSync");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glIsSync");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLboolean)0;
 }
 
 __attribute__((visibility("default"))) GLboolean glIsTexture(GLuint a0) {
     typedef GLboolean (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glIsTexture");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glIsTexture");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLboolean)0;
 }
 
 __attribute__((visibility("default"))) GLboolean glIsVertexArray(GLuint a0) {
     typedef GLboolean (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glIsVertexArray");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glIsVertexArray");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLboolean)0;
 }
 
 __attribute__((visibility("default"))) void glLineWidth(GLfloat a0) {
     typedef void (*fn_t)(GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glLineWidth");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glLineWidth");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glLinkProgram(GLuint a0) {
     typedef void (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glLinkProgram");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glLinkProgram");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glMultiDrawArrays(GLenum a0, const GLint * a1, const GLsizei * a2, GLsizei a3) {
     typedef void (*fn_t)(GLenum, const GLint *, const GLsizei *, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glMultiDrawArrays");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glMultiDrawArrays");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glMultiDrawElements(GLenum a0, const GLsizei * a1, GLenum a2, const void *const* a3, GLsizei a4) {
     typedef void (*fn_t)(GLenum, const GLsizei *, GLenum, const void *const*, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glMultiDrawElements");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glMultiDrawElements");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glMultiDrawElementsBaseVertex(GLenum a0, const GLsizei * a1, GLenum a2, const void *const* a3, GLsizei a4, const GLint * a5) {
     typedef void (*fn_t)(GLenum, const GLsizei *, GLenum, const void *const*, GLsizei, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glMultiDrawElementsBaseVertex");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glMultiDrawElementsBaseVertex");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5);
 }
 
 __attribute__((visibility("default"))) void glPixelStorei(GLenum a0, GLint a1) {
     typedef void (*fn_t)(GLenum, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glPixelStorei");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glPixelStorei");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glPolygonOffset(GLfloat a0, GLfloat a1) {
     typedef void (*fn_t)(GLfloat, GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glPolygonOffset");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glPolygonOffset");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glProgramBinary(GLuint a0, GLenum a1, const void * a2, GLsizei a3) {
     typedef void (*fn_t)(GLuint, GLenum, const void *, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glProgramBinary");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glProgramBinary");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glQueryCounter(GLuint a0, GLenum a1) {
     typedef void (*fn_t)(GLuint, GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glQueryCounter");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glQueryCounter");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glReadBuffer(GLenum a0) {
     typedef void (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glReadBuffer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glReadBuffer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glReadPixels(GLint a0, GLint a1, GLsizei a2, GLsizei a3, GLenum a4, GLenum a5, GLvoid * a6) {
     typedef void (*fn_t)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, GLvoid *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glReadPixels");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glReadPixels");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6);
 }
 
 __attribute__((visibility("default"))) void glReleaseShaderCompiler(void) {
     typedef void (*fn_t)(void);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glReleaseShaderCompiler");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glReleaseShaderCompiler");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f();
 }
 
 __attribute__((visibility("default"))) void glRenderbufferStorage(GLenum a0, GLenum a1, GLsizei a2, GLsizei a3) {
     typedef void (*fn_t)(GLenum, GLenum, GLsizei, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glRenderbufferStorage");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glRenderbufferStorage");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glRenderbufferStorageMultisample(GLenum a0, GLsizei a1, GLenum a2, GLsizei a3, GLsizei a4) {
     typedef void (*fn_t)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glRenderbufferStorageMultisample");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glRenderbufferStorageMultisample");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glSampleCoverage(GLclampf a0, GLboolean a1) {
     typedef void (*fn_t)(GLclampf, GLboolean);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glSampleCoverage");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glSampleCoverage");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glSamplerParameterf(GLuint a0, GLenum a1, GLfloat a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glSamplerParameterf");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glSamplerParameterf");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glSamplerParameterfv(GLuint a0, GLenum a1, const GLfloat * a2) {
     typedef void (*fn_t)(GLuint, GLenum, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glSamplerParameterfv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glSamplerParameterfv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glSamplerParameteri(GLuint a0, GLenum a1, GLint a2) {
     typedef void (*fn_t)(GLuint, GLenum, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glSamplerParameteri");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glSamplerParameteri");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glSamplerParameteriv(GLuint a0, GLenum a1, const GLint * a2) {
     typedef void (*fn_t)(GLuint, GLenum, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glSamplerParameteriv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glSamplerParameteriv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glScissor(GLint a0, GLint a1, GLsizei a2, GLsizei a3) {
     typedef void (*fn_t)(GLint, GLint, GLsizei, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glScissor");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glScissor");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glShaderBinary(GLsizei a0, const GLuint * a1, GLenum a2, const void * a3, GLsizei a4) {
     typedef void (*fn_t)(GLsizei, const GLuint *, GLenum, const void *, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glShaderBinary");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glShaderBinary");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glShaderSource(GLuint a0, GLsizei a1, const GLchar *const* a2, const GLint * a3) {
     typedef void (*fn_t)(GLuint, GLsizei, const GLchar *const*, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glShaderSource");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glShaderSource");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glStencilFunc(GLenum a0, GLint a1, GLuint a2) {
     typedef void (*fn_t)(GLenum, GLint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glStencilFunc");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glStencilFunc");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glStencilFuncSeparate(GLenum a0, GLenum a1, GLint a2, GLuint a3) {
     typedef void (*fn_t)(GLenum, GLenum, GLint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glStencilFuncSeparate");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glStencilFuncSeparate");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glStencilMask(GLuint a0) {
     typedef void (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glStencilMask");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glStencilMask");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glStencilMaskSeparate(GLenum a0, GLuint a1) {
     typedef void (*fn_t)(GLenum, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glStencilMaskSeparate");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glStencilMaskSeparate");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glStencilOp(GLenum a0, GLenum a1, GLenum a2) {
     typedef void (*fn_t)(GLenum, GLenum, GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glStencilOp");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glStencilOp");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glStencilOpSeparate(GLenum a0, GLenum a1, GLenum a2, GLenum a3) {
     typedef void (*fn_t)(GLenum, GLenum, GLenum, GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glStencilOpSeparate");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glStencilOpSeparate");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glTexBuffer(GLenum a0, GLenum a1, GLuint a2) {
     typedef void (*fn_t)(GLenum, GLenum, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glTexBuffer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glTexBuffer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glTexImage2D(GLenum a0, GLint a1, GLint a2, GLsizei a3, GLsizei a4, GLint a5, GLenum a6, GLenum a7, const GLvoid * a8) {
     typedef void (*fn_t)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const GLvoid *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glTexImage2D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6, a7, a8); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glTexImage2D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6, a7, a8);
 }
 
 __attribute__((visibility("default"))) void glTexImage3D(GLenum a0, GLint a1, GLint a2, GLsizei a3, GLsizei a4, GLsizei a5, GLint a6, GLenum a7, GLenum a8, const GLvoid * a9) {
     typedef void (*fn_t)(GLenum, GLint, GLint, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, const GLvoid *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glTexImage3D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glTexImage3D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9);
 }
 
 __attribute__((visibility("default"))) void glTexParameterf(GLenum a0, GLenum a1, GLfloat a2) {
     typedef void (*fn_t)(GLenum, GLenum, GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glTexParameterf");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glTexParameterf");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glTexParameterfv(GLenum a0, GLenum a1, const GLfloat * a2) {
     typedef void (*fn_t)(GLenum, GLenum, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glTexParameterfv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glTexParameterfv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glTexParameteri(GLenum a0, GLenum a1, GLint a2) {
     typedef void (*fn_t)(GLenum, GLenum, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glTexParameteri");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glTexParameteri");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glTexParameteriv(GLenum a0, GLenum a1, const GLint * a2) {
     typedef void (*fn_t)(GLenum, GLenum, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glTexParameteriv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glTexParameteriv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glTexStorage2D(GLenum a0, GLsizei a1, GLenum a2, GLsizei a3, GLsizei a4) {
     typedef void (*fn_t)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glTexStorage2D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glTexStorage2D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glTexStorage3D(GLenum a0, GLsizei a1, GLenum a2, GLsizei a3, GLsizei a4, GLsizei a5) {
     typedef void (*fn_t)(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glTexStorage3D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glTexStorage3D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5);
 }
 
 __attribute__((visibility("default"))) void glTexSubImage2D(GLenum a0, GLint a1, GLint a2, GLint a3, GLsizei a4, GLsizei a5, GLenum a6, GLenum a7, const GLvoid * a8) {
     typedef void (*fn_t)(GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const GLvoid *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glTexSubImage2D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6, a7, a8); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glTexSubImage2D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6, a7, a8);
 }
 
 __attribute__((visibility("default"))) void glTexSubImage3D(GLenum a0, GLint a1, GLint a2, GLint a3, GLint a4, GLsizei a5, GLsizei a6, GLsizei a7, GLenum a8, GLenum a9, const GLvoid * a10) {
     typedef void (*fn_t)(GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLenum, const GLvoid *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glTexSubImage3D");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glTexSubImage3D");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
 }
 
 __attribute__((visibility("default"))) void glUniform1f(GLint a0, GLfloat a1) {
     typedef void (*fn_t)(GLint, GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform1f");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform1f");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glUniform1fv(GLint a0, GLsizei a1, const GLfloat * a2) {
     typedef void (*fn_t)(GLint, GLsizei, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform1fv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform1fv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform1i(GLint a0, GLint a1) {
     typedef void (*fn_t)(GLint, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform1i");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform1i");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glUniform1iv(GLint a0, GLsizei a1, const GLint * a2) {
     typedef void (*fn_t)(GLint, GLsizei, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform1iv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform1iv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform1ui(GLint a0, GLuint a1) {
     typedef void (*fn_t)(GLint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform1ui");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform1ui");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glUniform1uiv(GLint a0, GLsizei a1, const GLuint * a2) {
     typedef void (*fn_t)(GLint, GLsizei, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform1uiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform1uiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform2f(GLint a0, GLfloat a1, GLfloat a2) {
     typedef void (*fn_t)(GLint, GLfloat, GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform2f");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform2f");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform2fv(GLint a0, GLsizei a1, const GLfloat * a2) {
     typedef void (*fn_t)(GLint, GLsizei, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform2fv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform2fv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform2i(GLint a0, GLint a1, GLint a2) {
     typedef void (*fn_t)(GLint, GLint, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform2i");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform2i");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform2iv(GLint a0, GLsizei a1, const GLint * a2) {
     typedef void (*fn_t)(GLint, GLsizei, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform2iv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform2iv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform2ui(GLint a0, GLuint a1, GLuint a2) {
     typedef void (*fn_t)(GLint, GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform2ui");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform2ui");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform2uiv(GLint a0, GLsizei a1, const GLuint * a2) {
     typedef void (*fn_t)(GLint, GLsizei, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform2uiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform2uiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform3f(GLint a0, GLfloat a1, GLfloat a2, GLfloat a3) {
     typedef void (*fn_t)(GLint, GLfloat, GLfloat, GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform3f");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform3f");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glUniform3fv(GLint a0, GLsizei a1, const GLfloat * a2) {
     typedef void (*fn_t)(GLint, GLsizei, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform3fv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform3fv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform3i(GLint a0, GLint a1, GLint a2, GLint a3) {
     typedef void (*fn_t)(GLint, GLint, GLint, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform3i");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform3i");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glUniform3iv(GLint a0, GLsizei a1, const GLint * a2) {
     typedef void (*fn_t)(GLint, GLsizei, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform3iv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform3iv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform3ui(GLint a0, GLuint a1, GLuint a2, GLuint a3) {
     typedef void (*fn_t)(GLint, GLuint, GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform3ui");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform3ui");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glUniform3uiv(GLint a0, GLsizei a1, const GLuint * a2) {
     typedef void (*fn_t)(GLint, GLsizei, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform3uiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform3uiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform4f(GLint a0, GLfloat a1, GLfloat a2, GLfloat a3, GLfloat a4) {
     typedef void (*fn_t)(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform4f");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform4f");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glUniform4fv(GLint a0, GLsizei a1, const GLfloat * a2) {
     typedef void (*fn_t)(GLint, GLsizei, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform4fv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform4fv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform4i(GLint a0, GLint a1, GLint a2, GLint a3, GLint a4) {
     typedef void (*fn_t)(GLint, GLint, GLint, GLint, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform4i");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform4i");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glUniform4iv(GLint a0, GLsizei a1, const GLint * a2) {
     typedef void (*fn_t)(GLint, GLsizei, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform4iv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform4iv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniform4ui(GLint a0, GLuint a1, GLuint a2, GLuint a3, GLuint a4) {
     typedef void (*fn_t)(GLint, GLuint, GLuint, GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform4ui");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform4ui");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glUniform4uiv(GLint a0, GLsizei a1, const GLuint * a2) {
     typedef void (*fn_t)(GLint, GLsizei, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniform4uiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniform4uiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniformBlockBinding(GLuint a0, GLuint a1, GLuint a2) {
     typedef void (*fn_t)(GLuint, GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniformBlockBinding");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniformBlockBinding");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glUniformMatrix2fv(GLint a0, GLsizei a1, GLboolean a2, const GLfloat * a3) {
     typedef void (*fn_t)(GLint, GLsizei, GLboolean, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniformMatrix2fv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniformMatrix2fv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glUniformMatrix3fv(GLint a0, GLsizei a1, GLboolean a2, const GLfloat * a3) {
     typedef void (*fn_t)(GLint, GLsizei, GLboolean, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniformMatrix3fv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniformMatrix3fv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glUniformMatrix4fv(GLint a0, GLsizei a1, GLboolean a2, const GLfloat * a3) {
     typedef void (*fn_t)(GLint, GLsizei, GLboolean, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUniformMatrix4fv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUniformMatrix4fv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) GLboolean glUnmapBuffer(GLenum a0) {
     typedef GLboolean (*fn_t)(GLenum);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUnmapBuffer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) return f(a0);
+    f = (fn_t)emesis_resolve_gl_symbol("glUnmapBuffer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     return f ? f(a0) : (GLboolean)0;
 }
 
 __attribute__((visibility("default"))) void glUseProgram(GLuint a0) {
     typedef void (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glUseProgram");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glUseProgram");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glValidateProgram(GLuint a0) {
     typedef void (*fn_t)(GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glValidateProgram");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glValidateProgram");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib1d(GLuint a0, GLdouble a1) {
     typedef void (*fn_t)(GLuint, GLdouble);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib1d");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib1d");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib1dv(GLuint a0, const GLdouble * a1) {
     typedef void (*fn_t)(GLuint, const GLdouble *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib1dv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib1dv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib1f(GLuint a0, GLfloat a1) {
     typedef void (*fn_t)(GLuint, GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib1f");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib1f");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib1fv(GLuint a0, const GLfloat * a1) {
     typedef void (*fn_t)(GLuint, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib1fv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib1fv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib1s(GLuint a0, GLshort a1) {
     typedef void (*fn_t)(GLuint, GLshort);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib1s");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib1s");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib1sv(GLuint a0, const GLshort * a1) {
     typedef void (*fn_t)(GLuint, const GLshort *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib1sv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib1sv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib2d(GLuint a0, GLdouble a1, GLdouble a2) {
     typedef void (*fn_t)(GLuint, GLdouble, GLdouble);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib2d");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib2d");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib2dv(GLuint a0, const GLdouble * a1) {
     typedef void (*fn_t)(GLuint, const GLdouble *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib2dv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib2dv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib2f(GLuint a0, GLfloat a1, GLfloat a2) {
     typedef void (*fn_t)(GLuint, GLfloat, GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib2f");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib2f");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib2fv(GLuint a0, const GLfloat * a1) {
     typedef void (*fn_t)(GLuint, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib2fv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib2fv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib2s(GLuint a0, GLshort a1, GLshort a2) {
     typedef void (*fn_t)(GLuint, GLshort, GLshort);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib2s");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib2s");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib2sv(GLuint a0, const GLshort * a1) {
     typedef void (*fn_t)(GLuint, const GLshort *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib2sv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib2sv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib3d(GLuint a0, GLdouble a1, GLdouble a2, GLdouble a3) {
     typedef void (*fn_t)(GLuint, GLdouble, GLdouble, GLdouble);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib3d");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib3d");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib3dv(GLuint a0, const GLdouble * a1) {
     typedef void (*fn_t)(GLuint, const GLdouble *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib3dv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib3dv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib3f(GLuint a0, GLfloat a1, GLfloat a2, GLfloat a3) {
     typedef void (*fn_t)(GLuint, GLfloat, GLfloat, GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib3f");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib3f");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib3fv(GLuint a0, const GLfloat * a1) {
     typedef void (*fn_t)(GLuint, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib3fv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib3fv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib3s(GLuint a0, GLshort a1, GLshort a2, GLshort a3) {
     typedef void (*fn_t)(GLuint, GLshort, GLshort, GLshort);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib3s");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib3s");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib3sv(GLuint a0, const GLshort * a1) {
     typedef void (*fn_t)(GLuint, const GLshort *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib3sv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib3sv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4Nbv(GLuint a0, const GLbyte * a1) {
     typedef void (*fn_t)(GLuint, const GLbyte *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Nbv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Nbv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4Niv(GLuint a0, const GLint * a1) {
     typedef void (*fn_t)(GLuint, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Niv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Niv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4Nsv(GLuint a0, const GLshort * a1) {
     typedef void (*fn_t)(GLuint, const GLshort *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Nsv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Nsv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4Nub(GLuint a0, GLubyte a1, GLubyte a2, GLubyte a3, GLubyte a4) {
     typedef void (*fn_t)(GLuint, GLubyte, GLubyte, GLubyte, GLubyte);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Nub");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Nub");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4Nubv(GLuint a0, const GLubyte * a1) {
     typedef void (*fn_t)(GLuint, const GLubyte *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Nubv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Nubv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4Nuiv(GLuint a0, const GLuint * a1) {
     typedef void (*fn_t)(GLuint, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Nuiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Nuiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4Nusv(GLuint a0, const GLushort * a1) {
     typedef void (*fn_t)(GLuint, const GLushort *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Nusv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4Nusv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4d(GLuint a0, GLdouble a1, GLdouble a2, GLdouble a3, GLdouble a4) {
     typedef void (*fn_t)(GLuint, GLdouble, GLdouble, GLdouble, GLdouble);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4d");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4d");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4dv(GLuint a0, const GLdouble * a1) {
     typedef void (*fn_t)(GLuint, const GLdouble *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4dv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4dv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4f(GLuint a0, GLfloat a1, GLfloat a2, GLfloat a3, GLfloat a4) {
     typedef void (*fn_t)(GLuint, GLfloat, GLfloat, GLfloat, GLfloat);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4f");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4f");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4fv(GLuint a0, const GLfloat * a1) {
     typedef void (*fn_t)(GLuint, const GLfloat *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4fv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4fv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4s(GLuint a0, GLshort a1, GLshort a2, GLshort a3, GLshort a4) {
     typedef void (*fn_t)(GLuint, GLshort, GLshort, GLshort, GLshort);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4s");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4s");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glVertexAttrib4sv(GLuint a0, const GLshort * a1) {
     typedef void (*fn_t)(GLuint, const GLshort *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4sv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttrib4sv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribDivisor(GLuint a0, GLuint a1) {
     typedef void (*fn_t)(GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribDivisor");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribDivisor");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI1i(GLuint a0, GLint a1) {
     typedef void (*fn_t)(GLuint, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI1i");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI1i");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI1iv(GLuint a0, const GLint * a1) {
     typedef void (*fn_t)(GLuint, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI1iv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI1iv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI1ui(GLuint a0, GLuint a1) {
     typedef void (*fn_t)(GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI1ui");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI1ui");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI1uiv(GLuint a0, const GLuint * a1) {
     typedef void (*fn_t)(GLuint, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI1uiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI1uiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI2i(GLuint a0, GLint a1, GLint a2) {
     typedef void (*fn_t)(GLuint, GLint, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI2i");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI2i");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI2iv(GLuint a0, const GLint * a1) {
     typedef void (*fn_t)(GLuint, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI2iv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI2iv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI2ui(GLuint a0, GLuint a1, GLuint a2) {
     typedef void (*fn_t)(GLuint, GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI2ui");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI2ui");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI2uiv(GLuint a0, const GLuint * a1) {
     typedef void (*fn_t)(GLuint, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI2uiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI2uiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI3i(GLuint a0, GLint a1, GLint a2, GLint a3) {
     typedef void (*fn_t)(GLuint, GLint, GLint, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI3i");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI3i");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI3iv(GLuint a0, const GLint * a1) {
     typedef void (*fn_t)(GLuint, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI3iv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI3iv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI3ui(GLuint a0, GLuint a1, GLuint a2, GLuint a3) {
     typedef void (*fn_t)(GLuint, GLuint, GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI3ui");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI3ui");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI3uiv(GLuint a0, const GLuint * a1) {
     typedef void (*fn_t)(GLuint, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI3uiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI3uiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI4i(GLuint a0, GLint a1, GLint a2, GLint a3, GLint a4) {
     typedef void (*fn_t)(GLuint, GLint, GLint, GLint, GLint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI4i");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI4i");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI4iv(GLuint a0, const GLint * a1) {
     typedef void (*fn_t)(GLuint, const GLint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI4iv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI4iv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI4ui(GLuint a0, GLuint a1, GLuint a2, GLuint a3, GLuint a4) {
     typedef void (*fn_t)(GLuint, GLuint, GLuint, GLuint, GLuint);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI4ui");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI4ui");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribI4uiv(GLuint a0, const GLuint * a1) {
     typedef void (*fn_t)(GLuint, const GLuint *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI4uiv");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribI4uiv");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribIPointer(GLuint a0, GLint a1, GLenum a2, GLsizei a3, const void * a4) {
     typedef void (*fn_t)(GLuint, GLint, GLenum, GLsizei, const void *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribIPointer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribIPointer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4);
 }
 
 __attribute__((visibility("default"))) void glVertexAttribPointer(GLuint a0, GLint a1, GLenum a2, GLboolean a3, GLsizei a4, const void * a5) {
     typedef void (*fn_t)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void *);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribPointer");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3, a4, a5); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glVertexAttribPointer");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3, a4, a5);
 }
 
 __attribute__((visibility("default"))) void glViewport(GLint a0, GLint a1, GLsizei a2, GLsizei a3) {
     typedef void (*fn_t)(GLint, GLint, GLsizei, GLsizei);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glViewport");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2, a3); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glViewport");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2, a3);
 }
 
 __attribute__((visibility("default"))) void glWaitSync(GLsync a0, GLbitfield a1, GLuint64 a2) {
     typedef void (*fn_t)(GLsync, GLbitfield, GLuint64);
     static fn_t cached = NULL;
-    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);
-    if (__builtin_expect(f == NULL, 0)) {
-        f = (fn_t)emesis_resolve_gl_symbol("glWaitSync");
-        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
-    }
+    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (__builtin_expect(f != NULL, 1)) { f(a0, a1, a2); return; }
+    f = (fn_t)emesis_resolve_gl_symbol("glWaitSync");
+    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);
     if (f) f(a0, a1, a2);
 }

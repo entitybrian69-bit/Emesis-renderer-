@@ -37,9 +37,16 @@ void glEnablei(GLenum target, GLuint index);
 void glDisablei(GLenum target, GLuint index);
 GLboolean glIsEnabledi(GLenum target, GLuint index);
 void glTexBufferRangeARB(GLenum target, GLenum internalformat, GLuint buffer, GLintptr offset, GLsizeiptr size);
+void glTexStorage1D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width);
 void glClearTexImageARB(GLuint texture, GLint level, GLenum format, GLenum type, const void *data);
 void glClearTexSubImageARB(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset,
                            GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, const void *data);
+void glBindBuffersBase(GLenum target, GLuint first, GLsizei count, const GLuint *buffers);
+void glBindBuffersRange(GLenum target, GLuint first, GLsizei count, const GLuint *buffers, const GLintptr *offsets, const GLsizeiptr *sizes);
+void glBindTextures(GLuint first, GLsizei count, const GLuint *textures);
+void glBindSamplers(GLuint first, GLsizei count, const GLuint *samplers);
+void glBindImageTextures(GLuint first, GLsizei count, const GLuint *textures);
+void glBindVertexBuffers(GLuint first, GLsizei count, const GLuint *buffers, const GLintptr *offsets, const GLsizei *strides);
 
 GLESOVERRIDE(glClearDepth)
 GLESOVERRIDE(glMapBuffer)
@@ -86,15 +93,27 @@ GLESOVERRIDE(glBindBufferBase)
 GLESOVERRIDE(glBindBufferRange)
 GLESOVERRIDE(glBindBuffer)
 GLESOVERRIDE(glBufferData)
+GLESOVERRIDE(glBufferSubData)
+GLESOVERRIDE(glCopyBufferSubData)
 GLESOVERRIDE(glDeleteBuffers)
+GLESOVERRIDE(glBindSampler)
+GLESOVERRIDE(glDeleteSamplers)
+GLESOVERRIDE(glBindBuffersBase)
+GLESOVERRIDE(glBindBuffersRange)
+GLESOVERRIDE(glBindTextures)
+GLESOVERRIDE(glBindSamplers)
+GLESOVERRIDE(glBindImageTextures)
+GLESOVERRIDE(glBindVertexBuffers)
 GLESOVERRIDE(glUseProgram)
 GLESOVERRIDE(glGetIntegerv)
 GLESOVERRIDE(glBindFramebuffer)
 GLESOVERRIDE(glGenFramebuffers)
 GLESOVERRIDE(glDeleteFramebuffers)
+GLESOVERRIDE(glFramebufferTexture)
 GLESOVERRIDE(glFramebufferTexture2D)
 GLESOVERRIDE(glFramebufferTextureLayer)
 GLESOVERRIDE(glFramebufferRenderbuffer)
+GLESOVERRIDE(glReadBuffer)
 GLESOVERRIDE(glGetFramebufferAttachmentParameteriv)
 GLESOVERRIDE(glDrawBuffers)
 GLESOVERRIDE(glDrawBuffer)
@@ -175,3 +194,9 @@ GLESOVERRIDE(glClearTexImageARB)
 GLESOVERRIDE(glClearTexSubImage)
 GLESOVERRIDE(glClearTexSubImageARB)
 GLESOVERRIDE(glCopyImageSubData)
+GLESOVERRIDE(glTexStorage1D)
+GLESOVERRIDE(glTexImage1D)
+GLESOVERRIDE(glTexImage3D)
+GLESOVERRIDE(glDisable)
+GLESOVERRIDE(glIsEnabled)
+GLESOVERRIDE(glPolygonMode)

@@ -85,17 +85,49 @@ static void hash128_update_str(uint64_t* lo, uint64_t* hi, const char* s) {
     hash128_update(lo, hi, s, strlen(s) + 1);
 }
 
+static bool try_init_cache_dir_path(const char* candidate) {
+    if (!candidate || !candidate[0] || strlen(candidate) >= sizeof(s_cache_dir) - 64) return false;
+    mkdir(candidate, 0775);
+    if (access(candidate, W_OK | X_OK) == 0) {
+        snprintf(s_cache_dir, sizeof(s_cache_dir), "%s", candidate);
+        return true;
+    }
+    return false;
+}
+
 static void ensure_cache_config(void) {
     if (s_cache_cfg_init) return;
     pthread_mutex_lock(&s_cache_mutex);
     if (!s_cache_cfg_init) {
         s_cache_enabled = env_istrue_d("EMESIS_SHADER_CACHE", true);
-        const char* dir = getenv("EMESIS_SHADER_CACHE_DIR");
-        if (dir && dir[0] != '\0' && strlen(dir) < sizeof(s_cache_dir) - 64) {
-            snprintf(s_cache_dir, sizeof(s_cache_dir), "%s", dir);
-            mkdir(s_cache_dir, 0700);
-        } else {
-            s_cache_dir[0] = '\0';
+        s_cache_dir[0] = '\0';
+        const char* explicit_dir = getenv("EMESIS_SHADER_CACHE_DIR");
+        if (!try_init_cache_dir_path(explicit_dir)) {
+            const char* env_bases[5] = {
+                getenv("MESA_GLSL_CACHE_DIR"),
+                getenv("TMPDIR"),
+                getenv("POJAV_GAME_DIR"),
+                getenv("MC_DIR"),
+                getenv("HOME")
+            };
+            for (int i = 0; i < 5; i++) {
+                if (!env_bases[i] || !env_bases[i][0]) continue;
+                char sub[512];
+                snprintf(sub, sizeof(sub), "%s/%s", env_bases[i],
+                         (i < 2) ? "emesis_shadercache" : ".emesis_shader_cache");
+                if (try_init_cache_dir_path(sub)) break;
+            }
+        }
+        if (s_cache_dir[0] == '\0') {
+            char cwd_buf[384];
+            if (getcwd(cwd_buf, sizeof(cwd_buf)) != NULL && strcmp(cwd_buf, "/") != 0) {
+                char sub[448];
+                snprintf(sub, sizeof(sub), "%s/.emesis_shader_cache", cwd_buf);
+                (void)try_init_cache_dir_path(sub);
+            }
+        }
+        if (s_cache_dir[0] == '\0') {
+            (void)try_init_cache_dir_path("/sdcard/EmesisRenderer/shader_cache");
         }
         s_cache_cfg_init = 1;
     }

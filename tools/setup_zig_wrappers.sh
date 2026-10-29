@@ -130,9 +130,9 @@ EOF
     chmod +x "$WRAP_DIR/${abi}-cc" "$WRAP_DIR/${abi}-cxx" "$WRAP_DIR/${abi}-ar" "$WRAP_DIR/${abi}-ranlib"
 }
 
-make_abi_wrappers "armeabi-v7a" "arm-linux-androideabi.21" "arm-linux-androideabi" "${NDK_PLATFORMS}/arch-arm/usr/lib" "-mcpu=generic+v7a -mfloat-abi=softfp"
-make_abi_wrappers "arm64-v8a"   "aarch64-linux-android.21" "aarch64-linux-android" "${NDK_PLATFORMS}/arch-arm64/usr/lib" ""
-make_abi_wrappers "x86"         "x86-linux-android.21"     "i686-linux-android"    "${NDK_PLATFORMS}/arch-x86/usr/lib" "-msse2 -mfpmath=sse"
-make_abi_wrappers "x86_64"      "x86_64-linux-android.21"  "x86_64-linux-android"  "${NDK_PLATFORMS}/arch-x86_64/usr/lib64" "-msse4.2 -mpopcnt"
+make_abi_wrappers "armeabi-v7a" "thumb-linux-androideabi.21" "arm-linux-androideabi" "${NDK_PLATFORMS}/arch-arm/usr/lib" "-g0 -mcpu=generic+v7a+vfp3+neon+d32 -mfloat-abi=softfp -mimplicit-float"
+make_abi_wrappers "arm64-v8a"   "aarch64-linux-android.21"   "aarch64-linux-android" "${NDK_PLATFORMS}/arch-arm64/usr/lib" "-g0"
+make_abi_wrappers "x86"         "x86-linux-android.21"       "i686-linux-android"    "${NDK_PLATFORMS}/arch-x86/usr/lib" "-g0 -mcpu=yonah+ssse3 -mfpmath=sse"
+make_abi_wrappers "x86_64"      "x86_64-linux-android.21"    "x86_64-linux-android"  "${NDK_PLATFORMS}/arch-x86_64/usr/lib64" "-g0 -mcpu=x86_64+sse4_2+popcnt"
 
 echo "Zig Android API-21 wrappers generated in ${WRAP_DIR}"

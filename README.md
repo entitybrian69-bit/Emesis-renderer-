@@ -6,15 +6,15 @@
 
   **Universal All-in-One Android Renderer Plugin APK for All Pojav Variants & Minecraft: Java Edition**
 
-  [![Download Universal APK](https://img.shields.io/badge/Download-EmesisRenderer--Universal--v1.2.7.apk-00FF88?style=for-the-badge&logo=android&logoColor=080C0F)](./EmesisRenderer-Universal-v1.2.7.apk)
+  [![Download Universal APK](https://img.shields.io/badge/Download-EmesisRenderer--Universal--v1.2.8.apk-00FF88?style=for-the-badge&logo=android&logoColor=080C0F)](./EmesisRenderer-Universal-v1.2.8.apk)
 </div>
 
 ---
 
 ## Latest Build
 
-- **Universal APK (`v1.2.7` — 32-bit & 64-bit Android):**
-  **`EmesisRenderer-Universal-v1.2.7.apk`**
+- **Universal APK (`v1.2.8` — 32-bit & 64-bit Android):**
+  **`EmesisRenderer-Universal-v1.2.8.apk`**
 
 ---
 
@@ -34,9 +34,9 @@
 Emesis Modern Core (`libemesis_modern.so`) is optimized for Minecraft `26.3`'s `RenderPearl` OpenGL backend, **Sodium `26.3`**, and **Iris `26.3`** across Adreno, Mali, PowerVR, and Xclipse GPUs on both 64-bit and 32-bit Android:
 
 - **Dual-Tier Persistent `.essl` + `.pbin` GPU Binary Cache:** Eliminates cold world-load shader translation stalls via a thread-safe 256-slot RAM cache + atomic disk `.essl` cache and `glGetProgramBinary`/`glProgramBinary` GPU ISA `.pbin` cache (keyed by shader sources, bound attribute locations, GPU renderer, and driver version), plus post-link shader compiler memory reclamation.
-- **Zero-Query State Deduplication & Ring-Buffered MultiDraw:** Eliminates synchronous `glGetIntegerv` pipeline stalls on hot draw/buffer/texture paths, deduplicates VAO, UBO (`glBindBufferBase`/`Range`), active TMU, texture, and program bindings, uses non-stalling `64 KB` indirect/index ring buffers for `glMultiDrawElementsBaseVertex`, and exports 269 direct core OpenGL forwarders in `libemesis_renderer.so`.
-- **Full `26.3` RenderPearl, Sodium & Iris Feature Coverage:** Supports per-attachment OIT blending (`glEnablei`/`glDisablei`/`glBlendFuncSeparatei` with PowerVR MRT wrapper), `GL_TEXTURE_BUFFER` (`isamplerBuffer`/`usamplerBuffer` via ES 3.2 core + `EXT`/`OES_texture_buffer`), `#version 430` Compute Shaders + SSBOs + `image2D`, `glTexStorage2D`/`3D` depth/HDR format remapping, and FBO-backed `glClearTexImage`/`glClearTexSubImage`.
-- **32-Bit Android (`armeabi-v7a` / `x86`) Stability & ES 3.0 Fallback:** Automatically protects 32-bit virtual address space (~3 GB limit) from huge persistent `GL_ARB_buffer_storage` `mmap` exhaustion, resolves core GLES/EGL symbols via `libGLESv3.so`/`libGLESv2.so` `dlsym` for strict EGL 1.4 32-bit drivers, uses 32-bit Murmur3 pointer/sync hashing, and provides a zero-compute ES 3.0 index-offset batch ring for `glMultiDrawElementsBaseVertex`.
+- **Zero-Flush TBDR FBO Manager, `GL_ARB_multi_bind`, & Hardware `GL_EXT_multi_draw_indirect` Batching:** Preserves on-chip TBDR tile memory passes by eliminating redundant `glFramebufferTexture2D`/`glDrawBuffers` calls across native-ES3-compatible MRT layouts, accelerates Iris pass switches via `GL_ARB_multi_bind` (`glBindTextures`/`glBindSamplers`/`glBindImageTextures`/`glBindVertexBuffers`), collapses Sodium/Blaze3D `glMultiDrawElementsBaseVertex` chunk draws into single-call `glMultiDrawElementsIndirectEXT` batches over a persistent coherent `1 MB`–`2 MB` indirect ring, enables hardware `EGL_CONTEXT_OPENGL_NO_ERROR_KHR` (`GL_KHR_no_error`), and exports 269 tail-call OpenGL forwarders in `libemesis_renderer.so`.
+- **Full `26.3` RenderPearl, Sodium & Iris Feature Coverage:** Supports per-attachment OIT blending (`glEnablei`/`glDisablei`/`glBlendFuncSeparatei` with PowerVR MRT wrapper), `GL_TEXTURE_BUFFER` (`isamplerBuffer`/`usamplerBuffer` via ES 3.2 core + `EXT`/`OES_texture_buffer`), `#version 430` Compute Shaders + SSBOs + `image2D`, `GL_ARB_copy_image` (`glCopyImageSubData`), `glTexStorage1D`/`2D`/`3D` depth/HDR format remapping, and FBO-backed `glClearTexImage`/`glClearTexSubImage`.
+- **True `ARMv7-A` NEON/VFPv3 & `x86` SSSE3 32-Bit Acceleration:** Compiled with native `ARMv7-A` Thumb-2 + NEON + VFPv3 (`armeabi-v7a`) and `SSSE3` SSE math (`x86`), keeps `GL_ARB_buffer_storage` active on 32-bit for Sodium's `16 MB` `MappedStagingBuffer` and `26.3` persistent transient memory (while capping individual `>96 MB` mappings), tracks coherent mappings per buffer ID, and caches per-EBO CPU index mirrors on pure ES 3.0 GPUs for zero-readback fused draws.
 
 ---
 
@@ -60,7 +60,7 @@ Emesis Compatibility Core (`libemesis_legacy.so`) is purpose-engineered for stut
 
 ## Universal Device Architecture Support (Including 32-bit Android)
 
-A single **`EmesisRenderer-Universal-v1.2.7.apk`** supports Android 5.0+ (`minSdkVersion 21`) through Android 15/16+ (`targetSdkVersion 34`, 16KB page-aligned ELF segments) across **all four Android ABIs**:
+A single **`EmesisRenderer-Universal-v1.2.8.apk`** supports Android 5.0+ (`minSdkVersion 21`) through Android 15/16+ (`targetSdkVersion 34`, 16KB page-aligned ELF segments) across **all four Android ABIs**:
 
 - `armeabi-v7a` — **32-bit ARM** smartphones & tablets
 - `arm64-v8a` — **64-bit ARM** smartphones & tablets
@@ -90,11 +90,11 @@ Emesis Renderer implements **every** renderer integration contract across the Po
 ### Installation & Usage
 
 - **On Plugin-Enabled Pojav Variants (Zalith 1/2, Pojav Glow Worm, Pojav Beta-Zink, Pojav Firefly, FCL):**
-  1. Install **`EmesisRenderer-Universal-v1.2.7.apk`**.
-  2. Open your launcher's **Renderer Settings** and select **`Emesis Renderer v1.2.7 (All Versions — Made by Entitybrian)`**.
+  1. Install **`EmesisRenderer-Universal-v1.2.8.apk`**.
+  2. Open your launcher's **Renderer Settings** and select **`Emesis Renderer v1.2.8 (All Versions — Made by Entitybrian)`**.
   3. Launch any Minecraft version (`<= 1.16.5` or `> 1.16.5`, including `26.3`).
 
 - **On Vanilla Official PojavLauncher / Debug / Custom Forks / Amethyst / MojoLauncher / QuestCraft (Android 5 – Android 16 Scoped Storage):**
-  1. Install **`EmesisRenderer-Universal-v1.2.7.apk`** and open **Emesis Renderer** from your app drawer (or tap **Open** right from the Android installer dialog).
+  1. Install **`EmesisRenderer-Universal-v1.2.8.apk`** and open **Emesis Renderer** from your app drawer (or tap **Open** right from the Android installer dialog).
   2. In the **All Pojav Variants Compatibility** card, tap **Install to Pojav** and tap **Use this folder -> Allow** when PojavLauncher's game folder opens (permission is saved so future APK updates automatically re-sync the randomized `/data/app/~~...` library path in the background via `MY_PACKAGE_REPLACED` even if you tap **Done** in Android's installer).
   3. In Official PojavLauncher's Video Settings, keep Renderer on default **Holy GL4ES (OpenGL ES 2)** (do **not** select raw OpenGL ES 3), then launch any Minecraft version (`<= 1.16.5` or `> 1.16.5`) — Emesis Renderer automatically intercepts EGL + LWJGL/SDL OpenGL and routes to the matching native core.

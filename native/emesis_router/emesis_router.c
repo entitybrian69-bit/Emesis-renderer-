@@ -359,6 +359,42 @@ static void emesis_default_getmainfbsize(int* width, int* height) {
     }
 }
 
+static bool emesis_try_set_cache_dir(const char* path) {
+    if (!path || !*path) return false;
+    mkdir(path, 0775);
+    if (access(path, W_OK | X_OK) == 0) {
+        setenv("EMESIS_SHADER_CACHE_DIR", path, 1);
+        return true;
+    }
+    return false;
+}
+
+static bool emesis_try_extract_android_pkg_cache(const char* any_path) {
+    if (!any_path || !*any_path) return false;
+    const char* hit = strstr(any_path, "/data/user/");
+    if (hit) {
+        const char* p = strchr(hit + 11, '/');
+        const char* end = p ? strchr(p + 1, '/') : NULL;
+        size_t plen = end ? (size_t)(end - hit) : strlen(hit);
+        if (p && plen < 512) {
+            char pkg_cache[1024];
+            snprintf(pkg_cache, sizeof(pkg_cache), "%.*s/cache/emesis_shadercache", (int)plen, hit);
+            if (emesis_try_set_cache_dir(pkg_cache)) return true;
+        }
+    }
+    hit = strstr(any_path, "/data/data/");
+    if (hit) {
+        const char* end = strchr(hit + 11, '/');
+        size_t plen = end ? (size_t)(end - hit) : strlen(hit);
+        if (plen > 11 && plen < 512) {
+            char pkg_cache[1024];
+            snprintf(pkg_cache, sizeof(pkg_cache), "%.*s/cache/emesis_shadercache", (int)plen, hit);
+            if (emesis_try_set_cache_dir(pkg_cache)) return true;
+        }
+    }
+    return false;
+}
+
 static void emesis_setup_shader_cache_env(void) {
     const char* cache_dir = getenv("EMESIS_SHADER_CACHE_DIR");
     if (cache_dir && *cache_dir) {
@@ -366,43 +402,70 @@ static void emesis_setup_shader_cache_env(void) {
         if (access(cache_dir, W_OK | X_OK) == 0) return;
     }
 
-    const char* candidates[3] = {
+    const char* direct_bases[2] = {
         getenv("MESA_GLSL_CACHE_DIR"),
-        getenv("TMPDIR"),
-        getenv("POJAV_NATIVEDIR")
+        getenv("TMPDIR")
     };
     for (int i = 0; i < 2; i++) {
-        if (candidates[i] && *candidates[i]) {
+        if (direct_bases[i] && *direct_bases[i]) {
             char fallback_cache[1024];
-            snprintf(fallback_cache, sizeof(fallback_cache), "%s/emesis_shadercache", candidates[i]);
-            mkdir(fallback_cache, 0775);
-            if (access(fallback_cache, W_OK | X_OK) == 0) {
-                setenv("EMESIS_SHADER_CACHE_DIR", fallback_cache, 1);
-                return;
+            snprintf(fallback_cache, sizeof(fallback_cache), "%s/emesis_shadercache", direct_bases[i]);
+            if (emesis_try_set_cache_dir(fallback_cache)) return;
+        }
+    }
+
+    /* Prefer internal UFS/eMMC app cache dir (/data/user/0/<launcher>/cache) over FUSE /sdcard */
+    const char* pkg_hints[5] = {
+        g_self_dir,
+        getenv("POJAV_NATIVEDIR"),
+        getenv("JAVA_HOME"),
+        getenv("HOME"),
+        getenv("LD_LIBRARY_PATH")
+    };
+    for (int i = 0; i < 5; i++) {
+        if (emesis_try_extract_android_pkg_cache(pkg_hints[i])) return;
+    }
+
+    FILE* cmd_fp = fopen("/proc/self/cmdline", "rb");
+    if (cmd_fp) {
+        char cmd_buf[512] = {0};
+        size_t n = fread(cmd_buf, 1, sizeof(cmd_buf) - 1, cmd_fp);
+        fclose(cmd_fp);
+        if (n > 0) {
+            cmd_buf[n] = '\0';
+            if (emesis_try_extract_android_pkg_cache(cmd_buf)) return;
+            /* If argv[0] is the Android package name itself (e.g. net.kdt.pojavlaunch) */
+            if (cmd_buf[0] != '/' && strchr(cmd_buf, '.') != NULL && strchr(cmd_buf, '/') == NULL) {
+                char pkg_cache[640];
+                snprintf(pkg_cache, sizeof(pkg_cache), "/data/user/0/%s/cache/emesis_shadercache", cmd_buf);
+                if (emesis_try_set_cache_dir(pkg_cache)) return;
+                snprintf(pkg_cache, sizeof(pkg_cache), "/data/data/%s/cache/emesis_shadercache", cmd_buf);
+                if (emesis_try_set_cache_dir(pkg_cache)) return;
             }
         }
     }
 
-    /* Fallback: derive Android app cache dir from g_self_dir (/data/user/0/<pkg>/... or /data/data/<pkg>/...) */
-    if (g_self_dir[0] == '/') {
-        const char* data_prefix = NULL;
-        if (strncmp(g_self_dir, "/data/user/", 11) == 0) {
-            const char* p = strchr(g_self_dir + 11, '/');
-            if (p) data_prefix = strchr(p + 1, '/');
-        } else if (strncmp(g_self_dir, "/data/data/", 11) == 0) {
-            data_prefix = strchr(g_self_dir + 11, '/');
-        }
-        if (data_prefix && (size_t)(data_prefix - g_self_dir) < 512) {
-            char pkg_cache[1024];
-            int plen = (int)(data_prefix - g_self_dir);
-            snprintf(pkg_cache, sizeof(pkg_cache), "%.*s/cache/emesis_shadercache", plen, g_self_dir);
-            mkdir(pkg_cache, 0775);
-            if (access(pkg_cache, W_OK | X_OK) == 0) {
-                setenv("EMESIS_SHADER_CACHE_DIR", pkg_cache, 1);
-                return;
-            }
+    const char* game_bases[3] = {
+        getenv("POJAV_GAME_DIR"),
+        getenv("MC_DIR"),
+        getenv("HOME")
+    };
+    for (int i = 0; i < 3; i++) {
+        if (game_bases[i] && *game_bases[i]) {
+            char fallback_cache[1024];
+            snprintf(fallback_cache, sizeof(fallback_cache), "%s/.emesis_shader_cache", game_bases[i]);
+            if (emesis_try_set_cache_dir(fallback_cache)) return;
         }
     }
+
+    char cwd_buf[1024];
+    if (getcwd(cwd_buf, sizeof(cwd_buf)) != NULL && strcmp(cwd_buf, "/") != 0) {
+        char fallback_cache[1080];
+        snprintf(fallback_cache, sizeof(fallback_cache), "%s/.emesis_shader_cache", cwd_buf);
+        if (emesis_try_set_cache_dir(fallback_cache)) return;
+    }
+
+    (void)emesis_try_set_cache_dir("/sdcard/EmesisRenderer/shader_cache");
 }
 
 static void emesis_init_engine_once(void) {
@@ -849,7 +912,7 @@ __attribute__((visibility("default"))) void* glXGetProcAddressARB(const char* pr
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL
 Java_com_entitybrian_emesis_EmesisNative_getEngineVersion(JNIEnv* env, jclass cls) {
     (void)cls;
-    return (*env)->NewStringUTF(env, "Emesis Renderer v1.2.7 (26.3 + 1.21 + <1.17 Accelerator) — Made by Entitybrian");
+    return (*env)->NewStringUTF(env, "Emesis Renderer v1.2.8 (26.3 + 1.21 + <1.17 Accelerator) — Made by Entitybrian");
 }
 
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL

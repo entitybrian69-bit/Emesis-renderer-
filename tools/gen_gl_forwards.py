@@ -166,11 +166,13 @@ def main():
         out_lines.append(f"__attribute__((visibility(\"default\"))) {ret_type} {name}({sig_params}) {{")
         out_lines.append(f"    typedef {ret_type} (*fn_t)({fn_ptr_params});")
         out_lines.append(f"    static fn_t cached = NULL;")
-        out_lines.append(f"    fn_t f = __atomic_load_n(&cached, __ATOMIC_ACQUIRE);")
-        out_lines.append(f"    if (__builtin_expect(f == NULL, 0)) {{")
-        out_lines.append(f"        f = (fn_t)emesis_resolve_gl_symbol(\"{name}\");")
-        out_lines.append(f"        __atomic_store_n(&cached, f, __ATOMIC_RELEASE);")
-        out_lines.append(f"    }}")
+        out_lines.append(f"    fn_t f = __atomic_load_n(&cached, __ATOMIC_RELAXED);")
+        if is_void:
+            out_lines.append(f"    if (__builtin_expect(f != NULL, 1)) {{ f({call_args}); return; }}")
+        else:
+            out_lines.append(f"    if (__builtin_expect(f != NULL, 1)) return f({call_args});")
+        out_lines.append(f"    f = (fn_t)emesis_resolve_gl_symbol(\"{name}\");")
+        out_lines.append(f"    __atomic_store_n(&cached, f, __ATOMIC_RELEASE);")
         if is_void:
             out_lines.append(f"    if (f) f({call_args});")
         else:
