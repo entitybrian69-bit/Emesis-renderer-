@@ -122,19 +122,17 @@ static bool emesis_is_gl_candidate_lib(const char* filename) {
         strncmp(base, "libGLMojo", 9) == 0 ||
         strncmp(base, "libGLESv2", 9) == 0 ||
         strncmp(base, "libGLESv3", 9) == 0 ||
+        strncmp(base, "libGLESv1", 9) == 0 ||
         strncmp(base, "libGL.so", 8) == 0 ||
         strncmp(base, "libGLX.so", 9) == 0 ||
-        strncmp(base, "libvgpu", 7) == 0) {
+        strncmp(base, "libEGL.so", 9) == 0 ||
+        strncmp(base, "libvgpu", 7) == 0 ||
+        strncmp(base, "libzink", 7) == 0 ||
+        strncmp(base, "libvirgl", 8) == 0 ||
+        strncmp(base, "libOSMesa", 9) == 0 ||
+        strncmp(base, "libmobileglues", 14) == 0 ||
+        strncmp(base, "libangle", 8) == 0) {
         return true;
-    }
-    /* Catch any other built-in renderer library loaded from POJAV_NATIVEDIR */
-    const char* pojav_ndir = getenv("POJAV_NATIVEDIR");
-    if (pojav_ndir && *pojav_ndir && strncmp(filename, pojav_ndir, strlen(pojav_ndir)) == 0) {
-        if (!strstr(base, "openal") && !strstr(base, "glfw") && !strstr(base, "lwjgl") &&
-            !strstr(base, "freetype") && !strstr(base, "shaderc") && !strstr(base, "pojav") &&
-            !strstr(base, "awt") && !strstr(base, "vulkan")) {
-            return true;
-        }
     }
     return false;
 }
@@ -201,34 +199,53 @@ static void emesis_hijack_lwjgl_gl_lib(void) {
         return;
     }
 
-    /* 1. Override System.setProperty("org.lwjgl.opengl.libname", g_self_path) */
+    /* 1. Override System.setProperty("org.lwjgl.opengl.libname" & "org.lwjgl.egl.libname", g_self_path) */
     jclass sys_cls = (*env)->FindClass(env, "java/lang/System");
     if (sys_cls) {
         jmethodID set_prop = (*env)->GetStaticMethodID(
             env, sys_cls, "setProperty", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
         if (set_prop) {
-            jstring jkey = (*env)->NewStringUTF(env, "org.lwjgl.opengl.libname");
-            if (jkey) {
-                jobject prev = (*env)->CallStaticObjectMethod(env, sys_cls, set_prop, jkey, jpath);
+            jstring jkey_gl = (*env)->NewStringUTF(env, "org.lwjgl.opengl.libname");
+            if (jkey_gl) {
+                jobject prev = (*env)->CallStaticObjectMethod(env, sys_cls, set_prop, jkey_gl, jpath);
                 if (prev) (*env)->DeleteLocalRef(env, prev);
-                (*env)->DeleteLocalRef(env, jkey);
+                (*env)->DeleteLocalRef(env, jkey_gl);
+            }
+            (*env)->ExceptionClear(env);
+            jstring jkey_egl = (*env)->NewStringUTF(env, "org.lwjgl.egl.libname");
+            if (jkey_egl) {
+                jobject prev = (*env)->CallStaticObjectMethod(env, sys_cls, set_prop, jkey_egl, jpath);
+                if (prev) (*env)->DeleteLocalRef(env, prev);
+                (*env)->DeleteLocalRef(env, jkey_egl);
             }
         }
         (*env)->DeleteLocalRef(env, sys_cls);
     }
     (*env)->ExceptionClear(env);
 
-    /* 2. Update org.lwjgl.system.Configuration.OPENGL_LIBRARY_NAME.set(g_self_path) if LWJGL3 present */
+    /* 2. Update org.lwjgl.system.Configuration.{OPENGL,EGL}_LIBRARY_NAME.set(g_self_path) if LWJGL3 present */
     jclass cfg_cls = (*env)->FindClass(env, "org/lwjgl/system/Configuration");
     if (cfg_cls) {
-        jfieldID gl_lib_fid = (*env)->GetStaticFieldID(
-            env, cfg_cls, "OPENGL_LIBRARY_NAME", "Lorg/lwjgl/system/Configuration;");
         jmethodID set_mid = (*env)->GetMethodID(env, cfg_cls, "set", "(Ljava/lang/Object;)V");
-        if (gl_lib_fid && set_mid) {
-            jobject opt_obj = (*env)->GetStaticObjectField(env, cfg_cls, gl_lib_fid);
-            if (opt_obj) {
-                (*env)->CallVoidMethod(env, opt_obj, set_mid, jpath);
-                (*env)->DeleteLocalRef(env, opt_obj);
+        if (set_mid) {
+            jfieldID gl_lib_fid = (*env)->GetStaticFieldID(
+                env, cfg_cls, "OPENGL_LIBRARY_NAME", "Lorg/lwjgl/system/Configuration;");
+            if (gl_lib_fid) {
+                jobject opt_obj = (*env)->GetStaticObjectField(env, cfg_cls, gl_lib_fid);
+                if (opt_obj) {
+                    (*env)->CallVoidMethod(env, opt_obj, set_mid, jpath);
+                    (*env)->DeleteLocalRef(env, opt_obj);
+                }
+            }
+            (*env)->ExceptionClear(env);
+            jfieldID egl_lib_fid = (*env)->GetStaticFieldID(
+                env, cfg_cls, "EGL_LIBRARY_NAME", "Lorg/lwjgl/system/Configuration;");
+            if (egl_lib_fid) {
+                jobject opt_egl = (*env)->GetStaticObjectField(env, cfg_cls, egl_lib_fid);
+                if (opt_egl) {
+                    (*env)->CallVoidMethod(env, opt_egl, set_mid, jpath);
+                    (*env)->DeleteLocalRef(env, opt_egl);
+                }
             }
         }
         (*env)->DeleteLocalRef(env, cfg_cls);
@@ -248,9 +265,12 @@ static void emesis_hijack_lwjgl_gl_lib(void) {
     }
     (*env)->ExceptionClear(env);
 
+    setenv("SDL_OPENGL_LIBRARY", g_self_path, 1);
+    setenv("SDL_EGL_LIBRARY", g_self_path, 1);
+
     (*env)->DeleteLocalRef(env, jpath);
     __atomic_store_n(&g_lwjgl_hijacked, 1, __ATOMIC_RELEASE);
-    EMESIS_LOGI("Bound LWJGL OpenGL library target -> %s", g_self_path);
+    EMESIS_LOGI("Bound LWJGL OpenGL + EGL + SDL library targets -> %s", g_self_path);
 }
 
 __attribute__((constructor))
@@ -263,13 +283,19 @@ static void emesis_router_on_load(void) {
         unsetenv("LIBGL_EGL");
     }
 
-    /* Ensure SDL-based LWJGL3 paths in Pojav/Amethyst forks point to our full library path */
-    if (g_self_path[0] == '/') {
-        const char* pojav_egl = getenv("POJAVEXEC_EGL");
-        if (pojav_egl && strstr(pojav_egl, "emesis")) {
-            setenv("SDL_OPENGL_LIBRARY", g_self_path, 0);
-            setenv("SDL_EGL_LIBRARY", g_self_path, 0);
-        }
+    /*
+     * Repair SDL3 library variables whenever Emesis is loaded inside a launcher JVM:
+     * Pojav/Amethyst SDL mode overwrites SDL_OPENGL_LIBRARY=graphicsLib ("libng_gl4es.so")
+     * and mangles SDL_EGL_LIBRARY = NATIVE_LIB_DIR + "/" + POJAVEXEC_EGL after loading
+     * custom_env.txt. Overwriting both with g_self_path ensures SDL_Init(SDL_INIT_VIDEO)
+     * loads libemesis_renderer.so for both EGL (ES 3.2 + no_error) and OpenGL.
+     */
+    if (g_self_path[0] == '/' &&
+        (getenv("JAVA_HOME") || getenv("POJAV_RENDERER") || getenv("POJAVEXEC_EGL") ||
+         getenv("FCL_NATIVEDIR") || getenv("ZL_VERSION"))) {
+        setenv("SDL_OPENGL_LIBRARY", g_self_path, 1);
+        setenv("SDL_EGL_LIBRARY", g_self_path, 1);
+        setenv("POJAVEXEC_EGL", g_self_path, 1);
     }
 }
 
@@ -513,7 +539,7 @@ static void emesis_init_engine_once(void) {
         return;
     }
 
-    EMESIS_LOGI("Emesis Renderer v1.2.6 (Made by Entitybrian) -> Selected [%s] for MC [%s] via [%s]",
+    EMESIS_LOGI("Emesis Renderer v1.3.0 (Made by Entitybrian) -> Selected [%s] for MC [%s] via [%s]",
                 target_soname, g_decision.detected_version, g_decision.detection_source);
 
     if (g_decision.engine == EMESIS_ENGINE_MODERN) {
@@ -912,7 +938,7 @@ __attribute__((visibility("default"))) void* glXGetProcAddressARB(const char* pr
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL
 Java_com_entitybrian_emesis_EmesisNative_getEngineVersion(JNIEnv* env, jclass cls) {
     (void)cls;
-    return (*env)->NewStringUTF(env, "Emesis Renderer v1.2.8 (26.3 + 1.21 + <1.17 Accelerator) — Made by Entitybrian");
+    return (*env)->NewStringUTF(env, "Emesis Renderer v1.3.0 (26.3 DSA + SDL3 + 1.21 + <1.17 Accelerator) — Made by Entitybrian");
 }
 
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL

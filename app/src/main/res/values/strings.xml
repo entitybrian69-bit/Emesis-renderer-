@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Emesis Renderer</string>
-    <string name="author_badge">Made by Entitybrian</string>
-    <string name="plugin_subtitle">Universal All-in-One Pojav &amp; Minecraft: Java Edition Renderer Plugin</string>
+    <string name="emesis_title_routing_mode">Emesis Core Routing Policy</string>
+    <string name="emesis_title_disable_shader_cache">Disable Disk Shader Binary Cache</string>
+    <string name="emesis_title_hide_buffer_storage">Compatibility Buffer Mode (Hide ARB_buffer_storage)</string>
+    <string name="emesis_title_timer_query">Hardware GPU Timer Queries</string>
 
-    <!-- Localized option titles for ZalithLauncher 2 / FoldCraftLauncher V2 plugin settings -->
-    <string name="emesis_title_routing_mode">Pipeline Routing Mode (Auto: &gt;1.16.5 Modern / &lt;=1.16.5 Compatibility)</string>
-    <string name="emesis_title_disable_shader_cache">Disable Persistent 26.x &amp; &lt;1.17 Shader / GPU Binary Cache (Troubleshooting)</string>
-    <string name="emesis_title_hide_buffer_storage">Hide GL_ARB_buffer_storage (Auto-Enabled on 32-bit Devices)</string>
-    <string name="emesis_title_timer_query">Enable Hardware GPU Timer Queries (GL_ARB_timer_query)</string>
-
-    <!-- Official RendererPlugin V2 JSON configuration -->
-    <string name="emesis_v2_config" translatable="false">{\"displayName\":\"Emesis Renderer v1.2.9 (All Versions — Made by Entitybrian)\",\"rendererId\":\"opengles3\",\"rendererGLPath\":\"**|libemesis_renderer.so\",\"rendererEGLPath\":\"**|libemesis_renderer.so\",\"dlopenLibPaths\":[\"**|libemesis_renderer.so\"],\"env\":[{\"type\":\"NormalEnv\",\"key\":\"LIBGL_ES\",\"value\":\"3\"},{\"type\":\"NormalEnv\",\"key\":\"LIBGL_GL\",\"value\":\"31\"},{\"type\":\"NormalEnv\",\"key\":\"LIBGL_MIPMAP\",\"value\":\"3\"},{\"type\":\"NormalEnv\",\"key\":\"LIBGL_NORMALIZE\",\"value\":\"1\"},{\"type\":\"NormalEnv\",\"key\":\"LIBGL_NOERROR\",\"value\":\"1\"},{\"type\":\"NormalEnv\",\"key\":\"LIBGL_NOINTOVLHACK\",\"value\":\"1\"},{\"type\":\"NormalEnv\",\"key\":\"LIBGL_USE_MC_COLOR\",\"value\":\"1\"},{\"type\":\"SelectableEnv\",\"key\":\"EMESIS_FORCE_CORE\",\"title\":{\"key\":\"emesis_title_routing_mode\"},\"check\":false,\"items\":{\"defaultValue\":\"auto\",\"values\":[\"modern\",\"legacy\"]}},{\"type\":\"ToggleableEnv\",\"key\":\"EMESIS_DISABLE_SHADER_CACHE\",\"value\":\"1\",\"title\":{\"key\":\"emesis_title_disable_shader_cache\"},\"toggle\":false},{\"type\":\"ToggleableEnv\",\"key\":\"EMESIS_HIDE_BUFFER_STORAGE\",\"value\":\"1\",\"title\":{\"key\":\"emesis_title_hide_buffer_storage\"},\"toggle\":false},{\"type\":\"ToggleableEnv\",\"key\":\"EMESIS_ENABLE_TIMER_QUERY\",\"value\":\"1\",\"title\":{\"key\":\"emesis_title_timer_query\"},\"toggle\":false}],\"minMCVer\":null,\"maxMCVer\":null}</string>
+    <!--
+      Plugin V2 JSON schema (fclPlugin_V2) recognized by ZalithLauncher 2 and FoldCraftLauncher V2.
+      Uses "**|" dynamic nativeLibraryDir expansion for GL, EGL, SDL3, and dlopen library paths.
+    -->
+    <string name="emesis_v2_config" translatable="false">{\"displayName\":\"Emesis Renderer v1.3.0 (All Versions — Made by Entitybrian)\",\"rendererId\":\"opengles3\",\"rendererGLPath\":\"**|libemesis_renderer.so\",\"rendererEGLPath\":\"**|libemesis_renderer.so\",\"dlopenLibPaths\":[\"**|libemesis_renderer.so\"],\"env\":[{\"type\":\"NormalEnv\",\"key\":\"LIBGL_ES\",\"value\":\"3\"},{\"type\":\"NormalEnv\",\"key\":\"LIBGL_GL\",\"value\":\"31\"},{\"type\":\"NormalEnv\",\"key\":\"LIBGL_MIPMAP\",\"value\":\"3\"},{\"type\":\"NormalEnv\",\"key\":\"LIBGL_NORMALIZE\",\"value\":\"1\"},{\"type\":\"NormalEnv\",\"key\":\"LIBGL_NOERROR\",\"value\":\"1\"},{\"type\":\"NormalEnv\",\"key\":\"LIBGL_NOINTOVLHACK\",\"value\":\"1\"},{\"type\":\"NormalEnv\",\"key\":\"LIBGL_USE_MC_COLOR\",\"value\":\"1\"},{\"type\":\"NormalEnv\",\"key\":\"SDL_OPENGL_LIBRARY\",\"value\":\"**|libemesis_renderer.so\"},{\"type\":\"NormalEnv\",\"key\":\"SDL_EGL_LIBRARY\",\"value\":\"**|libemesis_renderer.so\"},{\"type\":\"SelectableEnv\",\"key\":\"EMESIS_FORCE_CORE\",\"title\":{\"key\":\"emesis_title_routing_mode\"},\"check\":false,\"items\":{\"defaultValue\":\"auto\",\"values\":[\"modern\",\"legacy\"]}},{\"type\":\"ToggleableEnv\",\"key\":\"EMESIS_DISABLE_SHADER_CACHE\",\"value\":\"1\",\"title\":{\"key\":\"emesis_title_disable_shader_cache\"},\"toggle\":false},{\"type\":\"ToggleableEnv\",\"key\":\"EMESIS_HIDE_BUFFER_STORAGE\",\"value\":\"1\",\"title\":{\"key\":\"emesis_title_hide_buffer_storage\"},\"toggle\":false},{\"type\":\"ToggleableEnv\",\"key\":\"EMESIS_ENABLE_TIMER_QUERY\",\"value\":\"1\",\"title\":{\"key\":\"emesis_title_timer_query\"},\"toggle\":false}],\"minMCVer\":null,\"maxMCVer\":null}</string>
 </resources>

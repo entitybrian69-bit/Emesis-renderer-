@@ -7,6 +7,7 @@ set(CMAKE_C_STANDARD 11)
 add_library(emesis_modern SHARED
     basevertex.c
     blending.c
+    dsa.c
     egl.c
     framebuffer.c
     env.c

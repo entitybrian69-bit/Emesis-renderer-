@@ -292,6 +292,13 @@ INTERNAL GLenum emesis_tex_index_to_target(int idx) {
     }
 }
 
+INTERNAL GLenum emesis_resolve_tex_target(context_t* ctx, GLuint texture) {
+    if (ctx && texture > 0 && texture < EMESIS_FAST_TEX_MAX && ctx->tex_target_fast[texture] != 0) {
+        return emesis_tex_index_to_target((int)ctx->tex_target_fast[texture] - 1);
+    }
+    return GL_TEXTURE_2D;
+}
+
 INTERNAL GLenum get_textarget_query_param(GLenum target) {
     switch (target) {
         case GL_TEXTURE_1D:
@@ -568,6 +575,7 @@ void glDeleteVertexArrays(GLsizei n, const GLuint *arrays) {
         vao_set_ebo(ctx, v, 0);
         if (v < EMESIS_FAST_VAO_MAX) {
             ctx->vao_ebo_valid_fast[v] = 0;
+            ctx->vao_vb_valid_fast[v] = 0;
         }
         if (ctx->current_vao == v) {
             ctx->current_vao = 0;
@@ -689,11 +697,11 @@ void glBindVertexBuffers(GLuint first, GLsizei count, const GLuint *buffers,
     for (GLsizei i = 0; i < count; i++) {
         GLuint slot = first + (GLuint)i;
         if (!buffers || buffers[i] == 0) {
-            es3_functions.glBindVertexBuffer(slot, 0, 0, 16);
+            glBindVertexBuffer(slot, 0, 0, 16);
         } else {
             GLintptr off = offsets ? offsets[i] : 0;
             GLsizei str = strides ? strides[i] : 16;
-            es3_functions.glBindVertexBuffer(slot, buffers[i], off, str);
+            glBindVertexBuffer(slot, buffers[i], off, str);
         }
     }
 }
@@ -968,13 +976,43 @@ static void invalidate_ubo_cache_for_buffer(context_t* ctx, GLuint buf) {
     }
 }
 
+static size_t query_device_ram_mb(void) {
+    static size_t s_cached_mb = 0;
+    if (s_cached_mb != 0) return s_cached_mb;
+    FILE* f = fopen("/proc/meminfo", "r");
+    if (!f) {
+        s_cached_mb = 4096;
+        return s_cached_mb;
+    }
+    char line[128];
+    unsigned long kb = 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "MemTotal: %lu kB", &kb) == 1 && kb > 0) {
+            break;
+        }
+    }
+    fclose(f);
+    s_cached_mb = kb ? (size_t)(kb / 1024ul) : 4096u;
+    return s_cached_mb;
+}
+
 static bool upload_ring_ensure_init(context_t* ctx) {
     upload_ring_t* ring = &ctx->upload_ring;
     if (ring->ready) return true;
     if (ring->init_attempted) return false;
     ring->init_attempted = true;
 
-    size_t total = (sizeof(void*) == 4) ? EMESIS_UPLOAD_RING_SIZE_32 : EMESIS_UPLOAD_RING_SIZE_64;
+    size_t total = EMESIS_UPLOAD_RING_SIZE_32;
+    if (sizeof(void*) > 4) {
+        size_t ram_mb = query_device_ram_mb();
+        if (ram_mb <= 4608u) {
+            total = 8u * 1024u * 1024u;
+        } else if (ram_mb <= 6656u) {
+            total = 16u * 1024u * 1024u;
+        } else {
+            total = EMESIS_UPLOAD_RING_SIZE_64;
+        }
+    }
     es3_functions.glGenBuffers(1, &ring->buffer);
     if (ring->buffer == 0) return false;
 
@@ -1321,9 +1359,16 @@ void glDeleteBuffers(GLsizei n, const GLuint *buffers) {
     context_t* ctx = emesis_get_context();
     if (!ctx || n <= 0 || !buffers) return;
     es3_functions.glDeleteBuffers(n, buffers);
+    bool clear_vb_cache = false;
     for (GLsizei i = 0; i < n; i++) {
         GLuint b = buffers[i];
         if (b == 0) continue;
+        if (b >= EMESIS_FAST_BUF_MAX || (ctx->buf_flags_fast[b] & EMESIS_BUF_FLAG_VB_BOUND) != 0) {
+            clear_vb_cache = true;
+            if (b < EMESIS_FAST_BUF_MAX) {
+                ctx->buf_flags_fast[b] &= (uint8_t)~EMESIS_BUF_FLAG_VB_BOUND;
+            }
+        }
         buf_set_coherent(ctx, b, false);
         buf_set_size(ctx, b, 0);
         buf_invalidate_tbo_bindings(ctx, b);
@@ -1346,6 +1391,9 @@ void glDeleteBuffers(GLsizei n, const GLuint *buffers) {
                 ctx->vao_ebo_valid_fast[ctx->current_vao] = 0;
             }
         }
+    }
+    if (clear_vb_cache) {
+        memset(ctx->vao_vb_valid_fast, 0, sizeof(ctx->vao_vb_valid_fast));
     }
 }
 

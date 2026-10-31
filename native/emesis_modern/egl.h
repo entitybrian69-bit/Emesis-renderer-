@@ -30,7 +30,9 @@
 
 #define EMESIS_BUF_FLAG_COHERENT_MAPPED 0x01u
 #define EMESIS_BUF_FLAG_TBO_ATTACHED    0x02u
+#define EMESIS_BUF_FLAG_VB_BOUND        0x04u
 
+#define EMESIS_FAST_VAO_VB_SLOTS 4
 #define EMESIS_UPLOAD_SEGMENTS 4
 
 typedef struct {
@@ -64,7 +66,9 @@ typedef struct {
     GLuint indirectRenderBuffer;
     void* indirectMappedPtr;
     size_t indirectRingSize;
+    size_t indirectSegSize;
     size_t indirectRingOffset;
+    GLsync indirectFences[EMESIS_UPLOAD_SEGMENTS];
     basevertex_indirect_cmd_t* scratchPasses;
     size_t scratchCap;
     GLuint es30IndexBuffer;
@@ -173,6 +177,10 @@ typedef struct {
     bool default_vao_ebo_valid;
     GLuint vao_ebo_fast[EMESIS_FAST_VAO_MAX];
     uint8_t vao_ebo_valid_fast[EMESIS_FAST_VAO_MAX];
+    GLuint vao_vb_buf_fast[EMESIS_FAST_VAO_MAX][EMESIS_FAST_VAO_VB_SLOTS];
+    GLintptr vao_vb_off_fast[EMESIS_FAST_VAO_MAX][EMESIS_FAST_VAO_VB_SLOTS];
+    GLsizei vao_vb_stride_fast[EMESIS_FAST_VAO_MAX][EMESIS_FAST_VAO_VB_SLOTS];
+    uint8_t vao_vb_valid_fast[EMESIS_FAST_VAO_MAX];
     uint8_t tex_flags_fast[EMESIS_FAST_TEX_MAX];
     uint8_t tex_target_fast[EMESIS_FAST_TEX_MAX];
     GLenum tex_intfmt_fast[EMESIS_FAST_TEX_MAX];
@@ -239,6 +247,7 @@ static inline __attribute__((always_inline)) void emesis_ensure_current_context(
 extern GLenum get_textarget_query_param(GLenum target);
 extern int emesis_tex_target_index(GLenum target);
 extern GLenum emesis_tex_index_to_target(int idx);
+extern GLenum emesis_resolve_tex_target(context_t* ctx, GLuint texture);
 extern GLuint emesis_get_bound_texture(GLenum target);
 extern GLuint emesis_get_current_ebo(void);
 extern void emesis_invalidate_vao_ebo_cache(context_t* ctx);

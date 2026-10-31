@@ -47,7 +47,23 @@ public final class PojavBridgeSync {
              + "LIBGL_USE_MC_COLOR=1\n"
              + "SDL_OPENGL_LIBRARY=" + routerPath + "\n"
              + "SDL_EGL_LIBRARY=" + routerPath + "\n"
-             + "_JAVA_OPTIONS=-Dorg.lwjgl.opengl.libname=" + routerPath;
+             + "_JAVA_OPTIONS=-Dorg.lwjgl.opengl.libname=" + routerPath + " -Dorg.lwjgl.egl.libname=" + routerPath;
+    }
+
+    public static boolean hasPersistedSafGrants(Context context) {
+        if (Build.VERSION.SDK_INT < 21 || context == null) return false;
+        try {
+            List<UriPermission> perms = context.getContentResolver().getPersistedUriPermissions();
+            if (perms == null) return false;
+            for (int i = 0; i < perms.size(); i++) {
+                UriPermission perm = perms.get(i);
+                if (perm != null && perm.isWritePermission() && perm.getUri() != null) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
     }
 
     public static List<String> syncAllLauncherConfigs(Context context) {

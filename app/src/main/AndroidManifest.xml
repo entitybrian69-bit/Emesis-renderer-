@@ -4,6 +4,7 @@
     <!-- Optional storage permissions for reading/writing /sdcard/EmesisRenderer/config.json and Pojav custom_env.txt -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Android 11+ (API 30+) package visibility across all PojavLauncher variants & successors -->
     <queries>
@@ -41,6 +42,12 @@
         <package android:name="com.qcxr.qcxr" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
+        </intent>
+        <intent>
+            <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT_TREE" />
         </intent>
     </queries>
 
@@ -107,7 +114,7 @@
         <!-- Plugin Display Description & Native GL/EGL Entrypoints (leading '/' resolves full nativeLibraryDir for EGL) -->
         <meta-data
             android:name="des"
-            android:value="Emesis Renderer v1.2.9 (All Versions — Made by Entitybrian)" />
+            android:value="Emesis Renderer v1.3.0 (All Versions — Made by Entitybrian)" />
         <meta-data
             android:name="renderer"
             android:value="EmesisRenderer:libemesis_renderer.so:/libemesis_renderer.so" />

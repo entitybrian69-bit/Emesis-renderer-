@@ -261,6 +261,29 @@ void glVertexAttrib4Niv( 	GLuint index,
 void glBindVertexBuffer(GLuint bindingindex, GLuint buffer, GLintptr offset, GLsizei stride) {
     context_t* ctx = emesis_get_context();
     if (!ctx || !ctx->es31 || !es3_functions.glBindVertexBuffer) return;
+    GLuint vao = ctx->current_vao;
+    if (ctx->current_vao_valid && vao > 0 && vao < EMESIS_FAST_VAO_MAX &&
+        bindingindex < EMESIS_FAST_VAO_VB_SLOTS) {
+        uint8_t bit = (uint8_t)(1u << bindingindex);
+        if ((ctx->vao_vb_valid_fast[vao] & bit) != 0 &&
+            ctx->vao_vb_buf_fast[vao][bindingindex] == buffer &&
+            ctx->vao_vb_off_fast[vao][bindingindex] == offset &&
+            ctx->vao_vb_stride_fast[vao][bindingindex] == stride) {
+            return;
+        }
+        es3_functions.glBindVertexBuffer(bindingindex, buffer, offset, stride);
+        ctx->vao_vb_buf_fast[vao][bindingindex] = buffer;
+        ctx->vao_vb_off_fast[vao][bindingindex] = offset;
+        ctx->vao_vb_stride_fast[vao][bindingindex] = stride;
+        ctx->vao_vb_valid_fast[vao] |= bit;
+        if (buffer > 0 && buffer < EMESIS_FAST_BUF_MAX) {
+            ctx->buf_flags_fast[buffer] |= EMESIS_BUF_FLAG_VB_BOUND;
+        }
+        return;
+    }
+    if (buffer > 0 && buffer < EMESIS_FAST_BUF_MAX) {
+        ctx->buf_flags_fast[buffer] |= EMESIS_BUF_FLAG_VB_BOUND;
+    }
     es3_functions.glBindVertexBuffer(bindingindex, buffer, offset, stride);
 }
 

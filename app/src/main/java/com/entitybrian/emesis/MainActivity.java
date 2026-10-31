@@ -90,7 +90,7 @@ public class MainActivity extends Activity {
         heroCard.addView(logoView, logoLp);
 
         TextView titleView = new TextView(this);
-        titleView.setText("EMESIS RENDERER v1.2.9");
+        titleView.setText("EMESIS RENDERER v1.3.0");
         titleView.setTextColor(Color.parseColor("#F3F7FA"));
         titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 23);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
@@ -219,17 +219,7 @@ public class MainActivity extends Activity {
         bridgeStatusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         pojavCard.addView(bridgeStatusText, marginTop(8));
 
-        // Automatically keep linked Pojav SAF folders + legacy dirs synced whenever this app opens
-        List<String> autoSynced = PojavBridgeSync.syncAllLauncherConfigs(this);
-        if (!autoSynced.isEmpty()) {
-            StringBuilder sb = new StringBuilder("Auto-synced custom_env.txt to linked launcher folder(s):\n");
-            for (int i = 0; i < autoSynced.size(); i++) {
-                if (i > 0) sb.append("\n");
-                sb.append("• ").append(autoSynced.get(i));
-            }
-            bridgeStatusText.setText(sb.toString());
-            bridgeStatusText.setTextColor(Color.parseColor("#00FF88"));
-        }
+        refreshAutoSyncStatus();
 
         installEnvBtn.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -523,6 +513,34 @@ public class MainActivity extends Activity {
                     bridgeStatusText.setTextColor(Color.parseColor("#EF4444"));
                 }
             }
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshAutoSyncStatus();
+    }
+
+    private void refreshAutoSyncStatus() {
+        if (bridgeStatusText == null) return;
+        String routerPath = PojavBridgeSync.getRouterPath(this);
+        activeCustomEnvContent = PojavBridgeSync.buildPojavCustomEnv(routerPath);
+        List<String> autoSynced = PojavBridgeSync.syncAllLauncherConfigs(this);
+        if (!autoSynced.isEmpty()) {
+            StringBuilder sb = new StringBuilder("SAF Auto-Sync ACTIVE — custom_env.txt updated to current v1.3.0 path:\n");
+            for (int i = 0; i < autoSynced.size(); i++) {
+                if (i > 0) sb.append("\n");
+                sb.append("• ").append(autoSynced.get(i));
+            }
+            bridgeStatusText.setText(sb.toString());
+            bridgeStatusText.setTextColor(Color.parseColor("#00FF88"));
+        } else if (!PojavBridgeSync.hasPersistedSafGrants(this)) {
+            bridgeStatusText.setText(
+                "IMPORTANT AFTER APK UPDATE: Tap 'Install to Pojav' -> 'Use this folder' -> 'Allow' once! "
+                + "Android 11+ changes /data/app/~~... paths on every APK update; linking SAF once keeps custom_env.txt updated forever.\n"
+                + "Current path: " + routerPath);
+            bridgeStatusText.setTextColor(Color.parseColor("#FBBF24"));
         }
     }
 

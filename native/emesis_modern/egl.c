@@ -194,6 +194,10 @@ void build_extension_string(context_t* context) {
     add_extra_extension(context, &length, "GL_ARB_clear_texture");
     add_extra_extension(context, &length, "GL_ARB_multi_bind");
     add_extra_extension(context, &length, "GL_ARB_get_program_binary");
+    add_extra_extension(context, &length, "GL_ARB_occlusion_query2");
+    if (env_istrue_d("EMESIS_ENABLE_DSA", true) && !env_istrue("EMESIS_DISABLE_DSA")) {
+        add_extra_extension(context, &length, "GL_ARB_direct_state_access");
+    }
     if (env_istrue_d("LIBGL_NOERROR", true) && !env_istrue("EMESIS_DEBUG")) {
         add_extra_extension(context, &length, "GL_KHR_no_error");
     }
