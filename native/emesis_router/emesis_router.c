@@ -94,6 +94,8 @@ static EGLContext (*g_mod_eglCreateContext)(EGLDisplay, EGLConfig, EGLContext, c
 static EGLBoolean (*g_mod_eglDestroyContext)(EGLDisplay, EGLContext) = NULL;
 static EGLBoolean (*g_mod_eglMakeCurrent)(EGLDisplay, EGLSurface, EGLSurface, EGLContext) = NULL;
 static volatile int g_lwjgl_hijacked = 0;
+static volatile int g_jvm_sanitized = 0;
+static int g_was_launcher_env = 0;
 
 static void emesis_discover_self_paths(void) {
     if (g_self_dir[0]) return;
@@ -169,6 +171,180 @@ static jlong JNICALL emesis_lwjgl_ndlopen_hook(JNIEnv* env, jclass cls, jlong fi
     return (jlong)(uintptr_t)dlopen(filename, (int)jmode);
 }
 
+typedef jint (*emesis_JNI_GetCreatedJavaVMs_t)(JavaVM**, jsize, jsize*);
+
+static emesis_JNI_GetCreatedJavaVMs_t emesis_resolve_get_created_java_vms(void) {
+    emesis_JNI_GetCreatedJavaVMs_t fn =
+        (emesis_JNI_GetCreatedJavaVMs_t)dlsym(RTLD_DEFAULT, "JNI_GetCreatedJavaVMs");
+    if (fn) return fn;
+
+    /* Fallback for isolated linker namespaces (e.g. mojoexec-primary) */
+    FILE* fp = fopen("/proc/self/maps", "r");
+    if (!fp) return NULL;
+    char line[1024];
+    while (fgets(line, sizeof(line), fp)) {
+        char* slash = strchr(line, '/');
+        if (!slash) continue;
+        size_t len = strlen(slash);
+        while (len > 0 && (slash[len - 1] == '\n' || slash[len - 1] == '\r' || slash[len - 1] == ' ')) {
+            slash[--len] = '\0';
+        }
+        if (len >= 10 && strcmp(slash + len - 10, "/libjvm.so") == 0) {
+            void* jvm_h = dlopen(slash, RTLD_LAZY | RTLD_NOLOAD);
+            if (!jvm_h) jvm_h = dlopen(slash, RTLD_LAZY | RTLD_LOCAL);
+            if (jvm_h) {
+                fn = (emesis_JNI_GetCreatedJavaVMs_t)dlsym(jvm_h, "JNI_GetCreatedJavaVMs");
+                if (fn) break;
+            }
+        }
+    }
+    fclose(fp);
+    return fn;
+}
+
+static bool emesis_is_pojav_data_dir_exact(const char* seg, size_t len) {
+    const char* prefix = "/data/user/";
+    const char* suffix = "/net.kdt.pojavlaunch";
+    const size_t plen = 11;
+    const size_t slen = 20;
+    if (len <= plen + slen) return false;
+    if (strncmp(seg, prefix, plen) != 0) return false;
+    if (strncmp(seg + len - slen, suffix, slen) != 0) return false;
+    for (size_t i = plen; i < len - slen; i++) {
+        if (seg[i] < '0' || seg[i] > '9') return false;
+    }
+    return true;
+}
+
+/*
+ * Sanitizes JVM process environment & library path markers inspected by Sodium 0.6+/0.9+
+ * PostLaunchChecks.isUsingPojavLauncher() without modifying C environ (preserving Official
+ * PojavLauncher's C getenv("POJAV_RENDERER") inside gl_bridge.c).
+ */
+static void emesis_sanitize_jvm_for_sodium(JNIEnv* env) {
+    if (!env || __atomic_load_n(&g_jvm_sanitized, __ATOMIC_ACQUIRE)) return;
+    if ((*env)->ExceptionCheck(env)) return;
+
+    jclass pe_cls = (*env)->FindClass(env, "java/lang/ProcessEnvironment");
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    jclass var_cls = pe_cls ? (*env)->FindClass(env, "java/lang/ProcessEnvironment$Variable") : NULL;
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    jclass map_cls = (*env)->FindClass(env, "java/util/Map");
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+
+    if (pe_cls && var_cls && map_cls) {
+        jfieldID env_fid = (*env)->GetStaticFieldID(env, pe_cls, "theEnvironment", "Ljava/util/HashMap;");
+        if ((*env)->ExceptionCheck(env) || !env_fid) {
+            (*env)->ExceptionClear(env);
+            env_fid = (*env)->GetStaticFieldID(env, pe_cls, "theEnvironment", "Ljava/util/Map;");
+            if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        }
+        jmethodID val_of = (*env)->GetStaticMethodID(
+            env, var_cls, "valueOf", "(Ljava/lang/String;)Ljava/lang/ProcessEnvironment$Variable;");
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        jmethodID map_remove = (*env)->GetMethodID(
+            env, map_cls, "remove", "(Ljava/lang/Object;)Ljava/lang/Object;");
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+
+        if (env_fid && val_of && map_remove) {
+            jobject env_map = (*env)->GetStaticObjectField(env, pe_cls, env_fid);
+            if ((*env)->ExceptionCheck(env)) {
+                (*env)->ExceptionClear(env);
+                env_map = NULL;
+            }
+            if (env_map) {
+                const char* keys_to_strip[2] = {"POJAV_RENDERER", "POJAV_LAUNCHER"};
+                for (int i = 0; i < 2; i++) {
+                    jstring jk = (*env)->NewStringUTF(env, keys_to_strip[i]);
+                    if (jk) {
+                        jobject var_key = (*env)->CallStaticObjectMethod(env, var_cls, val_of, jk);
+                        if ((*env)->ExceptionCheck(env)) {
+                            (*env)->ExceptionClear(env);
+                            var_key = NULL;
+                        }
+                        if (var_key) {
+                            jobject old_val = (*env)->CallObjectMethod(env, env_map, map_remove, var_key);
+                            if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+                            if (old_val) (*env)->DeleteLocalRef(env, old_val);
+                            (*env)->DeleteLocalRef(env, var_key);
+                        }
+                        (*env)->DeleteLocalRef(env, jk);
+                    }
+                }
+                (*env)->DeleteLocalRef(env, env_map);
+            }
+        }
+    }
+    if (pe_cls) (*env)->DeleteLocalRef(env, pe_cls);
+    if (var_cls) (*env)->DeleteLocalRef(env, var_cls);
+    if (map_cls) (*env)->DeleteLocalRef(env, map_cls);
+    (*env)->ExceptionClear(env);
+
+    jclass sys_cls = (*env)->FindClass(env, "java/lang/System");
+    if (sys_cls) {
+        jmethodID get_prop = (*env)->GetStaticMethodID(
+            env, sys_cls, "getProperty", "(Ljava/lang/String;)Ljava/lang/String;");
+        jmethodID set_prop = (*env)->GetStaticMethodID(
+            env, sys_cls, "setProperty", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        if (get_prop && set_prop) {
+            jstring jlp_key = (*env)->NewStringUTF(env, "java.library.path");
+            if (jlp_key) {
+                jstring jlp_val = (jstring)(*env)->CallStaticObjectMethod(env, sys_cls, get_prop, jlp_key);
+                if ((*env)->ExceptionCheck(env)) {
+                    (*env)->ExceptionClear(env);
+                    jlp_val = NULL;
+                }
+                if (jlp_val) {
+                    const char* raw_lp = (*env)->GetStringUTFChars(env, jlp_val, NULL);
+                    if (raw_lp) {
+                        size_t raw_len = strlen(raw_lp);
+                        char* out_lp = (char*)malloc(raw_len + 64);
+                        if (out_lp) {
+                            size_t out_pos = 0;
+                            bool modified = false;
+                            const char* p = raw_lp;
+                            while (*p) {
+                                const char* colon = strchr(p, ':');
+                                size_t seg_len = colon ? (size_t)(colon - p) : strlen(p);
+                                if (out_pos > 0) out_lp[out_pos++] = ':';
+                                memcpy(out_lp + out_pos, p, seg_len);
+                                out_pos += seg_len;
+                                if (emesis_is_pojav_data_dir_exact(p, seg_len) &&
+                                    out_pos + 4 < raw_len + 64) {
+                                    out_lp[out_pos++] = '/';
+                                    out_lp[out_pos++] = '.';
+                                    modified = true;
+                                }
+                                if (!colon) break;
+                                p = colon + 1;
+                            }
+                            out_lp[out_pos] = '\0';
+                            if (modified) {
+                                jstring jnew_lp = (*env)->NewStringUTF(env, out_lp);
+                                if (jnew_lp) {
+                                    jobject prev = (*env)->CallStaticObjectMethod(
+                                        env, sys_cls, set_prop, jlp_key, jnew_lp);
+                                    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+                                    if (prev) (*env)->DeleteLocalRef(env, prev);
+                                    (*env)->DeleteLocalRef(env, jnew_lp);
+                                }
+                            }
+                            free(out_lp);
+                        }
+                        (*env)->ReleaseStringUTFChars(env, jlp_val, raw_lp);
+                    }
+                    (*env)->DeleteLocalRef(env, jlp_val);
+                }
+                (*env)->DeleteLocalRef(env, jlp_key);
+            }
+        }
+        (*env)->DeleteLocalRef(env, sys_cls);
+    }
+    (*env)->ExceptionClear(env);
+    __atomic_store_n(&g_jvm_sanitized, 1, __ATOMIC_RELEASE);
+}
+
 /*
  * Ensures LWJGL 2 & LWJGL 3 bind OpenGL to libemesis_renderer.so whenever Emesis is active as
  * POJAVEXEC_EGL, even if a Pojav variant overwrote -Dorg.lwjgl.opengl.libname on the CLI with
@@ -178,11 +354,9 @@ static void emesis_hijack_lwjgl_gl_lib(void) {
     if (__atomic_load_n(&g_lwjgl_hijacked, __ATOMIC_ACQUIRE)) return;
     emesis_discover_self_paths();
     if (g_self_path[0] != '/') return;
-    if (!getenv("JAVA_HOME") && !getenv("POJAV_RENDERER") && !getenv("POJAVEXEC_EGL")) return;
+    if (!g_was_launcher_env && !getenv("JAVA_HOME") && !getenv("POJAV_RENDERER") && !getenv("POJAVEXEC_EGL")) return;
 
-    typedef jint (*JNI_GetCreatedJavaVMs_t)(JavaVM**, jsize, jsize*);
-    JNI_GetCreatedJavaVMs_t get_vms =
-        (JNI_GetCreatedJavaVMs_t)dlsym(RTLD_DEFAULT, "JNI_GetCreatedJavaVMs");
+    emesis_JNI_GetCreatedJavaVMs_t get_vms = emesis_resolve_get_created_java_vms();
     if (!get_vms) return;
 
     JavaVM* vm = NULL;
@@ -192,6 +366,8 @@ static void emesis_hijack_lwjgl_gl_lib(void) {
     JNIEnv* env = NULL;
     if ((*vm)->GetEnv(vm, (void**)&env, JNI_VERSION_1_6) != JNI_OK || !env) return;
     if ((*env)->ExceptionCheck(env)) return;
+
+    emesis_sanitize_jvm_for_sodium(env);
 
     jstring jpath = (*env)->NewStringUTF(env, g_self_path);
     if (!jpath) {
@@ -277,6 +453,11 @@ __attribute__((constructor))
 static void emesis_router_on_load(void) {
     emesis_discover_self_paths();
 
+    if (getenv("JAVA_HOME") || getenv("POJAV_RENDERER") || getenv("POJAVEXEC_EGL") ||
+        getenv("FCL_NATIVEDIR") || getenv("ZL_VERSION")) {
+        g_was_launcher_env = 1;
+    }
+
     /* Prevent self-referential LIBGL_EGL loops across all Pojav variants */
     const char* libgl_egl = getenv("LIBGL_EGL");
     if (libgl_egl && strstr(libgl_egl, "emesis")) {
@@ -290,12 +471,23 @@ static void emesis_router_on_load(void) {
      * custom_env.txt. Overwriting both with g_self_path ensures SDL_Init(SDL_INIT_VIDEO)
      * loads libemesis_renderer.so for both EGL (ES 3.2 + no_error) and OpenGL.
      */
-    if (g_self_path[0] == '/' &&
-        (getenv("JAVA_HOME") || getenv("POJAV_RENDERER") || getenv("POJAVEXEC_EGL") ||
-         getenv("FCL_NATIVEDIR") || getenv("ZL_VERSION"))) {
+    if (g_self_path[0] == '/' && g_was_launcher_env) {
         setenv("SDL_OPENGL_LIBRARY", g_self_path, 1);
         setenv("SDL_EGL_LIBRARY", g_self_path, 1);
         setenv("POJAVEXEC_EGL", g_self_path, 1);
+    }
+
+    /*
+     * On MojoExec-based launchers (Aerix, MojoLauncher, Zalith2, FCL SDL3) where
+     * libpojavexec's pojavInitOpenGL does not exist, strip POJAV_RENDERER/POJAV_LAUNCHER
+     * right inside MojoExec.prepareEgl() BEFORE JNI_CreateJavaVM() starts so Sodium's
+     * PostLaunchChecks never sees POJAV_RENDERER in ProcessEnvironment.
+     * (Official PojavLauncher's libpojavexec.so needs C getenv("POJAV_RENDERER") during
+     * gl_init_context() and is sanitized via JNI in emesis_sanitize_jvm_for_sodium() instead.)
+     */
+    if (g_was_launcher_env && dlsym(RTLD_DEFAULT, "pojavInitOpenGL") == NULL) {
+        unsetenv("POJAV_RENDERER");
+        unsetenv("POJAV_LAUNCHER");
     }
 }
 
@@ -764,6 +956,7 @@ __attribute__((visibility("default"))) EGLBoolean eglSwapInterval(EGLDisplay dpy
 
 __attribute__((visibility("default"))) EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_context, const EGLint* attrib_list) {
     emesis_ensure_engine();
+    emesis_hijack_lwjgl_gl_lib();
     if (g_decision.engine == EMESIS_ENGINE_MODERN && g_mod_eglCreateContext) {
         /*
          * Promote context request to OpenGL ES 3.2 -> 3.1 -> 3.0 even if a PojavLauncher
@@ -938,7 +1131,7 @@ __attribute__((visibility("default"))) void* glXGetProcAddressARB(const char* pr
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL
 Java_com_entitybrian_emesis_EmesisNative_getEngineVersion(JNIEnv* env, jclass cls) {
     (void)cls;
-    return (*env)->NewStringUTF(env, "Emesis Renderer v1.3.0 (26.3 DSA + SDL3 + 1.21 + <1.17 Accelerator) — Made by Entitybrian");
+    return (*env)->NewStringUTF(env, "Emesis Renderer v1.3.1 (26.3 Sodium + DSA + SDL3 + <1.17 Accelerator) — Made by Entitybrian");
 }
 
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL

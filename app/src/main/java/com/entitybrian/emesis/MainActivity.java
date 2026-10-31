@@ -90,7 +90,7 @@ public class MainActivity extends Activity {
         heroCard.addView(logoView, logoLp);
 
         TextView titleView = new TextView(this);
-        titleView.setText("EMESIS RENDERER v1.3.0");
+        titleView.setText("EMESIS RENDERER v1.3.1");
         titleView.setTextColor(Color.parseColor("#F3F7FA"));
         titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 23);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
@@ -174,13 +174,13 @@ public class MainActivity extends Activity {
         pojavCard.addView(sectionHeader("ALL POJAV VARIANTS COMPATIBILITY"));
 
         pojavCard.addView(infoLine("Detected Launchers on This Device", scanInstalledLaunchers()));
-        pojavCard.addView(infoLine("Plugin-Aware Pojav Variants (Zero Config)",
-                "Pojav Glow Worm (PGW), Pojav Beta-Zink, Pojav Firefly, ZalithLauncher 1 & 2, and FoldCraftLauncher automatically list 'Emesis Renderer' in Renderer Settings."));
+        pojavCard.addView(infoLine("Plugin-Aware Launchers (100% Automatic Updates)",
+                "Aerix Launcher, Pojav Glow Worm (PGW), Pojav Beta-Zink, Pojav Firefly, ZalithLauncher 1 & 2, and FoldCraftLauncher automatically list 'Emesis Renderer' in Renderer Settings and resolve APK updates dynamically with zero manual syncing!"));
         pojavCard.addView(infoLine("Official PojavLauncher / Debug / Amethyst / Mojo Setup",
-                "1) Tap 'Install to Pojav' below and tap 'Use this folder' -> 'Allow' when PojavLauncher's folder opens (future APK updates auto-sync custom_env.txt in the background automatically!).\n"
+                "1) Tap 'Install to Pojav' below once and tap 'Use this folder' -> 'Allow' (future APK updates auto-sync custom_env.txt in the background automatically!).\n"
                 + "2) In Official PojavLauncher Video Settings, keep Renderer on default 'Holy GL4ES (OpenGL ES 2)' — do NOT select raw 'OpenGL ES 3 (DesktopGL)'. Emesis automatically promotes the context to GLES 3.2/3.1/3.0 + Shader Accelerator!"));
 
-        activeCustomEnvContent = PojavBridgeSync.buildPojavCustomEnv(routerPath);
+        activeCustomEnvContent = PojavBridgeSync.buildRecommendedEnvForDevice(this);
 
         TextView envPreview = new TextView(this);
         envPreview.setText(activeCustomEnvContent);
@@ -358,14 +358,20 @@ public class MainActivity extends Activity {
             try {
                 PackageInfo pi = pm.getPackageInfo(pkg, 0);
                 if (pi != null) {
-                    String badge = "plugin".equals(mode) ? "[Auto Plugin]" : "[SAF custom_env]";
+                    if (PojavBridgeSync.isAerixPackage(this, pkg)) {
+                        title = pkg.endsWith(".debug") ? "Aerix Launcher (Debug)" : "Aerix Launcher";
+                        mode = "plugin";
+                    } else if (PojavBridgeSync.isNativePluginBridgePackage(this, pkg)) {
+                        mode = "plugin";
+                    }
+                    String badge = "plugin".equals(mode) ? "[Auto Plugin — Updates Automatically]" : "[SAF custom_env]";
                     found.add("• " + title + " " + badge);
                 }
             } catch (Throwable ignored) {
             }
         }
         if (found.isEmpty()) {
-            return "Ready for all Pojav variants (install any PojavLauncher, PGW, Zalith, Amethyst, Mojo, or FCL build)";
+            return "Ready for all Pojav variants (install any Aerix, PojavLauncher, PGW, Zalith, Amethyst, Mojo, or FCL build)";
         }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < found.size(); i++) {
@@ -381,17 +387,22 @@ public class MainActivity extends Activity {
             cm.setPrimaryClip(ClipData.newPlainText("custom_env.txt", content));
         }
 
+        String legacyFallback = PojavBridgeSync.buildPojavCustomEnv(PojavBridgeSync.getRouterPath(this));
         List<String> written = new ArrayList<String>();
-        written.addAll(PojavBridgeSync.syncPersistedSafTrees(this, content));
-        written.addAll(PojavBridgeSync.writeDirectLegacyLauncherDirs(content));
+        written.addAll(PojavBridgeSync.syncPersistedSafTrees(this, legacyFallback));
+        written.addAll(PojavBridgeSync.writeDirectLegacyLauncherDirs(this, legacyFallback));
 
         if (!written.isEmpty()) {
-            StringBuilder sb = new StringBuilder("Installed custom_env.txt to PojavLauncher (& copied to clipboard):\n");
+            StringBuilder sb = new StringBuilder("Synced launcher environment (& copied to clipboard):\n");
             for (int i = 0; i < written.size(); i++) {
                 if (i > 0) sb.append("\n");
                 sb.append("• ").append(written.get(i));
             }
-            sb.append("\nReady! Launch Minecraft in PojavLauncher (keep Renderer on Holy GL4ES / OpenGL ES 2).");
+            if (PojavBridgeSync.hasOnlyNativePluginLaunchersInstalled(this)) {
+                sb.append("\nPermanent path-free plugin config active! Select 'Emesis Renderer' in Launcher Renderer Settings — future APK updates are 100% automatic!");
+            } else {
+                sb.append("\nReady! Future Emesis APK updates sync automatically in the background.");
+            }
             bridgeStatusText.setText(sb.toString());
             bridgeStatusText.setTextColor(Color.parseColor("#00FF88"));
             return;
@@ -501,11 +512,19 @@ public class MainActivity extends Activity {
                 } catch (Throwable ignored) {
                 }
 
-                String writtenDesc = PojavBridgeSync.writeCustomEnvToTreeUri(this, treeUri, activeCustomEnvContent);
+                String legacyFallback = PojavBridgeSync.buildPojavCustomEnv(PojavBridgeSync.getRouterPath(this));
+                String writtenDesc = PojavBridgeSync.writeCustomEnvForLauncherTree(this, treeUri, legacyFallback);
+                boolean isPluginTree = PojavBridgeSync.isNativePluginBridgeTree(this, treeUri);
                 if (writtenDesc != null) {
-                    bridgeStatusText.setText(
-                        "Successfully wrote custom_env.txt -> " + writtenDesc
-                        + "\nPermission saved! Future Emesis updates auto-sync automatically. Keep Pojav Renderer on 'Holy GL4ES (OpenGL ES 2)' and launch Minecraft!");
+                    if (isPluginTree) {
+                        bridgeStatusText.setText(
+                            "Permanent path-free config written -> " + writtenDesc
+                            + "\n100% Automatic Updates enabled forever! Select 'Emesis Renderer' in Launcher Renderer Settings and launch Minecraft!");
+                    } else {
+                        bridgeStatusText.setText(
+                            "Successfully wrote custom_env.txt -> " + writtenDesc
+                            + "\nPermission saved! Future Emesis updates auto-sync automatically. Keep Pojav Renderer on 'Holy GL4ES (OpenGL ES 2)' and launch Minecraft!");
+                    }
                     bridgeStatusText.setTextColor(Color.parseColor("#00FF88"));
                 } else {
                     bridgeStatusText.setText(
@@ -525,10 +544,17 @@ public class MainActivity extends Activity {
     private void refreshAutoSyncStatus() {
         if (bridgeStatusText == null) return;
         String routerPath = PojavBridgeSync.getRouterPath(this);
-        activeCustomEnvContent = PojavBridgeSync.buildPojavCustomEnv(routerPath);
+        activeCustomEnvContent = PojavBridgeSync.buildRecommendedEnvForDevice(this);
         List<String> autoSynced = PojavBridgeSync.syncAllLauncherConfigs(this);
-        if (!autoSynced.isEmpty()) {
-            StringBuilder sb = new StringBuilder("SAF Auto-Sync ACTIVE — custom_env.txt updated to current v1.3.0 path:\n");
+        if (PojavBridgeSync.hasOnlyNativePluginLaunchersInstalled(this)) {
+            String extra = autoSynced.isEmpty() ? "" : ("\nCleaned custom_env.txt: " + autoSynced.get(0));
+            bridgeStatusText.setText(
+                "100% AUTOMATIC UPDATES ACTIVE — Native Plugin Launcher detected! "
+                + "You never need to open this app after APK updates — just select 'Emesis Renderer' in your launcher's Renderer Settings and play!"
+                + extra);
+            bridgeStatusText.setTextColor(Color.parseColor("#00FF88"));
+        } else if (!autoSynced.isEmpty()) {
+            StringBuilder sb = new StringBuilder("SAF Auto-Sync ACTIVE — custom_env.txt updated to current v1.3.1 path:\n");
             for (int i = 0; i < autoSynced.size(); i++) {
                 if (i > 0) sb.append("\n");
                 sb.append("• ").append(autoSynced.get(i));
@@ -537,8 +563,8 @@ public class MainActivity extends Activity {
             bridgeStatusText.setTextColor(Color.parseColor("#00FF88"));
         } else if (!PojavBridgeSync.hasPersistedSafGrants(this)) {
             bridgeStatusText.setText(
-                "IMPORTANT AFTER APK UPDATE: Tap 'Install to Pojav' -> 'Use this folder' -> 'Allow' once! "
-                + "Android 11+ changes /data/app/~~... paths on every APK update; linking SAF once keeps custom_env.txt updated forever.\n"
+                "ONE-TIME SETUP (Official Pojav / Amethyst / Mojo only): Tap 'Install to Pojav' -> 'Use this folder' -> 'Allow' once! "
+                + "Once linked, all future Emesis APK updates sync custom_env.txt automatically in the background.\n"
                 + "Current path: " + routerPath);
             bridgeStatusText.setTextColor(Color.parseColor("#FBBF24"));
         }

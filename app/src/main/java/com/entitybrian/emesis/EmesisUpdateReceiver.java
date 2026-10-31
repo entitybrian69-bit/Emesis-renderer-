@@ -46,7 +46,7 @@ public class EmesisUpdateReceiver extends BroadcastReceiver {
                     Log.i(TAG, "MY_PACKAGE_REPLACED synced custom_env.txt to "
                             + synced.size() + " launcher folder(s): "
                             + PojavBridgeSync.getRouterPath(appCtx));
-                    if (synced.isEmpty()) {
+                    if (synced.isEmpty() && PojavBridgeSync.hasNonPluginLegacyLauncherInstalled(appCtx)) {
                         postSyncReminderNotification(appCtx);
                     }
                 } catch (Throwable t) {

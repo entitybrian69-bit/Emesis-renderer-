@@ -6,15 +6,15 @@
 
   **Universal All-in-One Android Renderer Plugin APK for All Pojav Variants & Minecraft: Java Edition**
 
-  [![Download Universal APK](https://img.shields.io/badge/Download-EmesisRenderer--Universal--v1.3.0.apk-00FF88?style=for-the-badge&logo=android&logoColor=080C0F)](./EmesisRenderer-Universal-v1.3.0.apk)
+  [![Download Universal APK](https://img.shields.io/badge/Download-EmesisRenderer--Universal--v1.3.1.apk-00FF88?style=for-the-badge&logo=android&logoColor=080C0F)](./EmesisRenderer-Universal-v1.3.1.apk)
 </div>
 
 ---
 
 ## Latest Build
 
-- **Universal APK (`v1.3.0` — 32-bit & 64-bit Android):**
-  **`EmesisRenderer-Universal-v1.3.0.apk`**
+- **Universal APK (`v1.3.1` — 32-bit & 64-bit Android):**
+  **`EmesisRenderer-Universal-v1.3.1.apk`**
 
 ---
 
