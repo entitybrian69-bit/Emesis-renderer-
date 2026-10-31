@@ -34,6 +34,10 @@ static framebuffer_t* alloc_default_fbo(void) {
     fb->sent_es_nbuffers = 1;
     fb->sent_es_drawbuffers[0] = GL_COLOR_ATTACHMENT0;
     fb->attachments_dirty = false;
+    fb->depth_target = GL_NONE;
+    fb->depth_known = true;
+    fb->stencil_target = GL_NONE;
+    fb->stencil_known = true;
     return fb;
 }
 
@@ -201,6 +205,110 @@ static void on_logical_color_update(context_t* ctx, GLenum target, framebuffer_t
     }
 }
 
+static bool is_depth_or_stencil_attachment(GLenum attachment) {
+    return attachment == GL_DEPTH_ATTACHMENT ||
+           attachment == GL_STENCIL_ATTACHMENT ||
+           attachment == GL_DEPTH_STENCIL_ATTACHMENT;
+}
+
+static bool ds_slot_matches(bool known, GLuint cur_target, GLuint cur_obj, GLint cur_level, GLint cur_layer,
+                            GLuint desired_target, GLuint desired_obj, GLint desired_level, GLint desired_layer) {
+    return known &&
+           cur_target == desired_target &&
+           cur_obj == desired_obj &&
+           cur_level == desired_level &&
+           cur_layer == desired_layer;
+}
+
+static void emit_raw_fbo_attachment(context_t* ctx, GLenum target, GLenum attachment,
+                                    GLuint desired_target, GLuint desired_obj, GLint desired_level, GLint desired_layer,
+                                    GLuint prev_target) {
+    switch (desired_target) {
+        case GL_NONE:
+            if (prev_target == GL_RENDERBUFFER) {
+                es3_functions.glFramebufferRenderbuffer(target, attachment, GL_RENDERBUFFER, 0);
+            } else {
+                es3_functions.glFramebufferTexture2D(target, attachment, GL_TEXTURE_2D, 0, 0);
+            }
+            break;
+        case GL_RENDERBUFFER:
+            es3_functions.glFramebufferRenderbuffer(target, attachment, GL_RENDERBUFFER, desired_obj);
+            break;
+        case GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LAYER:
+            es3_functions.glFramebufferTextureLayer(target, attachment, desired_obj, desired_level, desired_layer);
+            break;
+        case EMESIS_FB_GEN_TEXTURE:
+            if (ctx->framebuffertexture) {
+                ctx->framebuffertexture(target, attachment, desired_obj, desired_level);
+            } else {
+                GLenum ttarget = GL_TEXTURE_2D;
+                if (desired_obj > 0 && desired_obj < EMESIS_FAST_TEX_MAX && ctx->tex_target_fast[desired_obj] != 0) {
+                    ttarget = emesis_tex_index_to_target((int)ctx->tex_target_fast[desired_obj] - 1);
+                }
+                if (ttarget == GL_TEXTURE_2D_ARRAY || ttarget == GL_TEXTURE_3D || ttarget == GL_TEXTURE_CUBE_MAP_ARRAY) {
+                    es3_functions.glFramebufferTextureLayer(target, attachment, desired_obj, desired_level, 0);
+                } else {
+                    if (ttarget == GL_TEXTURE_1D || ttarget == GL_NONE) ttarget = GL_TEXTURE_2D;
+                    es3_functions.glFramebufferTexture2D(target, attachment, ttarget, desired_obj, desired_level);
+                }
+            }
+            break;
+        default:
+            es3_functions.glFramebufferTexture2D(target, attachment, desired_target, desired_obj, desired_level);
+            break;
+    }
+}
+
+static void apply_depth_stencil_attachment(context_t* ctx, GLenum target, framebuffer_t* fb, GLenum attachment,
+                                           GLuint desired_target, GLuint desired_obj, GLint desired_level, GLint desired_layer) {
+    if (!fb) {
+        emit_raw_fbo_attachment(ctx, target, attachment, desired_target, desired_obj, desired_level, desired_layer, GL_NONE);
+        return;
+    }
+    if (attachment == GL_DEPTH_ATTACHMENT) {
+        if (ds_slot_matches(fb->depth_known, fb->depth_target, fb->depth_object, fb->depth_level, fb->depth_layer,
+                            desired_target, desired_obj, desired_level, desired_layer)) {
+            return;
+        }
+        emit_raw_fbo_attachment(ctx, target, attachment, desired_target, desired_obj, desired_level, desired_layer, fb->depth_target);
+        fb->depth_target = desired_target;
+        fb->depth_object = desired_obj;
+        fb->depth_level  = desired_level;
+        fb->depth_layer  = desired_layer;
+        fb->depth_known  = true;
+    } else if (attachment == GL_STENCIL_ATTACHMENT) {
+        if (ds_slot_matches(fb->stencil_known, fb->stencil_target, fb->stencil_object, fb->stencil_level, fb->stencil_layer,
+                            desired_target, desired_obj, desired_level, desired_layer)) {
+            return;
+        }
+        emit_raw_fbo_attachment(ctx, target, attachment, desired_target, desired_obj, desired_level, desired_layer, fb->stencil_target);
+        fb->stencil_target = desired_target;
+        fb->stencil_object = desired_obj;
+        fb->stencil_level  = desired_level;
+        fb->stencil_layer  = desired_layer;
+        fb->stencil_known  = true;
+    } else {
+        /* GL_DEPTH_STENCIL_ATTACHMENT */
+        if (ds_slot_matches(fb->depth_known, fb->depth_target, fb->depth_object, fb->depth_level, fb->depth_layer,
+                            desired_target, desired_obj, desired_level, desired_layer) &&
+            ds_slot_matches(fb->stencil_known, fb->stencil_target, fb->stencil_object, fb->stencil_level, fb->stencil_layer,
+                            desired_target, desired_obj, desired_level, desired_layer)) {
+            return;
+        }
+        emit_raw_fbo_attachment(ctx, target, attachment, desired_target, desired_obj, desired_level, desired_layer, fb->depth_target);
+        fb->depth_target   = desired_target;
+        fb->depth_object   = desired_obj;
+        fb->depth_level    = desired_level;
+        fb->depth_layer    = desired_layer;
+        fb->depth_known    = true;
+        fb->stencil_target = desired_target;
+        fb->stencil_object = desired_obj;
+        fb->stencil_level  = desired_level;
+        fb->stencil_layer  = desired_layer;
+        fb->stencil_known  = true;
+    }
+}
+
 void emesis_fbo_on_delete_textures(context_t* ctx, GLsizei n, const GLuint* textures) {
     if (!ctx || !ctx->framebuffer_map || n <= 0 || !textures) return;
     for (unordered_map_entry* e = ctx->framebuffer_map->head; e != NULL; e = e->next) {
@@ -223,6 +331,64 @@ void emesis_fbo_on_delete_textures(context_t* ctx, GLsizei n, const GLuint* text
                     fb->phys_layers[k] = 0;
                     fb->attachments_dirty = true;
                 }
+            }
+            if (fb->depth_target != GL_NONE && fb->depth_target != GL_RENDERBUFFER && fb->depth_object == tex) {
+                fb->depth_target = GL_NONE;
+                fb->depth_object = 0;
+                fb->depth_level = 0;
+                fb->depth_layer = 0;
+                fb->depth_known = true;
+            }
+            if (fb->stencil_target != GL_NONE && fb->stencil_target != GL_RENDERBUFFER && fb->stencil_object == tex) {
+                fb->stencil_target = GL_NONE;
+                fb->stencil_object = 0;
+                fb->stencil_level = 0;
+                fb->stencil_layer = 0;
+                fb->stencil_known = true;
+            }
+        }
+    }
+}
+
+void glDeleteRenderbuffers(GLsizei n, const GLuint* renderbuffers) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx) return;
+    es3_functions.glDeleteRenderbuffers(n, renderbuffers);
+    if (!ctx->framebuffer_map || n <= 0 || !renderbuffers) return;
+    for (unordered_map_entry* e = ctx->framebuffer_map->head; e != NULL; e = e->next) {
+        framebuffer_t* fb = (framebuffer_t*)e->value;
+        if (!fb) continue;
+        for (GLsizei r = 0; r < n; r++) {
+            GLuint rb = renderbuffers[r];
+            if (rb == 0) continue;
+            for (int k = 0; k < MAX_FBTARGETS; k++) {
+                if (fb->color_targets[k] == GL_RENDERBUFFER && fb->color_objects[k] == rb) {
+                    fb->color_targets[k] = GL_NONE;
+                    fb->color_objects[k] = 0;
+                    fb->color_levels[k] = 0;
+                    fb->color_layers[k] = 0;
+                }
+                if (fb->phys_targets[k] == GL_RENDERBUFFER && fb->phys_objects[k] == rb) {
+                    fb->phys_targets[k] = GL_NONE;
+                    fb->phys_objects[k] = 0;
+                    fb->phys_levels[k] = 0;
+                    fb->phys_layers[k] = 0;
+                    fb->attachments_dirty = true;
+                }
+            }
+            if (fb->depth_target == GL_RENDERBUFFER && fb->depth_object == rb) {
+                fb->depth_target = GL_NONE;
+                fb->depth_object = 0;
+                fb->depth_level = 0;
+                fb->depth_layer = 0;
+                fb->depth_known = true;
+            }
+            if (fb->stencil_target == GL_RENDERBUFFER && fb->stencil_object == rb) {
+                fb->stencil_target = GL_NONE;
+                fb->stencil_object = 0;
+                fb->stencil_level = 0;
+                fb->stencil_layer = 0;
+                fb->stencil_known = true;
             }
         }
     }
@@ -355,6 +521,12 @@ void glFramebufferTexture(GLenum target, GLenum attachment, GLuint texture, GLin
     context_t* ctx = emesis_get_context();
     if (!ctx) return;
     framebuffer_t *framebuffer = get_framebuffer(ctx, target);
+    if (is_depth_or_stencil_attachment(attachment)) {
+        GLuint dt = (texture == 0) ? GL_NONE : EMESIS_FB_GEN_TEXTURE;
+        apply_depth_stencil_attachment(ctx, target, framebuffer, attachment,
+                                       dt, texture, (texture == 0) ? 0 : level, 0);
+        return;
+    }
     GLuint attachment_idx = get_attachment_idx(ctx, attachment);
     if (!framebuffer || attachment_idx == (GLuint)-1) {
         if (ctx->framebuffertexture) {
@@ -393,6 +565,12 @@ void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, 
     context_t* ctx = emesis_get_context();
     if (!ctx) return;
     framebuffer_t *framebuffer = get_framebuffer(ctx, target);
+    if (is_depth_or_stencil_attachment(attachment)) {
+        GLuint dt = (texture == 0) ? GL_NONE : textarget;
+        apply_depth_stencil_attachment(ctx, target, framebuffer, attachment,
+                                       dt, texture, (texture == 0) ? 0 : level, 0);
+        return;
+    }
     GLuint attachment_idx = get_attachment_idx(ctx, attachment);
     if (!framebuffer || attachment_idx == (GLuint)-1) {
         es3_functions.glFramebufferTexture2D(target, attachment, textarget, texture, level);
@@ -416,6 +594,12 @@ void glFramebufferTextureLayer(GLenum target, GLenum attachment, GLuint texture,
     context_t* ctx = emesis_get_context();
     if (!ctx) return;
     framebuffer_t *framebuffer = get_framebuffer(ctx, target);
+    if (is_depth_or_stencil_attachment(attachment)) {
+        GLuint dt = (texture == 0) ? GL_NONE : GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LAYER;
+        apply_depth_stencil_attachment(ctx, target, framebuffer, attachment,
+                                       dt, texture, (texture == 0) ? 0 : level, (texture == 0) ? 0 : layer);
+        return;
+    }
     GLuint attachment_idx = get_attachment_idx(ctx, attachment);
     if (!framebuffer || attachment_idx == (GLuint)-1) {
         es3_functions.glFramebufferTextureLayer(target, attachment, texture, level, layer);
@@ -439,6 +623,12 @@ void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbu
     context_t* ctx = emesis_get_context();
     if (!ctx) return;
     framebuffer_t *framebuffer = get_framebuffer(ctx, target);
+    if (is_depth_or_stencil_attachment(attachment)) {
+        GLuint dt = (renderbuffer == 0) ? GL_NONE : renderbuffertarget;
+        apply_depth_stencil_attachment(ctx, target, framebuffer, attachment,
+                                       dt, renderbuffer, 0, 0);
+        return;
+    }
     GLuint attachment_idx = get_attachment_idx(ctx, attachment);
     if (!framebuffer || attachment_idx == (GLuint)-1) {
         es3_functions.glFramebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer);

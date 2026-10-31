@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "GL/gl.h"
 #include "GL/glext.h"
 #include <GLES3/gl32.h>
@@ -35,6 +36,19 @@
 #ifndef GL_STENCIL_INDEX
 #define GL_STENCIL_INDEX 0x1901
 #endif
+#ifndef GL_TIMESTAMP
+#define GL_TIMESTAMP 0x8E28
+#endif
+#ifndef GL_MAP_PERSISTENT_BIT_EXT
+#define GL_MAP_PERSISTENT_BIT_EXT 0x0040
+#endif
+#ifndef GL_MAP_COHERENT_BIT_EXT
+#define GL_MAP_COHERENT_BIT_EXT 0x0080
+#endif
+
+#define EMESIS_UPLOAD_RING_SIZE_32      (8u * 1024u * 1024u)
+#define EMESIS_UPLOAD_RING_SIZE_64      (32u * 1024u * 1024u)
+#define EMESIS_UPLOAD_RING_MIN_DST_SIZE (64u * 1024u)
 
 static unsigned int gl_major = 3;
 static unsigned int gl_minor = 3;
@@ -42,6 +56,7 @@ static bool noerror = true;
 static bool debug = false;
 static bool never_flush_buffers = true;
 static bool coherent_dynamic_storage = false;
+static bool use_upload_ring = true;
 
 extern void emesis_fbo_on_delete_textures(context_t* ctx, GLsizei n, const GLuint* textures);
 
@@ -105,15 +120,67 @@ static bool buf_is_coherent(context_t* ctx, GLuint buf_id) {
     return ctx->buf_coherent_map && unordered_map_get(ctx->buf_coherent_map, (void*)(uintptr_t)buf_id) != NULL;
 }
 
+static void buf_set_size(context_t* ctx, GLuint buf_id, size_t sz) {
+    if (!ctx || buf_id == 0) return;
+    if (buf_id < EMESIS_FAST_BUF_MAX) {
+        ctx->buf_size_fast[buf_id] = sz;
+        return;
+    }
+    if (!ctx->buf_size_map) return;
+    if (sz != 0) unordered_map_put(ctx->buf_size_map, (void*)(uintptr_t)buf_id, (void*)(uintptr_t)sz);
+    else unordered_map_remove(ctx->buf_size_map, (void*)(uintptr_t)buf_id);
+}
+
+static size_t buf_get_size(context_t* ctx, GLuint buf_id) {
+    if (!ctx || buf_id == 0) return 0;
+    if (buf_id < EMESIS_FAST_BUF_MAX) {
+        return ctx->buf_size_fast[buf_id];
+    }
+    return ctx->buf_size_map ? (size_t)(uintptr_t)unordered_map_get(ctx->buf_size_map, (void*)(uintptr_t)buf_id) : 0;
+}
+
+static void buf_invalidate_tbo_bindings(context_t* ctx, GLuint buf_id) {
+    if (!ctx || buf_id == 0) return;
+    if (buf_id < EMESIS_FAST_BUF_MAX) {
+        if ((ctx->buf_flags_fast[buf_id] & EMESIS_BUF_FLAG_TBO_ATTACHED) == 0) return;
+        ctx->buf_flags_fast[buf_id] &= (uint8_t)~EMESIS_BUF_FLAG_TBO_ATTACHED;
+    }
+    for (size_t t = 1; t < EMESIS_FAST_TEX_MAX; t++) {
+        if (ctx->tex_tbo_buf_fast[t] == buf_id) {
+            ctx->tex_tbo_buf_fast[t] = 0;
+            ctx->tex_tbo_fmt_fast[t] = 0;
+        }
+    }
+}
+
 static void vao_set_ebo(context_t* ctx, GLuint vao, GLuint ebo) {
     if (vao == 0) {
         ctx->default_vao_ebo = ebo;
+        ctx->default_vao_ebo_valid = true;
     } else if (vao < EMESIS_FAST_VAO_MAX) {
         ctx->vao_ebo_fast[vao] = ebo;
+        ctx->vao_ebo_valid_fast[vao] = 1;
     } else if (ctx->vao_ebo_map) {
         if (ebo != 0) unordered_map_put(ctx->vao_ebo_map, (void*)(uintptr_t)vao, (void*)(uintptr_t)ebo);
         else unordered_map_remove(ctx->vao_ebo_map, (void*)(uintptr_t)vao);
     }
+}
+
+static bool vao_is_ebo_cached(context_t* ctx, GLuint vao, GLuint ebo) {
+    if (vao == 0) {
+        return ctx->default_vao_ebo_valid && ctx->default_vao_ebo == ebo;
+    }
+    if (vao < EMESIS_FAST_VAO_MAX) {
+        return ctx->vao_ebo_valid_fast[vao] != 0 && ctx->vao_ebo_fast[vao] == ebo;
+    }
+    return false;
+}
+
+INTERNAL void emesis_invalidate_vao_ebo_cache(context_t* ctx) {
+    if (!ctx) return;
+    GLuint vao = ctx->current_vao;
+    if (vao == 0) ctx->default_vao_ebo_valid = false;
+    else if (vao < EMESIS_FAST_VAO_MAX) ctx->vao_ebo_valid_fast[vao] = 0;
 }
 
 static GLuint vao_get_ebo(context_t* ctx, GLuint vao) {
@@ -496,9 +563,13 @@ void glDeleteVertexArrays(GLsizei n, const GLuint *arrays) {
     if (!ctx || n <= 0 || !arrays) return;
     es3_functions.glDeleteVertexArrays(n, arrays);
     for (GLsizei i = 0; i < n; i++) {
-        if (arrays[i] == 0) continue;
-        vao_set_ebo(ctx, arrays[i], 0);
-        if (ctx->current_vao == arrays[i]) {
+        GLuint v = arrays[i];
+        if (v == 0) continue;
+        vao_set_ebo(ctx, v, 0);
+        if (v < EMESIS_FAST_VAO_MAX) {
+            ctx->vao_ebo_valid_fast[v] = 0;
+        }
+        if (ctx->current_vao == v) {
             ctx->current_vao = 0;
             ctx->current_vao_valid = false;
         }
@@ -780,12 +851,31 @@ INTERNAL bool filter_params_float(GLenum target, GLenum pname, GLfloat param) {
     return true;
 }
 
+static bool try_dedup_tex_mip_range(context_t* ctx, GLenum target, GLenum pname, GLint param) {
+    if ((pname != GL_TEXTURE_BASE_LEVEL && pname != GL_TEXTURE_MAX_LEVEL) ||
+        param < 0 || param > 30000) {
+        return false;
+    }
+    GLuint tex = emesis_get_bound_texture(target);
+    if (tex == 0 || tex >= EMESIS_FAST_TEX_MAX) return false;
+    int16_t encoded = (int16_t)(param + 1);
+    if (pname == GL_TEXTURE_BASE_LEVEL) {
+        if (ctx->tex_base_level_fast[tex] == encoded) return true;
+        ctx->tex_base_level_fast[tex] = encoded;
+    } else {
+        if (ctx->tex_max_level_fast[tex] == encoded) return true;
+        ctx->tex_max_level_fast[tex] = encoded;
+    }
+    return false;
+}
+
 void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
     context_t* ctx = emesis_get_context();
     if (!ctx) return;
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (!filter_params_integer(target, pname, (GLint)param)) return;
     if (!filter_params_float(target, pname, param)) return;
+    if (try_dedup_tex_mip_range(ctx, target, pname, (GLint)param)) return;
     es3_functions.glTexParameterf(target, pname, param);
 }
 
@@ -795,6 +885,7 @@ void glTexParameteri(GLenum target, GLenum pname, GLint param) {
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (!filter_params_integer(target, pname, param)) return;
     if (!filter_params_float(target, pname, (GLfloat)param)) return;
+    if (try_dedup_tex_mip_range(ctx, target, pname, param)) return;
     GLenum swz = (GLenum)param;
     swizzle_process_swizzle_param(target, pname, &swz);
     if (pname == GL_TEXTURE_SWIZZLE_R || pname == GL_TEXTURE_SWIZZLE_G ||
@@ -811,6 +902,7 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat * params) {
     if (!filter_params_integer(target, pname, (GLint)*params)) return;
     if (!filter_params_float(target, pname, *params)) return;
     if (pname == GL_TEXTURE_BORDER_COLOR) return;
+    if (try_dedup_tex_mip_range(ctx, target, pname, (GLint)*params)) return;
     es3_functions.glTexParameterfv(target, pname, params);
 }
 
@@ -821,6 +913,7 @@ void glTexParameteriv(GLenum target, GLenum pname, const GLint * params) {
     if (!filter_params_integer(target, pname, *params)) return;
     if (!filter_params_float(target, pname, (GLfloat)*params)) return;
     if (pname == GL_TEXTURE_BORDER_COLOR) return;
+    if (try_dedup_tex_mip_range(ctx, target, pname, *params)) return;
     swizzle_process_swizzle_param(target, pname, (const GLenum*)params);
     if (pname == GL_TEXTURE_SWIZZLE_R || pname == GL_TEXTURE_SWIZZLE_G ||
         pname == GL_TEXTURE_SWIZZLE_B || pname == GL_TEXTURE_SWIZZLE_A ||
@@ -875,12 +968,112 @@ static void invalidate_ubo_cache_for_buffer(context_t* ctx, GLuint buf) {
     }
 }
 
+static bool upload_ring_ensure_init(context_t* ctx) {
+    upload_ring_t* ring = &ctx->upload_ring;
+    if (ring->ready) return true;
+    if (ring->init_attempted) return false;
+    ring->init_attempted = true;
+
+    size_t total = (sizeof(void*) == 4) ? EMESIS_UPLOAD_RING_SIZE_32 : EMESIS_UPLOAD_RING_SIZE_64;
+    es3_functions.glGenBuffers(1, &ring->buffer);
+    if (ring->buffer == 0) return false;
+
+    int cr_idx = get_buffer_index(GL_COPY_READ_BUFFER);
+    GLuint prev_cr = (cr_idx >= 0 && (ctx->bound_buffers_valid_mask & (1u << cr_idx)) != 0)
+        ? ctx->bound_buffers[cr_idx] : 0;
+
+    es3_functions.glBindBuffer(GL_COPY_READ_BUFFER, ring->buffer);
+    if (cr_idx >= 0) {
+        ctx->bound_buffers[cr_idx] = ring->buffer;
+        ctx->bound_buffers_valid_mask |= (uint16_t)(1u << cr_idx);
+    }
+
+    ring->total_size = total;
+    ring->seg_size = total / EMESIS_UPLOAD_SEGMENTS;
+    ring->cur_offset = 0;
+    ring->mapped_ptr = NULL;
+
+    if (ctx->buffer_storage && es3_functions.glBufferStorageEXT) {
+        GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT;
+        es3_functions.glBufferStorageEXT(GL_COPY_READ_BUFFER, (GLsizeiptr)total, NULL, flags);
+        void* mapped = es3_functions.glMapBufferRange(GL_COPY_READ_BUFFER, 0, (GLsizeiptr)total, flags);
+        if (mapped != NULL) {
+            ring->mapped_ptr = mapped;
+        }
+    }
+    if (ring->mapped_ptr == NULL) {
+        es3_functions.glBufferData(GL_COPY_READ_BUFFER, (GLsizeiptr)total, NULL, GL_STREAM_COPY);
+    }
+
+    if (prev_cr != 0 && prev_cr != ring->buffer) {
+        es3_functions.glBindBuffer(GL_COPY_READ_BUFFER, prev_cr);
+        if (cr_idx >= 0) {
+            ctx->bound_buffers[cr_idx] = prev_cr;
+        }
+    }
+    ring->ready = true;
+    return true;
+}
+
+static bool upload_ring_subdata(context_t* ctx, GLenum target, GLuint dst_buf, size_t dst_buf_size,
+                                GLintptr offset, GLsizeiptr size, const void* data) {
+    if (!use_upload_ring || target == GL_COPY_READ_BUFFER || dst_buf == 0 ||
+        dst_buf_size < EMESIS_UPLOAD_RING_MIN_DST_SIZE || offset < 0 || size <= 0 || !data ||
+        (size_t)offset + (size_t)size > dst_buf_size) {
+        return false;
+    }
+    if (!upload_ring_ensure_init(ctx)) return false;
+    upload_ring_t* ring = &ctx->upload_ring;
+    if (dst_buf == ring->buffer || (size_t)size > ring->seg_size) return false;
+
+    size_t aligned_sz = ((size_t)size + 15u) & ~15u;
+    size_t cur_seg = ring->cur_offset / ring->seg_size;
+    size_t seg_end = (cur_seg + 1u) * ring->seg_size;
+
+    if (ring->cur_offset + aligned_sz > seg_end) {
+        if (ring->fences[cur_seg] != NULL) {
+            es3_functions.glDeleteSync(ring->fences[cur_seg]);
+        }
+        ring->fences[cur_seg] = es3_functions.glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+
+        size_t next_seg = (cur_seg + 1u) % EMESIS_UPLOAD_SEGMENTS;
+        if (ring->fences[next_seg] != NULL) {
+            GLenum w = es3_functions.glClientWaitSync(ring->fences[next_seg], 0, 0);
+            if (w == GL_TIMEOUT_EXPIRED) {
+                es3_functions.glClientWaitSync(ring->fences[next_seg], GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ULL);
+            }
+            es3_functions.glDeleteSync(ring->fences[next_seg]);
+            ring->fences[next_seg] = NULL;
+        }
+        ring->cur_offset = next_seg * ring->seg_size;
+    }
+
+    size_t src_off = ring->cur_offset;
+    glBindBuffer(GL_COPY_READ_BUFFER, ring->buffer);
+
+    if (ring->mapped_ptr != NULL) {
+        memcpy((uint8_t*)ring->mapped_ptr + src_off, data, (size_t)size);
+    } else {
+        void* dst = es3_functions.glMapBufferRange(GL_COPY_READ_BUFFER, (GLintptr)src_off, size,
+                                                   GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+        if (!dst) return false;
+        memcpy(dst, data, (size_t)size);
+        es3_functions.glUnmapBuffer(GL_COPY_READ_BUFFER);
+    }
+
+    es3_functions.glCopyBufferSubData(GL_COPY_READ_BUFFER, target, (GLintptr)src_off, offset, size);
+    ring->cur_offset = src_off + aligned_sz;
+    return true;
+}
+
 void glBufferData(GLenum target, GLsizeiptr size, const void *data, GLenum usage) {
     context_t* ctx = emesis_get_context();
     if (!ctx || target == GL_QUERY_BUFFER) return;
     GLuint buf_id = get_bound_buffer_for_target(ctx, target);
     if (buf_id != 0) {
         buf_set_coherent(ctx, buf_id, false);
+        buf_set_size(ctx, buf_id, (size > 0) ? (size_t)size : 0u);
+        buf_invalidate_tbo_bindings(ctx, buf_id);
         invalidate_ubo_cache_for_buffer(ctx, buf_id);
     }
     es3_functions.glBufferData(target, size, data, usage);
@@ -891,8 +1084,12 @@ void glBufferData(GLenum target, GLsizeiptr size, const void *data, GLenum usage
 
 void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void *data) {
     context_t* ctx = emesis_get_context();
-    if (!ctx || target == GL_QUERY_BUFFER) return;
-    es3_functions.glBufferSubData(target, offset, size, data);
+    if (!ctx || target == GL_QUERY_BUFFER || size <= 0 || !data) return;
+    GLuint buf_id = get_bound_buffer_for_target(ctx, target);
+    size_t bsz = buf_get_size(ctx, buf_id);
+    if (!upload_ring_subdata(ctx, target, buf_id, bsz, offset, size, data)) {
+        es3_functions.glBufferSubData(target, offset, size, data);
+    }
     if (__builtin_expect(ctx->es30_needs_ebo_mirror, 0)) {
         emesis_es30_on_buffer_sub_data(ctx, target, offset, size, data);
     }
@@ -916,6 +1113,8 @@ void glBufferStorage(GLenum target, GLsizeiptr size, const void * data, GLbitfie
     GLuint buf_id = get_bound_buffer_for_target(ctx, target);
     if (buf_id != 0) {
         buf_set_coherent(ctx, buf_id, false);
+        buf_set_size(ctx, buf_id, (size > 0) ? (size_t)size : 0u);
+        buf_invalidate_tbo_bindings(ctx, buf_id);
         invalidate_ubo_cache_for_buffer(ctx, buf_id);
     }
 
@@ -1097,6 +1296,9 @@ void glBindBuffer(GLenum buffer, GLuint name) {
     context_t* ctx = emesis_get_context();
     if (!ctx || buffer == GL_QUERY_BUFFER) return;
     if (buffer == GL_ELEMENT_ARRAY_BUFFER) {
+        if (ctx->current_vao_valid && vao_is_ebo_cached(ctx, ctx->current_vao, name)) {
+            return;
+        }
         es3_functions.glBindBuffer(buffer, name);
         vao_set_ebo(ctx, ctx->current_vao, name);
         return;
@@ -1123,6 +1325,8 @@ void glDeleteBuffers(GLsizei n, const GLuint *buffers) {
         GLuint b = buffers[i];
         if (b == 0) continue;
         buf_set_coherent(ctx, b, false);
+        buf_set_size(ctx, b, 0);
+        buf_invalidate_tbo_bindings(ctx, b);
         if (__builtin_expect(ctx->es30_needs_ebo_mirror, 0)) {
             emesis_es30_delete_buffer(ctx, b);
         }
@@ -1134,9 +1338,13 @@ void glDeleteBuffers(GLsizei n, const GLuint *buffers) {
         invalidate_ubo_cache_for_buffer(ctx, b);
         if (ctx->default_vao_ebo == b) {
             ctx->default_vao_ebo = 0;
+            ctx->default_vao_ebo_valid = false;
         }
         if (ctx->current_vao != 0 && vao_get_ebo(ctx, ctx->current_vao) == b) {
             vao_set_ebo(ctx, ctx->current_vao, 0);
+            if (ctx->current_vao < EMESIS_FAST_VAO_MAX) {
+                ctx->vao_ebo_valid_fast[ctx->current_vao] = 0;
+            }
         }
     }
 }
@@ -1233,6 +1441,123 @@ void glGetIntegerv(GLenum pname, GLint* data) {
     }
 }
 
+void glGetInteger64v(GLenum pname, GLint64* data) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || !data) return;
+    if (pname == GL_TIMESTAMP) {
+        if (ctx->timer_query) {
+            es3_functions.glGetInteger64v(pname, data);
+        } else {
+            struct timespec ts;
+            if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+                *data = (GLint64)ts.tv_sec * 1000000000LL + (GLint64)ts.tv_nsec;
+            } else {
+                *data = 1;
+            }
+        }
+        return;
+    }
+    es3_functions.glGetInteger64v(pname, data);
+}
+
+void glViewport(GLint x, GLint y, GLsizei width, GLsizei height) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx) return;
+    if (ctx->viewport_valid &&
+        ctx->viewport[0] == x && ctx->viewport[1] == y &&
+        ctx->viewport[2] == width && ctx->viewport[3] == height) {
+        return;
+    }
+    es3_functions.glViewport(x, y, width, height);
+    ctx->viewport[0] = x;
+    ctx->viewport[1] = y;
+    ctx->viewport[2] = width;
+    ctx->viewport[3] = height;
+    ctx->viewport_valid = true;
+}
+
+void glScissor(GLint x, GLint y, GLsizei width, GLsizei height) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx) return;
+    if (ctx->scissor_valid &&
+        ctx->scissor[0] == x && ctx->scissor[1] == y &&
+        ctx->scissor[2] == width && ctx->scissor[3] == height) {
+        return;
+    }
+    es3_functions.glScissor(x, y, width, height);
+    ctx->scissor[0] = x;
+    ctx->scissor[1] = y;
+    ctx->scissor[2] = width;
+    ctx->scissor[3] = height;
+    ctx->scissor_valid = true;
+}
+
+void glPixelStorei(GLenum pname, GLint param) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx) return;
+    switch (pname) {
+        case GL_UNPACK_ROW_LENGTH:
+            if ((ctx->unpack_valid_mask & 0x01u) && ctx->unpack_row_length == param) return;
+            ctx->unpack_row_length = param;
+            ctx->unpack_valid_mask |= 0x01u;
+            break;
+        case GL_UNPACK_IMAGE_HEIGHT:
+            if ((ctx->unpack_valid_mask & 0x02u) && ctx->unpack_image_height == param) return;
+            ctx->unpack_image_height = param;
+            ctx->unpack_valid_mask |= 0x02u;
+            break;
+        case GL_UNPACK_SKIP_PIXELS:
+            if ((ctx->unpack_valid_mask & 0x04u) && ctx->unpack_skip_pixels == param) return;
+            ctx->unpack_skip_pixels = param;
+            ctx->unpack_valid_mask |= 0x04u;
+            break;
+        case GL_UNPACK_SKIP_ROWS:
+            if ((ctx->unpack_valid_mask & 0x08u) && ctx->unpack_skip_rows == param) return;
+            ctx->unpack_skip_rows = param;
+            ctx->unpack_valid_mask |= 0x08u;
+            break;
+        case GL_UNPACK_SKIP_IMAGES:
+            if ((ctx->unpack_valid_mask & 0x10u) && ctx->unpack_skip_images == param) return;
+            ctx->unpack_skip_images = param;
+            ctx->unpack_valid_mask |= 0x10u;
+            break;
+        case GL_UNPACK_ALIGNMENT:
+            if ((ctx->unpack_valid_mask & 0x20u) && ctx->unpack_alignment == param) return;
+            ctx->unpack_alignment = param;
+            ctx->unpack_valid_mask |= 0x20u;
+            break;
+        case GL_PACK_ROW_LENGTH:
+            if ((ctx->pack_valid_mask & 0x01u) && ctx->pack_row_length == param) return;
+            ctx->pack_row_length = param;
+            ctx->pack_valid_mask |= 0x01u;
+            break;
+        case GL_PACK_SKIP_PIXELS:
+            if ((ctx->pack_valid_mask & 0x02u) && ctx->pack_skip_pixels == param) return;
+            ctx->pack_skip_pixels = param;
+            ctx->pack_valid_mask |= 0x02u;
+            break;
+        case GL_PACK_SKIP_ROWS:
+            if ((ctx->pack_valid_mask & 0x04u) && ctx->pack_skip_rows == param) return;
+            ctx->pack_skip_rows = param;
+            ctx->pack_valid_mask |= 0x04u;
+            break;
+        case GL_PACK_ALIGNMENT:
+            if ((ctx->pack_valid_mask & 0x08u) && ctx->pack_alignment == param) return;
+            ctx->pack_alignment = param;
+            ctx->pack_valid_mask |= 0x08u;
+            break;
+        default:
+            break;
+    }
+    es3_functions.glPixelStorei(pname, param);
+}
+
+void glClipControl(GLenum origin, GLenum depth) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || !ctx->clip_control || !es3_functions.glClipControlEXT) return;
+    es3_functions.glClipControlEXT(origin, depth);
+}
+
 void glDepthRange(GLdouble nearVal, GLdouble farVal) {
     context_t* ctx = emesis_get_context();
     if (!ctx) return;
@@ -1251,6 +1576,10 @@ void glDeleteTextures(GLsizei n, const GLuint *textures) {
             ctx->tex_flags_fast[tex] = 0;
             ctx->tex_target_fast[tex] = 0;
             ctx->tex_intfmt_fast[tex] = 0;
+            ctx->tex_base_level_fast[tex] = 0;
+            ctx->tex_max_level_fast[tex] = 0;
+            ctx->tex_tbo_buf_fast[tex] = 0;
+            ctx->tex_tbo_fmt_fast[tex] = 0;
         }
         void* tracker = unordered_map_remove(ctx->texture_swztrack_map, (void*)(uintptr_t)tex);
         free(tracker);
@@ -1269,15 +1598,35 @@ static bool buf_tex_trigger = false;
 void glTexBuffer(GLenum target, GLenum internalFormat, GLuint buffer) {
     context_t* ctx = emesis_get_context();
     if (!ctx) return;
+    GLuint tex = 0;
+    if (target == GL_TEXTURE_BUFFER) {
+        tex = emesis_get_bound_texture(GL_TEXTURE_BUFFER);
+        if (tex > 0 && tex < EMESIS_FAST_TEX_MAX && buffer != 0 &&
+            ctx->tex_tbo_buf_fast[tex] == buffer &&
+            ctx->tex_tbo_fmt_fast[tex] == internalFormat) {
+            return;
+        }
+    }
+    bool attached = false;
     if (ctx->es32 && es3_functions.glTexBuffer) {
         es3_functions.glTexBuffer(target, internalFormat, buffer);
+        attached = true;
     } else if (ctx->buffer_texture_ext && es3_functions.glTexBufferEXT) {
         es3_functions.glTexBufferEXT(target, internalFormat, buffer);
+        attached = true;
     } else if (ctx->buffer_texture_oes && es3_functions.glTexBufferOES) {
         es3_functions.glTexBufferOES(target, internalFormat, buffer);
+        attached = true;
     } else if (!buf_tex_trigger) {
         buf_tex_trigger = true;
         printf("EmesisRenderer: Buffer textures aren't supported on your device\n");
+    }
+    if (attached && tex > 0 && tex < EMESIS_FAST_TEX_MAX) {
+        ctx->tex_tbo_buf_fast[tex] = buffer;
+        ctx->tex_tbo_fmt_fast[tex] = (buffer != 0) ? internalFormat : 0;
+        if (buffer > 0 && buffer < EMESIS_FAST_BUF_MAX) {
+            ctx->buf_flags_fast[buffer] |= EMESIS_BUF_FLAG_TBO_ATTACHED;
+        }
     }
 }
 
@@ -1288,6 +1637,13 @@ void glTexBufferARB(GLenum target, GLenum internalFormat, GLuint buffer) {
 void glTexBufferRange(GLenum target, GLenum internalFormat, GLuint buffer, GLintptr offset, GLsizeiptr size) {
     context_t* ctx = emesis_get_context();
     if (!ctx) return;
+    if (target == GL_TEXTURE_BUFFER) {
+        GLuint tex = emesis_get_bound_texture(GL_TEXTURE_BUFFER);
+        if (tex > 0 && tex < EMESIS_FAST_TEX_MAX) {
+            ctx->tex_tbo_buf_fast[tex] = 0;
+            ctx->tex_tbo_fmt_fast[tex] = 0;
+        }
+    }
     if (ctx->es32 && es3_functions.glTexBufferRange) {
         es3_functions.glTexBufferRange(target, internalFormat, buffer, offset, size);
     } else if (ctx->buffer_texture_ext && es3_functions.glTexBufferRangeEXT) {
@@ -1473,7 +1829,11 @@ static void emulate_clear_tex(context_t* ctx, GLuint texture, GLint level,
     GLboolean scissor_was_on = es3_functions.glIsEnabled(GL_SCISSOR_TEST);
     GLint prev_scissor[4] = {0, 0, 0, 0};
     if (sub_region) {
-        es3_functions.glGetIntegerv(GL_SCISSOR_BOX, prev_scissor);
+        if (ctx->scissor_valid) {
+            memcpy(prev_scissor, ctx->scissor, sizeof(prev_scissor));
+        } else {
+            es3_functions.glGetIntegerv(GL_SCISSOR_BOX, prev_scissor);
+        }
         if (!scissor_was_on) es3_functions.glEnable(GL_SCISSOR_TEST);
         es3_functions.glScissor(xoffset, yoffset, width, height);
     } else if (scissor_was_on) {
@@ -1572,6 +1932,8 @@ static void emulate_clear_tex(context_t* ctx, GLuint texture, GLint level,
 
     if (sub_region) {
         es3_functions.glScissor(prev_scissor[0], prev_scissor[1], prev_scissor[2], prev_scissor[3]);
+        memcpy(ctx->scissor, prev_scissor, sizeof(prev_scissor));
+        ctx->scissor_valid = true;
         if (!scissor_was_on) es3_functions.glDisable(GL_SCISSOR_TEST);
     } else if (scissor_was_on) {
         es3_functions.glEnable(GL_SCISSOR_TEST);
@@ -1619,6 +1981,7 @@ __attribute__((constructor)) void init_noerror(void) {
     debug = env_istrue("EMESIS_DEBUG");
     never_flush_buffers = env_istrue_d("EMESIS_NEVER_FLUSH_BUFFERS", true);
     coherent_dynamic_storage = env_istrue_d("EMESIS_COHERENT_DYNAMIC_STORAGE", false);
+    use_upload_ring = env_istrue_d("EMESIS_UPLOAD_RING", true) && !env_istrue("EMESIS_DISABLE_UPLOAD_RING");
     bool version_overriden = extract_gl_version(getenv("MESA_GL_VERSION_OVERRIDE"));
     gl_version_buf[0] = '\0';
     if (version_overriden) printf("EmesisRenderer will override exposed OpenGL version to %u.%u\n", gl_major, gl_minor);

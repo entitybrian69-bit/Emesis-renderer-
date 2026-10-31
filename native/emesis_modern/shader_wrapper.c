@@ -32,6 +32,9 @@ typedef struct {
     GLchar* source;
     uint64_t hash_lo;
     uint64_t hash_hi;
+    uint8_t converted_ok;
+    uint8_t compile_requested;
+    uint8_t driver_compiled;
 } shader_info_t;
 
 typedef struct {
@@ -53,6 +56,7 @@ static pthread_mutex_t s_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
 static essl_mem_entry_t s_essl_mem_cache[ESSL_MEM_CACHE_SLOTS];
 static int s_cache_cfg_init = 0;
 static bool s_cache_enabled = true;
+static bool s_eager_shader_compile = false;
 static char s_cache_dir[512];
 
 static uint64_t splitmix64(uint64_t x) {
@@ -95,11 +99,39 @@ static bool try_init_cache_dir_path(const char* candidate) {
     return false;
 }
 
+static void try_init_android_app_cache_dir(void) {
+    FILE* fp = fopen("/proc/self/cmdline", "rb");
+    if (!fp) return;
+    char pkg[192] = {0};
+    size_t n = fread(pkg, 1, sizeof(pkg) - 1, fp);
+    fclose(fp);
+    if (n == 0 || pkg[0] == '/' || pkg[0] == '.') return;
+    pkg[n] = '\0';
+    char* colon = strchr(pkg, ':');
+    if (colon) *colon = '\0';
+    bool has_dot = false;
+    for (const char* p = pkg; *p; p++) {
+        char c = *p;
+        if (c == '.') has_dot = true;
+        else if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                   (c >= '0' && c <= '9') || c == '_')) {
+            return;
+        }
+    }
+    if (!has_dot) return;
+    char candidate[384];
+    snprintf(candidate, sizeof(candidate), "/data/data/%s/cache/emesis_shadercache", pkg);
+    if (try_init_cache_dir_path(candidate)) return;
+    snprintf(candidate, sizeof(candidate), "/data/user/0/%s/cache/emesis_shadercache", pkg);
+    (void)try_init_cache_dir_path(candidate);
+}
+
 static void ensure_cache_config(void) {
     if (s_cache_cfg_init) return;
     pthread_mutex_lock(&s_cache_mutex);
     if (!s_cache_cfg_init) {
-        s_cache_enabled = env_istrue_d("EMESIS_SHADER_CACHE", true);
+        s_cache_enabled = env_istrue_d("EMESIS_SHADER_CACHE", true) && !env_istrue("EMESIS_DISABLE_SHADER_CACHE");
+        s_eager_shader_compile = env_istrue("EMESIS_EAGER_SHADER_COMPILE");
         s_cache_dir[0] = '\0';
         const char* explicit_dir = getenv("EMESIS_SHADER_CACHE_DIR");
         if (!try_init_cache_dir_path(explicit_dir)) {
@@ -117,6 +149,9 @@ static void ensure_cache_config(void) {
                          (i < 2) ? "emesis_shadercache" : ".emesis_shader_cache");
                 if (try_init_cache_dir_path(sub)) break;
             }
+        }
+        if (s_cache_dir[0] == '\0') {
+            try_init_android_app_cache_dir();
         }
         if (s_cache_dir[0] == '\0') {
             char cwd_buf[384];
@@ -437,15 +472,68 @@ void glBindFragDataLocation(GLuint program, GLuint colorNumber, const char * nam
     program_info->colorbindings[colorNumber] = strdup(name);
 }
 
+void glCompileShader(GLuint shader) {
+    emesis_ensure_current_context();
+    if (!current_context) return;
+    ensure_cache_config();
+    shader_info_t* shader_info = unordered_map_get(current_context->shader_map, (void*)(uintptr_t)shader);
+    if (shader_info == NULL) {
+        es3_functions.glCompileShader(shader);
+        return;
+    }
+    shader_info->compile_requested = 1;
+    if (shader_info->converted_ok && !s_eager_shader_compile) {
+        shader_info->driver_compiled = 0;
+        return;
+    }
+    es3_functions.glCompileShader(shader);
+    shader_info->driver_compiled = 1;
+}
+
 void glGetShaderiv(GLuint shader, GLenum pname, GLint* params) {
     emesis_ensure_current_context();
     if(!current_context || !params) return;
     shader_info_t* shader_info = unordered_map_get(current_context->shader_map, (void*)(uintptr_t)shader);
-    if(shader_info != NULL && shader_info->shader_type == GL_FRAGMENT_SHADER && pname == GL_COMPILE_STATUS) {
-        *params = GL_TRUE;
-        return;
+    if (shader_info != NULL) {
+        if (pname == GL_COMPILE_STATUS &&
+            (shader_info->shader_type == GL_FRAGMENT_SHADER ||
+             (shader_info->converted_ok && shader_info->compile_requested && !shader_info->driver_compiled))) {
+            *params = GL_TRUE;
+            return;
+        }
+        if (pname == GL_INFO_LOG_LENGTH &&
+            shader_info->converted_ok && shader_info->compile_requested && !shader_info->driver_compiled) {
+            *params = 0;
+            return;
+        }
     }
     es3_functions.glGetShaderiv(shader, pname, params);
+}
+
+void glGetShaderInfoLog(GLuint shader, GLsizei maxLength, GLsizei* length, GLchar* infoLog) {
+    emesis_ensure_current_context();
+    if (!current_context) return;
+    shader_info_t* shader_info = unordered_map_get(current_context->shader_map, (void*)(uintptr_t)shader);
+    if (shader_info != NULL && shader_info->converted_ok &&
+        shader_info->compile_requested && !shader_info->driver_compiled) {
+        if (length) *length = 0;
+        if (infoLog && maxLength > 0) infoLog[0] = '\0';
+        return;
+    }
+    es3_functions.glGetShaderInfoLog(shader, maxLength, length, infoLog);
+}
+
+static void ensure_attached_shaders_driver_compiled(program_info_t* program_info, GLuint skip_shader) {
+    if (!program_info || !current_context) return;
+    for (GLuint i = 0; i < program_info->attached_count; i++) {
+        GLuint sh = program_info->attached_shaders[i];
+        if (sh == 0 || sh == skip_shader) continue;
+        shader_info_t* sh_info = unordered_map_get(current_context->shader_map, (void*)(uintptr_t)sh);
+        if (sh_info != NULL && !sh_info->driver_compiled) {
+            es3_functions.glCompileShader(sh);
+            sh_info->driver_compiled = 1;
+        }
+    }
 }
 
 static void insert_fragout_pos(char* source, int* size, const char* name, GLuint pos) {
@@ -496,6 +584,7 @@ void glLinkProgram(GLuint program) {
         free(new_source);
         goto fallthrough;
     }
+    ensure_attached_shaders_driver_compiled(program_info, program_info->frag_shader);
     const GLchar* const_source = (const GLchar*)new_source;
     GLuint patched_shader = es3_functions.glCreateShader(GL_FRAGMENT_SHADER);
     if(patched_shader == 0) {
@@ -534,6 +623,7 @@ void glLinkProgram(GLuint program) {
     return;
 
 fallthrough:
+    ensure_attached_shaders_driver_compiled(program_info, 0);
     es3_functions.glLinkProgram(program);
     if (have_prog_hash) {
         save_program_binary(program, prog_lo, prog_hi);
@@ -609,7 +699,10 @@ void glShaderSource(GLuint shader, GLsizei count, const GLchar *const*string, co
     }
     free(shader_info->source);
     shader_info->source = NULL;
+    shader_info->compile_requested = 0;
+    shader_info->driver_compiled = 0;
     if(!new_source) {
+        shader_info->converted_ok = 0;
         printf("EmesisShader: failed to convert&optimize shader %u, falling back to raw source\n", shader);
         const GLchar* raw_ptr = target_string;
         es3_functions.glShaderSource(shader, 1, &raw_ptr, NULL);
@@ -617,6 +710,7 @@ void glShaderSource(GLuint shader, GLsizei count, const GLchar *const*string, co
         return;
     }
     shader_info->source = new_source;
+    shader_info->converted_ok = 1;
     const GLchar* converted_ptr = shader_info->source;
     es3_functions.glShaderSource(shader, 1, &converted_ptr, NULL);
     free(target_string);

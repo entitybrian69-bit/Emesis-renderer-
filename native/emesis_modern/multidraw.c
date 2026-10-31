@@ -18,19 +18,9 @@ void glMultiDrawArrays(GLenum mode, const GLint *first, const GLsizei *count, GL
         if (count[0] > 0) es3_functions.glDrawArrays(mode, first[0], count[0]);
         return;
     }
-    if (ctx->multidraw_ext && es3_functions.glMultiDrawArraysEXT && ctx->mda_probe_state >= 0) {
-        if (ctx->mda_probe_state == 0) {
-            while (es3_functions.glGetError() != GL_NO_ERROR) {}
-            es3_functions.glMultiDrawArraysEXT(mode, first, count, drawcount);
-            if (es3_functions.glGetError() == GL_NO_ERROR) {
-                ctx->mda_probe_state = 1;
-                return;
-            }
-            ctx->mda_probe_state = -1;
-        } else {
-            es3_functions.glMultiDrawArraysEXT(mode, first, count, drawcount);
-            return;
-        }
+    if (ctx->multidraw_ext && es3_functions.glMultiDrawArraysEXT) {
+        es3_functions.glMultiDrawArraysEXT(mode, first, count, drawcount);
+        return;
     }
     for (GLsizei i = 0; i < drawcount; i++) {
         if (count[i] > 0) es3_functions.glDrawArrays(mode, first[i], count[i]);
@@ -45,25 +35,15 @@ void glMultiDrawElements(GLenum mode, const GLsizei *count, GLenum type,
         if (count[0] > 0) es3_functions.glDrawElements(mode, count[0], type, indices[0]);
         return;
     }
-    if (ctx->multidraw_ext && es3_functions.glMultiDrawElementsEXT && ctx->mda_probe_state >= 0) {
-        if (ctx->mda_probe_state == 0) {
-            while (es3_functions.glGetError() != GL_NO_ERROR) {}
-            es3_functions.glMultiDrawElementsEXT(mode, count, type, indices, primcount);
-            if (es3_functions.glGetError() == GL_NO_ERROR) {
-                ctx->mda_probe_state = 1;
-                return;
-            }
-            ctx->mda_probe_state = -1;
-        } else {
-            es3_functions.glMultiDrawElementsEXT(mode, count, type, indices, primcount);
-            return;
-        }
+    if (ctx->multidraw_ext && es3_functions.glMultiDrawElementsEXT) {
+        es3_functions.glMultiDrawElementsEXT(mode, count, type, indices, primcount);
+        return;
     }
 
     GLint tbytes = type_bytes(type);
     if (tbytes != -1 && ctx->es31 && ctx->basevertex.ready &&
         ctx->multidraw_indirect && es3_functions.glMultiDrawElementsIndirectEXT &&
-        ctx->mdi_probe_state >= 0 && emesis_get_current_ebo() != 0) {
+        emesis_get_current_ebo() != 0) {
         if ((size_t)primcount > ctx->basevertex.scratchCap) {
             size_t new_cap = ctx->basevertex.scratchCap ? ctx->basevertex.scratchCap : 256;
             while (new_cap < (size_t)primcount) new_cap *= 2;
@@ -100,23 +80,30 @@ void glMultiDrawElements(GLenum mode, const GLsizei *count, GLenum type,
     }
 }
 
+void glDrawArraysIndirect(GLenum mode, const void *indirect) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || !ctx->es31 || !es3_functions.glDrawArraysIndirect) return;
+    es3_functions.glDrawArraysIndirect(mode, indirect);
+}
+
+void glDrawElementsIndirect(GLenum mode, GLenum type, const void *indirect) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || !ctx->es31 || !es3_functions.glDrawElementsIndirect) return;
+    es3_functions.glDrawElementsIndirect(mode, type, indirect);
+}
+
 void glMultiDrawArraysIndirect(GLenum mode, const void *indirect, GLsizei drawcount, GLsizei stride) {
     context_t* ctx = emesis_get_context();
     if (!ctx || !ctx->es31 || drawcount <= 0) return;
-    if (ctx->multidraw_indirect && es3_functions.glMultiDrawArraysIndirectEXT && ctx->mdi_probe_state >= 0) {
-        if (ctx->mdi_probe_state == 0) {
-            while (es3_functions.glGetError() != GL_NO_ERROR) {}
-            es3_functions.glMultiDrawArraysIndirectEXT(mode, indirect, drawcount, stride);
-            if (es3_functions.glGetError() == GL_NO_ERROR) {
-                ctx->mdi_probe_state = 1;
-                return;
-            }
-            ctx->mdi_probe_state = -1;
-        } else {
-            es3_functions.glMultiDrawArraysIndirectEXT(mode, indirect, drawcount, stride);
-            return;
-        }
+    if (drawcount == 1 && es3_functions.glDrawArraysIndirect) {
+        es3_functions.glDrawArraysIndirect(mode, indirect);
+        return;
     }
+    if (ctx->multidraw_indirect && es3_functions.glMultiDrawArraysIndirectEXT) {
+        es3_functions.glMultiDrawArraysIndirectEXT(mode, indirect, drawcount, stride);
+        return;
+    }
+    if (!es3_functions.glDrawArraysIndirect) return;
     GLsizei step = (stride == 0) ? 16 : stride;
     uintptr_t base = (uintptr_t)indirect;
     for (GLsizei i = 0; i < drawcount; i++) {
@@ -127,20 +114,15 @@ void glMultiDrawArraysIndirect(GLenum mode, const void *indirect, GLsizei drawco
 void glMultiDrawElementsIndirect(GLenum mode, GLenum type, const void *indirect, GLsizei drawcount, GLsizei stride) {
     context_t* ctx = emesis_get_context();
     if (!ctx || !ctx->es31 || drawcount <= 0) return;
-    if (ctx->multidraw_indirect && es3_functions.glMultiDrawElementsIndirectEXT && ctx->mdi_probe_state >= 0) {
-        if (ctx->mdi_probe_state == 0) {
-            while (es3_functions.glGetError() != GL_NO_ERROR) {}
-            es3_functions.glMultiDrawElementsIndirectEXT(mode, type, indirect, drawcount, stride);
-            if (es3_functions.glGetError() == GL_NO_ERROR) {
-                ctx->mdi_probe_state = 1;
-                return;
-            }
-            ctx->mdi_probe_state = -1;
-        } else {
-            es3_functions.glMultiDrawElementsIndirectEXT(mode, type, indirect, drawcount, stride);
-            return;
-        }
+    if (drawcount == 1 && es3_functions.glDrawElementsIndirect) {
+        es3_functions.glDrawElementsIndirect(mode, type, indirect);
+        return;
     }
+    if (ctx->multidraw_indirect && es3_functions.glMultiDrawElementsIndirectEXT) {
+        es3_functions.glMultiDrawElementsIndirectEXT(mode, type, indirect, drawcount, stride);
+        return;
+    }
+    if (!es3_functions.glDrawElementsIndirect) return;
     GLsizei step = (stride == 0) ? 20 : stride;
     uintptr_t base = (uintptr_t)indirect;
     for (GLsizei i = 0; i < drawcount; i++) {

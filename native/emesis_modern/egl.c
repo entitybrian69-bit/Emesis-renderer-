@@ -58,9 +58,13 @@ static bool init_context(context_t* tw_context) {
     if(!tw_context->vao_ebo_map) goto fail_dealloc;
     tw_context->buf_coherent_map = alloc_intmap_safe();
     if(!tw_context->buf_coherent_map) goto fail_dealloc;
+    tw_context->buf_size_map = alloc_intmap_safe();
+    if(!tw_context->buf_size_map) goto fail_dealloc;
     return true;
 
 fail_dealloc:
+    if(tw_context->buf_size_map)
+        unordered_map_free(tw_context->buf_size_map);
     if(tw_context->buf_coherent_map)
         unordered_map_free(tw_context->buf_coherent_map);
     if(tw_context->vao_ebo_map)
@@ -113,6 +117,7 @@ static void free_context(context_t* tw_context) {
     }
     if(tw_context->vao_ebo_map) unordered_map_free(tw_context->vao_ebo_map);
     if(tw_context->buf_coherent_map) unordered_map_free(tw_context->buf_coherent_map);
+    if(tw_context->buf_size_map) unordered_map_free(tw_context->buf_size_map);
     if(tw_context->es30_ebo_mirror_map) {
         free_es30_mirrors(tw_context->es30_ebo_mirror_map);
         unordered_map_free(tw_context->es30_ebo_mirror_map);
@@ -197,9 +202,14 @@ void build_extension_string(context_t* context) {
     if(context->es31) {
         add_extra_extension(context, &length, "GL_ARB_draw_indirect");
         add_extra_extension(context, &length, "GL_ARB_multi_draw_indirect");
+        add_extra_extension(context, &length, "GL_ARB_vertex_attrib_binding");
+        add_extra_extension(context, &length, "GL_ARB_separate_shader_objects");
     }
     if(context->base_instance) {
         add_extra_extension(context, &length, "GL_ARB_base_instance");
+    }
+    if(context->clip_control) {
+        add_extra_extension(context, &length, "GL_ARB_clip_control");
     }
     if(context->es31) {
         add_extra_extension(context, &length, "GL_ARB_shader_image_load_store");
@@ -277,6 +287,7 @@ static void find_esversion(context_t* context) {
     if(has_ext_token(extensions, "GL_EXT_multi_draw_arrays")) context->multidraw_ext = true;
     if(has_ext_token(extensions, "GL_EXT_base_instance")) context->base_instance = true;
     if(has_ext_token(extensions, "GL_EXT_clear_texture")) context->clear_texture = true;
+    if(has_ext_token(extensions, "GL_EXT_clip_control") && es3_functions.glClipControlEXT) context->clip_control = true;
     if(has_ext_token(extensions, "GL_EXT_disjoint_timer_query") || env_istrue_d("EMESIS_ENABLE_TIMER_QUERY", false)) context->timer_query = true;
 
     bool copy_oes = has_ext_token(extensions, "GL_OES_copy_image");

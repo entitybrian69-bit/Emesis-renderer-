@@ -243,8 +243,9 @@ char * GlslConvert::Optimize(
 					// Do optimization post-link
                     			apply_optimizations(ir, linked, &compileOptions, (gl_shader_stage) vShaderType);
 
-
+#ifndef NDEBUG
 					validate_ir_tree(ir);
+#endif
 
 					/*if (vLanguageTarget == LanguageTarget::LANGUAGE_TARGET_IR_BUILDER)
 					{

@@ -256,3 +256,42 @@ void glVertexAttrib4Niv( 	GLuint index,
             inormalize(v[3])
     );
 }
+
+/* --- GL_ARB_vertex_attrib_binding (ES 3.1 core + desktop LFormat shim) --- */
+void glBindVertexBuffer(GLuint bindingindex, GLuint buffer, GLintptr offset, GLsizei stride) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || !ctx->es31 || !es3_functions.glBindVertexBuffer) return;
+    es3_functions.glBindVertexBuffer(bindingindex, buffer, offset, stride);
+}
+
+void glVertexAttribFormat(GLuint attribindex, GLint size, GLenum type, GLboolean normalized, GLuint relativeoffset) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || !ctx->es31 || !es3_functions.glVertexAttribFormat) return;
+    es3_functions.glVertexAttribFormat(attribindex, size, type, normalized, relativeoffset);
+}
+
+void glVertexAttribIFormat(GLuint attribindex, GLint size, GLenum type, GLuint relativeoffset) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || !ctx->es31 || !es3_functions.glVertexAttribIFormat) return;
+    es3_functions.glVertexAttribIFormat(attribindex, size, type, relativeoffset);
+}
+
+void glVertexAttribLFormat(GLuint attribindex, GLint size, GLenum type, GLuint relativeoffset) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || !ctx->es31 || !es3_functions.glVertexAttribFormat) return;
+    (void)type;
+    es3_functions.glVertexAttribFormat(attribindex, size, GL_FLOAT, GL_FALSE, relativeoffset);
+}
+
+void glVertexAttribBinding(GLuint attribindex, GLuint bindingindex) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || !ctx->es31 || !es3_functions.glVertexAttribBinding) return;
+    es3_functions.glVertexAttribBinding(attribindex, bindingindex);
+}
+
+void glVertexBindingDivisor(GLuint bindingindex, GLuint divisor) {
+    context_t* ctx = emesis_get_context();
+    if (!ctx || !ctx->es31 || !es3_functions.glVertexBindingDivisor) return;
+    es3_functions.glVertexBindingDivisor(bindingindex, divisor);
+}
+

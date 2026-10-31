@@ -22,13 +22,27 @@
 #define MAX_UBO_SLOTS 64
 
 #define EMESIS_FAST_VAO_MAX 4096
-#define EMESIS_FAST_TEX_MAX 16384
-#define EMESIS_FAST_BUF_MAX 16384
+#define EMESIS_FAST_TEX_MAX 32768
+#define EMESIS_FAST_BUF_MAX 32768
 
 #define EMESIS_TEX_FLAG_SWIZZLE 0x01u
 #define EMESIS_TEX_FLAG_DEPTH   0x02u
 
 #define EMESIS_BUF_FLAG_COHERENT_MAPPED 0x01u
+#define EMESIS_BUF_FLAG_TBO_ATTACHED    0x02u
+
+#define EMESIS_UPLOAD_SEGMENTS 4
+
+typedef struct {
+    GLuint buffer;
+    void* mapped_ptr;
+    size_t total_size;
+    size_t seg_size;
+    size_t cur_offset;
+    GLsync fences[EMESIS_UPLOAD_SEGMENTS];
+    bool init_attempted;
+    bool ready;
+} upload_ring_t;
 
 typedef struct {
     GLuint count;
@@ -95,6 +109,16 @@ typedef struct {
     GLsizei nbuffers;
     GLsizei sent_es_nbuffers;
     bool attachments_dirty;
+    GLuint depth_target;
+    GLuint depth_object;
+    GLint  depth_level;
+    GLint  depth_layer;
+    bool   depth_known;
+    GLuint stencil_target;
+    GLuint stencil_object;
+    GLint  stencil_level;
+    GLint  stencil_layer;
+    bool   stencil_known;
 } framebuffer_t;
 
 typedef struct {
@@ -116,7 +140,7 @@ typedef struct {
     EGLContext phys_context;
     bool context_rdy;
     bool es31, es32, buffer_storage, buffer_texture_ext, buffer_texture_oes;
-    bool multidraw_indirect, multidraw_ext, timer_query, base_instance, clear_texture;
+    bool multidraw_indirect, multidraw_ext, timer_query, base_instance, clear_texture, clip_control;
     bool es30_needs_ebo_mirror;
     int8_t mdi_probe_state;
     int8_t mdbv_probe_state;
@@ -126,6 +150,7 @@ typedef struct {
     char gpu_renderer[96];
     char gpu_version[96];
     basevertex_renderer_t basevertex;
+    upload_ring_t upload_ring;
     PFNGLDRAWELEMENTSBASEVERTEXPROC drawelementsbasevertex;
     PFNGLMULTIDRAWELEMENTSBASEVERTEXEXTPROC multidrawelementsbasevertex;
     PFNGLCOPYIMAGESUBDATAPROC copyimagesubdata;
@@ -140,15 +165,39 @@ typedef struct {
     unordered_map* texture_swztrack_map;
     unordered_map* vao_ebo_map;
     unordered_map* buf_coherent_map;
+    unordered_map* buf_size_map;
     unordered_map* es30_ebo_mirror_map;
     GLuint current_vao;
     bool current_vao_valid;
     GLuint default_vao_ebo;
+    bool default_vao_ebo_valid;
     GLuint vao_ebo_fast[EMESIS_FAST_VAO_MAX];
+    uint8_t vao_ebo_valid_fast[EMESIS_FAST_VAO_MAX];
     uint8_t tex_flags_fast[EMESIS_FAST_TEX_MAX];
     uint8_t tex_target_fast[EMESIS_FAST_TEX_MAX];
     GLenum tex_intfmt_fast[EMESIS_FAST_TEX_MAX];
+    int16_t tex_base_level_fast[EMESIS_FAST_TEX_MAX];
+    int16_t tex_max_level_fast[EMESIS_FAST_TEX_MAX];
+    GLuint tex_tbo_buf_fast[EMESIS_FAST_TEX_MAX];
+    GLenum tex_tbo_fmt_fast[EMESIS_FAST_TEX_MAX];
     uint8_t buf_flags_fast[EMESIS_FAST_BUF_MAX];
+    size_t buf_size_fast[EMESIS_FAST_BUF_MAX];
+    bool viewport_valid;
+    GLint viewport[4];
+    bool scissor_valid;
+    GLint scissor[4];
+    GLint unpack_row_length;
+    GLint unpack_image_height;
+    GLint unpack_skip_pixels;
+    GLint unpack_skip_rows;
+    GLint unpack_skip_images;
+    GLint unpack_alignment;
+    uint8_t unpack_valid_mask;
+    GLint pack_row_length;
+    GLint pack_skip_pixels;
+    GLint pack_skip_rows;
+    GLint pack_alignment;
+    uint8_t pack_valid_mask;
     GLuint active_tex_unit;
     bool active_tex_unit_valid;
     GLuint bound_textures[MAX_TMUS][MAX_TEXTARGETS];
@@ -192,6 +241,7 @@ extern int emesis_tex_target_index(GLenum target);
 extern GLenum emesis_tex_index_to_target(int idx);
 extern GLuint emesis_get_bound_texture(GLenum target);
 extern GLuint emesis_get_current_ebo(void);
+extern void emesis_invalidate_vao_ebo_cache(context_t* ctx);
 extern void emesis_es30_on_buffer_data(context_t* ctx, GLenum target, GLsizeiptr size, const void* data);
 extern void emesis_es30_on_buffer_sub_data(context_t* ctx, GLenum target, GLintptr offset, GLsizeiptr size, const void* data);
 extern void emesis_es30_on_copy_buffer_sub_data(context_t* ctx, GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size);

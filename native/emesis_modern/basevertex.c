@@ -155,21 +155,9 @@ bool emesis_dispatch_mdi_commands(context_t* ctx, GLenum mode, GLenum type,
     }
 
     bool dispatched = false;
-    if (valid_draws > 1 && ctx->multidraw_indirect &&
-        es3_functions.glMultiDrawElementsIndirectEXT && ctx->mdi_probe_state >= 0) {
-        if (ctx->mdi_probe_state == 0) {
-            while (es3_functions.glGetError() != GL_NO_ERROR) {}
-            es3_functions.glMultiDrawElementsIndirectEXT(mode, type, (const void*)byte_offset, valid_draws, 0);
-            if (es3_functions.glGetError() == GL_NO_ERROR) {
-                ctx->mdi_probe_state = 1;
-                dispatched = true;
-            } else {
-                ctx->mdi_probe_state = -1;
-            }
-        } else {
-            es3_functions.glMultiDrawElementsIndirectEXT(mode, type, (const void*)byte_offset, valid_draws, 0);
-            dispatched = true;
-        }
+    if (valid_draws > 1 && ctx->multidraw_indirect && es3_functions.glMultiDrawElementsIndirectEXT) {
+        es3_functions.glMultiDrawElementsIndirectEXT(mode, type, (const void*)byte_offset, valid_draws, 0);
+        dispatched = true;
     }
 
     if (!dispatched && es3_functions.glDrawElementsIndirect) {
@@ -430,19 +418,9 @@ void glMultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum typ
     }
 
     /* Tier 1: Hardware glMultiDrawElementsBaseVertexEXT/OES (1 call, zero ring upload) */
-    if (ctx->multidrawelementsbasevertex != NULL && ctx->mdbv_probe_state >= 0) {
-        if (ctx->mdbv_probe_state == 0) {
-            while (es3_functions.glGetError() != GL_NO_ERROR) {}
-            ctx->multidrawelementsbasevertex(mode, count, type, indices, drawcount, basevertex);
-            if (es3_functions.glGetError() == GL_NO_ERROR) {
-                ctx->mdbv_probe_state = 1;
-                return;
-            }
-            ctx->mdbv_probe_state = -1;
-        } else {
-            ctx->multidrawelementsbasevertex(mode, count, type, indices, drawcount, basevertex);
-            return;
-        }
+    if (ctx->multidrawelementsbasevertex != NULL) {
+        ctx->multidrawelementsbasevertex(mode, count, type, indices, drawcount, basevertex);
+        return;
     }
 
     GLint tbytes = type_bytes(type);
@@ -451,7 +429,7 @@ void glMultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum typ
     /* Tier 2: Hardware GL_EXT_multi_draw_indirect via persistent coherent ring -> 1 driver call!
      * Collapses 256-512 Sodium/Blaze3D chunk sub-draws into a single GPU command submission! */
     if (ctx->es31 && ctx->basevertex.ready && ctx->multidraw_indirect &&
-        es3_functions.glMultiDrawElementsIndirectEXT && ctx->mdi_probe_state >= 0 &&
+        es3_functions.glMultiDrawElementsIndirectEXT &&
         emesis_get_current_ebo() != 0) {
         if (ensure_indirect_scratch(&ctx->basevertex, (size_t)drawcount)) {
             basevertex_indirect_cmd_t* cmds = ctx->basevertex.scratchPasses;
