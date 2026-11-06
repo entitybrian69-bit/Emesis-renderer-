@@ -97,6 +97,85 @@ static volatile int g_lwjgl_hijacked = 0;
 static volatile int g_jvm_sanitized = 0;
 static int g_was_launcher_env = 0;
 
+/* Multi-namespace unification state when System.load() + MojoExec(bypass=true) load two copies */
+static volatile int g_peer_state = 0; /* 0 = pending, 1 = self is canonical, 2 = forward to peer */
+static pfn_eglGetProcAddress_t g_peer_eglGetProcAddress = NULL;
+static EGLContext (*g_peer_eglCreateContext)(EGLDisplay, EGLConfig, EGLContext, const EGLint*) = NULL;
+static EGLBoolean (*g_peer_eglDestroyContext)(EGLDisplay, EGLContext) = NULL;
+static EGLBoolean (*g_peer_eglMakeCurrent)(EGLDisplay, EGLSurface, EGLSurface, EGLContext) = NULL;
+
+__attribute__((visibility("default"))) __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char* procname);
+
+static bool emesis_is_mojoexec_process(void) {
+    static volatile int s_cached = -1;
+    int cur = __atomic_load_n(&s_cached, __ATOMIC_ACQUIRE);
+    if (cur >= 0) return cur == 1;
+
+    if (dlsym(RTLD_DEFAULT, "mojoexec_acq_egl_handle") != NULL) {
+        __atomic_store_n(&s_cached, 1, __ATOMIC_RELEASE);
+        return true;
+    }
+
+    bool found = false;
+    FILE* fp = fopen("/proc/self/maps", "r");
+    if (fp) {
+        char line[1024];
+        while (fgets(line, sizeof(line), fp)) {
+            if (strstr(line, "/libmojoexec.so") != NULL) {
+                found = true;
+                break;
+            }
+        }
+        fclose(fp);
+    }
+    __atomic_store_n(&s_cached, found ? 1 : 0, __ATOMIC_RELEASE);
+    return found;
+}
+
+/*
+ * Unifies ClassLoader-preloaded Copy #1 (used by LWJGL on Aerix/MojoExec) with isolated
+ * mojoexec-primary Copy #2 (used by SDL3 via mojoexec_acq_egl_handle()), guaranteeing:
+ *   GL.getFunctionProvider().getFunctionAddress("glGetError") == SDL_GL_GetProcAddress("glGetError")
+ * in Minecraft 26.3's GlBackend.loadLibrary() and routing all GL/EGL calls to one single engine.
+ */
+static bool emesis_has_mojoexec_peer(void) {
+    int st = __atomic_load_n(&g_peer_state, __ATOMIC_ACQUIRE);
+    if (st == 2) return true;
+    if (st == 1) return false;
+
+    typedef void* (*acq_egl_fn_t)(void);
+    acq_egl_fn_t acq_egl = (acq_egl_fn_t)dlsym(RTLD_DEFAULT, "mojoexec_acq_egl_handle");
+    if (!acq_egl) {
+        __atomic_store_n(&g_peer_state, 1, __ATOMIC_RELEASE);
+        return false;
+    }
+
+    void* mojo_h = acq_egl();
+    if (!mojo_h) {
+        /* MojoExec.prepareEgl() has not completed yet — keep state=0 so we re-check after init */
+        return false;
+    }
+
+    pfn_eglGetProcAddress_t peer_gpa = (pfn_eglGetProcAddress_t)dlsym(mojo_h, "eglGetProcAddress");
+    if (!peer_gpa || peer_gpa == &eglGetProcAddress) {
+        __atomic_store_n(&g_peer_state, 1, __ATOMIC_RELEASE);
+        return false;
+    }
+
+    if (dlsym(mojo_h, "Java_com_entitybrian_emesis_EmesisNative_getEngineVersion") == NULL) {
+        __atomic_store_n(&g_peer_state, 1, __ATOMIC_RELEASE);
+        return false;
+    }
+
+    g_peer_eglGetProcAddress = peer_gpa;
+    g_peer_eglCreateContext = (__typeof__(g_peer_eglCreateContext))dlsym(mojo_h, "eglCreateContext");
+    g_peer_eglDestroyContext = (__typeof__(g_peer_eglDestroyContext))dlsym(mojo_h, "eglDestroyContext");
+    g_peer_eglMakeCurrent = (__typeof__(g_peer_eglMakeCurrent))dlsym(mojo_h, "eglMakeCurrent");
+    __atomic_store_n(&g_peer_state, 2, __ATOMIC_RELEASE);
+    EMESIS_LOGI("Unified ClassLoader router instance -> MojoExec canonical instance (%p)", mojo_h);
+    return true;
+}
+
 static void emesis_discover_self_paths(void) {
     if (g_self_dir[0]) return;
     Dl_info self_info;
@@ -369,6 +448,16 @@ static void emesis_hijack_lwjgl_gl_lib(void) {
 
     emesis_sanitize_jvm_for_sodium(env);
 
+    /*
+     * On MojoExec-based launchers (Aerix / MojoLauncher), LWJGL & SDL3 library binding is already
+     * managed by MojoExec + our emesis_has_mojoexec_peer() cross-namespace bridge. Do NOT overwrite
+     * DynamicLinkLoader.ndlopen from an isolated mojoexec-primary namespace.
+     */
+    if (emesis_is_mojoexec_process()) {
+        __atomic_store_n(&g_lwjgl_hijacked, 1, __ATOMIC_RELEASE);
+        return;
+    }
+
     jstring jpath = (*env)->NewStringUTF(env, g_self_path);
     if (!jpath) {
         (*env)->ExceptionClear(env);
@@ -465,16 +554,21 @@ static void emesis_router_on_load(void) {
     }
 
     /*
-     * Repair SDL3 library variables whenever Emesis is loaded inside a launcher JVM:
-     * Pojav/Amethyst SDL mode overwrites SDL_OPENGL_LIBRARY=graphicsLib ("libng_gl4es.so")
-     * and mangles SDL_EGL_LIBRARY = NATIVE_LIB_DIR + "/" + POJAVEXEC_EGL after loading
-     * custom_env.txt. Overwriting both with g_self_path ensures SDL_Init(SDL_INIT_VIDEO)
-     * loads libemesis_renderer.so for both EGL (ES 3.2 + no_error) and OpenGL.
+     * Repair SDL3 library variables on non-MojoExec launchers (Pojav/Amethyst SDL mode overwrites
+     * SDL_OPENGL_LIBRARY=graphicsLib and mangles SDL_EGL_LIBRARY after loading custom_env.txt).
+     * On MojoExec launchers (Aerix / MojoLauncher), MojoSDL acquires both handles directly from
+     * mojoexec_acq_egl_handle(), so clear SDL_*_LIBRARY to prevent SDL_LoadObject() from opening
+     * a duplicate second copy in a different linker namespace.
      */
-    if (g_self_path[0] == '/' && g_was_launcher_env) {
-        setenv("SDL_OPENGL_LIBRARY", g_self_path, 1);
-        setenv("SDL_EGL_LIBRARY", g_self_path, 1);
-        setenv("POJAVEXEC_EGL", g_self_path, 1);
+    if (g_was_launcher_env) {
+        if (emesis_is_mojoexec_process()) {
+            setenv("SDL_OPENGL_LIBRARY", "libemesis_renderer.so", 1);
+            setenv("SDL_EGL_LIBRARY", "libemesis_renderer.so", 1);
+        } else if (g_self_path[0] == '/') {
+            setenv("SDL_OPENGL_LIBRARY", g_self_path, 1);
+            setenv("SDL_EGL_LIBRARY", g_self_path, 1);
+            setenv("POJAVEXEC_EGL", g_self_path, 1);
+        }
     }
 
     /*
@@ -731,7 +825,7 @@ static void emesis_init_engine_once(void) {
         return;
     }
 
-    EMESIS_LOGI("Emesis Renderer v1.3.0 (Made by Entitybrian) -> Selected [%s] for MC [%s] via [%s]",
+    EMESIS_LOGI("Emesis Renderer v1.3.2 (Made by Entitybrian) -> Selected [%s] for MC [%s] via [%s]",
                 target_soname, g_decision.detected_version, g_decision.detection_source);
 
     if (g_decision.engine == EMESIS_ENGINE_MODERN) {
@@ -790,6 +884,10 @@ static void* emesis_query_gl_proc(const char* name) {
 
 /* Direct C export resolver used by universal core forwarders in gl_forwards.inc */
 void* emesis_resolve_gl_symbol(const char* name) {
+    if (emesis_has_mojoexec_peer() && g_peer_eglGetProcAddress) {
+        void* peer_sym = (void*)g_peer_eglGetProcAddress(name);
+        if (peer_sym) return peer_sym;
+    }
     void* sym = emesis_query_gl_proc(name);
     if (sym) return sym;
     if (g_decision.engine == EMESIS_ENGINE_MODERN && g_sys_eglGetProcAddress) {
@@ -955,6 +1053,9 @@ __attribute__((visibility("default"))) EGLBoolean eglSwapInterval(EGLDisplay dpy
 }
 
 __attribute__((visibility("default"))) EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_context, const EGLint* attrib_list) {
+    if (emesis_has_mojoexec_peer() && g_peer_eglCreateContext) {
+        return g_peer_eglCreateContext(dpy, config, share_context, attrib_list);
+    }
     emesis_ensure_engine();
     emesis_hijack_lwjgl_gl_lib();
     if (g_decision.engine == EMESIS_ENGINE_MODERN && g_mod_eglCreateContext) {
@@ -1002,6 +1103,9 @@ __attribute__((visibility("default"))) EGLContext eglCreateContext(EGLDisplay dp
 }
 
 __attribute__((visibility("default"))) EGLBoolean eglDestroyContext(EGLDisplay dpy, EGLContext ctx) {
+    if (emesis_has_mojoexec_peer() && g_peer_eglDestroyContext) {
+        return g_peer_eglDestroyContext(dpy, ctx);
+    }
     emesis_ensure_engine();
     if (g_decision.engine == EMESIS_ENGINE_MODERN && g_mod_eglDestroyContext) {
         return g_mod_eglDestroyContext(dpy, ctx);
@@ -1010,6 +1114,9 @@ __attribute__((visibility("default"))) EGLBoolean eglDestroyContext(EGLDisplay d
 }
 
 __attribute__((visibility("default"))) EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
+    if (emesis_has_mojoexec_peer() && g_peer_eglMakeCurrent) {
+        return g_peer_eglMakeCurrent(dpy, draw, read, ctx);
+    }
     emesis_ensure_engine();
     emesis_hijack_lwjgl_gl_lib();
     if (g_decision.engine == EMESIS_ENGINE_MODERN && g_mod_eglMakeCurrent) {
@@ -1065,6 +1172,12 @@ __attribute__((visibility("default"))) EGLint eglGetError(void) {
 
 __attribute__((visibility("default"))) __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char* procname) {
     if (!procname) return NULL;
+    if (emesis_has_mojoexec_peer() && g_peer_eglGetProcAddress) {
+        if (strcmp(procname, "eglGetProcAddress") == 0) {
+            return (__eglMustCastToProperFunctionPointerType)&eglGetProcAddress;
+        }
+        return g_peer_eglGetProcAddress(procname);
+    }
     if (strncmp(procname, "egl", 3) == 0) {
 #define MATCH_EGL(fn) if (strcmp(procname, #fn) == 0) return (__eglMustCastToProperFunctionPointerType)&fn
         MATCH_EGL(eglGetDisplay);
@@ -1131,7 +1244,7 @@ __attribute__((visibility("default"))) void* glXGetProcAddressARB(const char* pr
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL
 Java_com_entitybrian_emesis_EmesisNative_getEngineVersion(JNIEnv* env, jclass cls) {
     (void)cls;
-    return (*env)->NewStringUTF(env, "Emesis Renderer v1.3.1 (26.3 Sodium + DSA + SDL3 + <1.17 Accelerator) — Made by Entitybrian");
+    return (*env)->NewStringUTF(env, "Emesis Renderer v1.3.2 (26.3 Sodium + Multi-NS SDL3 + DSA + <1.17 Accelerator) — Made by Entitybrian");
 }
 
 __attribute__((visibility("default"))) JNIEXPORT jstring JNICALL
