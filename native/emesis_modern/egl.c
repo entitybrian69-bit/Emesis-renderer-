@@ -198,7 +198,7 @@ void build_extension_string(context_t* context) {
     if (env_istrue_d("EMESIS_ENABLE_DSA", true) && !env_istrue("EMESIS_DISABLE_DSA")) {
         add_extra_extension(context, &length, "GL_ARB_direct_state_access");
     }
-    if (env_istrue_d("LIBGL_NOERROR", true) && !env_istrue("EMESIS_DEBUG")) {
+    if (env_istrue("EMESIS_ENABLE_HW_NOERROR") && !env_istrue("EMESIS_DEBUG")) {
         add_extra_extension(context, &length, "GL_KHR_no_error");
     }
     // Used by Minecraft for the GPU usage counter (see Blaze3D TimerQuery; faked 1ns when hardware ext absent)
@@ -291,6 +291,7 @@ static void find_esversion(context_t* context) {
     if(has_ext_token(extensions, "GL_EXT_multi_draw_arrays")) context->multidraw_ext = true;
     if(has_ext_token(extensions, "GL_EXT_base_instance")) context->base_instance = true;
     if(has_ext_token(extensions, "GL_EXT_clear_texture")) context->clear_texture = true;
+    if(has_ext_token(extensions, "GL_EXT_float_blend")) context->float_blend = true;
     if(has_ext_token(extensions, "GL_EXT_clip_control") && es3_functions.glClipControlEXT) context->clip_control = true;
     if(has_ext_token(extensions, "GL_EXT_disjoint_timer_query") || env_istrue_d("EMESIS_ENABLE_TIMER_QUERY", false)) context->timer_query = true;
 
@@ -393,10 +394,41 @@ static void init_incontext(context_t* tw_context) {
 
 static EGLContext create_hw_context_with_optional_noerror(EGLDisplay dpy, EGLConfig config,
                                                           EGLContext share_context, const EGLint *attrib_list) {
-    if (env_istrue_d("LIBGL_NOERROR", true) &&
-        !env_istrue("EMESIS_DEBUG") &&
-        !env_istrue("EMESIS_DISABLE_HW_NOERROR") &&
-        host_eglQueryString != NULL) {
+    bool want_hw_noerror = env_istrue("EMESIS_ENABLE_HW_NOERROR") &&
+                           !env_istrue("EMESIS_DEBUG") &&
+                           !env_istrue("EMESIS_DISABLE_HW_NOERROR");
+    if (!want_hw_noerror && attrib_list != NULL) {
+        /*
+         * Strip EGL_CONTEXT_OPENGL_NO_ERROR_KHR from caller attributes by default:
+         * mobile drivers (especially Mali libGLES_mali.so, flagged by Sodium's
+         * NO_ERROR_CONTEXT_UNSUPPORTED) suffer native driver SIGSEGVs under
+         * hardware NO_ERROR contexts. User-space glGetError() fast-return remains active.
+         */
+        EGLint stripped[64];
+        size_t in_idx = 0, out_idx = 0;
+        bool found_noerror = false, overflow = false;
+        while (attrib_list[in_idx] != EGL_NONE) {
+            if (out_idx + 2 >= 64) {
+                overflow = true;
+                break;
+            }
+            EGLint k = attrib_list[in_idx];
+            EGLint v = attrib_list[in_idx + 1];
+            if (k == EGL_CONTEXT_OPENGL_NO_ERROR_KHR) {
+                found_noerror = true;
+            } else {
+                stripped[out_idx++] = k;
+                stripped[out_idx++] = v;
+            }
+            in_idx += 2;
+        }
+        if (found_noerror && !overflow) {
+            stripped[out_idx] = EGL_NONE;
+            return host_eglCreateContext(dpy, config, share_context, stripped);
+        }
+        return host_eglCreateContext(dpy, config, share_context, attrib_list);
+    }
+    if (want_hw_noerror && host_eglQueryString != NULL) {
         const char* egl_exts = host_eglQueryString(dpy, EGL_EXTENSIONS);
         if (has_ext_token(egl_exts, "EGL_KHR_create_context_no_error")) {
             EGLint patched[64];

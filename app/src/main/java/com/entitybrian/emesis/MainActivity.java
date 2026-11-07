@@ -90,7 +90,7 @@ public class MainActivity extends Activity {
         heroCard.addView(logoView, logoLp);
 
         TextView titleView = new TextView(this);
-        titleView.setText("EMESIS RENDERER v1.3.2");
+        titleView.setText("EMESIS RENDERER v1.3.3");
         titleView.setTextColor(Color.parseColor("#F3F7FA"));
         titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 23);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
@@ -554,7 +554,7 @@ public class MainActivity extends Activity {
                 + extra);
             bridgeStatusText.setTextColor(Color.parseColor("#00FF88"));
         } else if (!autoSynced.isEmpty()) {
-            StringBuilder sb = new StringBuilder("SAF Auto-Sync ACTIVE — custom_env.txt updated to current v1.3.2 path:\n");
+            StringBuilder sb = new StringBuilder("SAF Auto-Sync ACTIVE — custom_env.txt updated to current v1.3.3 path:\n");
             for (int i = 0; i < autoSynced.size(); i++) {
                 if (i > 0) sb.append("\n");
                 sb.append("• ").append(autoSynced.get(i));

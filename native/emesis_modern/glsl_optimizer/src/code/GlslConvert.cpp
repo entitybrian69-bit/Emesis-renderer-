@@ -342,7 +342,7 @@ void GlslConvert::apply_optimizations(
       lower_discard(vIr);
       lower_discard_flow(vIr);
       lower_instructions(vIr, false, false);
-      lower_variable_index_to_cond_assign(vShaderType, vIr, true, true, true, true);
+      lower_variable_index_to_cond_assign(vShaderType, vIr, false, vShaderType == MESA_SHADER_FRAGMENT, false, false);
    }
 }
 
@@ -686,7 +686,7 @@ void GlslConvert::FillCompilerOptions(gl_shader_compiler_options* vCompileOption
 {
 	if (vCompileOptions && vOptimizationStruct)
 	{
-#define COND(FLAG) (&vOptimizationStruct->compilerFlags && GlslConvert::CompilerFlags::FLAG)
+#define COND(FLAG) ((vOptimizationStruct->compilerFlags & GlslConvert::CompilerFlags::FLAG) != 0)
 		//vCompileOptions->EmitNoLoops = COND(COMPILER_EmitNoLoops);
 		vCompileOptions->EmitNoCont = COND(COMPILER_EmitNoCont);
 		vCompileOptions->EmitNoMainReturn = COND(COMPILER_EmitNoMainReturn);

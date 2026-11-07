@@ -2520,6 +2520,7 @@ void IR_TO_GLSL::visit_uniform_block(ir_variable *ir) {
 	if ( ir->is_interface_instance() )
 	{
 		generated_source.append( " %s", ir->name );
+		print_type_post( generated_source, ir->type, false );
 	}
 }
 

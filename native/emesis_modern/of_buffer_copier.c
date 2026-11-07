@@ -105,7 +105,8 @@ void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, void 
 void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid * data) {
     context_t* ctx = emesis_get_context();
     if(!ctx) return;
-    if(format == GL_DEPTH_COMPONENT) {
+    bool pack_pbo = (ctx->bound_buffers[3 /* GL_PIXEL_PACK_BUFFER */] != 0);
+    if(format == GL_DEPTH_COMPONENT && !pack_pbo) {
         framebuffer_copier_t* copier = &ctx->framebuffer_copier;
         copier->depthData = data;
         copier->depthWidth = width;
@@ -116,7 +117,7 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
     if (type == 0x8367 /* GL_UNSIGNED_INT_8_8_8_8_REV */) {
         type = GL_UNSIGNED_BYTE;
     }
-    if (format == GL_BGRA_EXT && type == GL_UNSIGNED_BYTE && data != NULL && width > 0 && height > 0) {
+    if (format == GL_BGRA_EXT && type == GL_UNSIGNED_BYTE && !pack_pbo && data != NULL && width > 0 && height > 0) {
         es3_functions.glReadPixels(x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, data);
         uint8_t* p = (uint8_t*)data;
         size_t total = (size_t)width * (size_t)height;

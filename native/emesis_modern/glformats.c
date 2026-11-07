@@ -73,8 +73,16 @@ static GLint pick_rg_internalformat(GLenum* type, bool* convert) {
 }
 
 void pick_format(GLint *internalformat, GLenum* type, GLenum* format) {
+    context_t* ctx = emesis_get_context();
+    bool has_float_blend = (ctx != NULL && ctx->float_blend);
     // Workarounds!
     switch (*internalformat) {
+        case GL_RGBA32F:
+            if (!has_float_blend) *internalformat = GL_RGBA16F;
+            break;
+        case GL_RG32F:
+            if (!has_float_blend) *internalformat = GL_RG16F;
+            break;
         // Two legacy GL formats. From testing, OptiFine wants these to be floats.
         case GL_RGBA12:
         case GL_RGBA16:
@@ -223,9 +231,16 @@ INTERNAL GLenum remap_tex_storage_internalformat(GLenum internalformat) {
 }
 
 INTERNAL void pick_internalformat(GLint *internalformat, GLenum* type, GLenum* format, GLvoid const** data) {
-    if(*data == NULL) {
+    context_t* ctx = emesis_get_context();
+    bool unpack_pbo = (ctx != NULL && ctx->bound_buffers[4 /* GL_PIXEL_UNPACK_BUFFER */] != 0);
+    bool has_float_blend = (ctx != NULL && ctx->float_blend);
+    if(*data == NULL && !unpack_pbo) {
         pick_format(internalformat, type, format);
         return;
+    }
+    if (!has_float_blend) {
+        if (*internalformat == GL_RGBA32F) *internalformat = GL_RGBA16F;
+        else if (*internalformat == GL_RG32F) *internalformat = GL_RG16F;
     }
     // Compared to OpenGL ES, desktop OpenGL implicitly supports way more depth/RGB formats without explicit sizing.
     // This function converts appropriate unsized formats to sized ones according to the type.
@@ -315,10 +330,10 @@ INTERNAL void pick_internalformat(GLint *internalformat, GLenum* type, GLenum* f
                     }
 
                     break;
-                case GL_RGBA:
+                    case GL_RGBA:
                     switch(*type) {
                         case GL_FLOAT:
-                            *internalformat = GL_RGBA32F;
+                            *internalformat = has_float_blend ? GL_RGBA32F : GL_RGBA16F;
                             return;
                         case GL_HALF_FLOAT:
                             *internalformat = GL_RGBA16F;

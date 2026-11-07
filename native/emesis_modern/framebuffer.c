@@ -710,14 +710,17 @@ void glGenFramebuffers(GLsizei n, GLuint* framebuffers) {
 
 void glDeleteFramebuffers(GLsizei n, const GLuint* framebuffers) {
     context_t* ctx = emesis_get_context();
-    if (!ctx) return;
+    if (!ctx || n <= 0 || !framebuffers) return;
     es3_functions.glDeleteFramebuffers(n, framebuffers);
     for (GLsizei i = 0; i < n; i++) {
+        if (framebuffers[i] == 0) continue;
         if (ctx->draw_framebuffer == framebuffers[i]) {
             ctx->draw_framebuffer = 0;
+            ctx->draw_framebuffer_valid = false;
         }
         if (ctx->read_framebuffer == framebuffers[i]) {
             ctx->read_framebuffer = 0;
+            ctx->read_framebuffer_valid = false;
         }
         framebuffer_t* fb = unordered_map_remove(ctx->framebuffer_map, (void*)(uintptr_t)framebuffers[i]);
         if (fb) free(fb);

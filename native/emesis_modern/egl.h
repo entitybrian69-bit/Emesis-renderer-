@@ -28,9 +28,11 @@
 #define EMESIS_TEX_FLAG_SWIZZLE 0x01u
 #define EMESIS_TEX_FLAG_DEPTH   0x02u
 
-#define EMESIS_BUF_FLAG_COHERENT_MAPPED 0x01u
-#define EMESIS_BUF_FLAG_TBO_ATTACHED    0x02u
-#define EMESIS_BUF_FLAG_VB_BOUND        0x04u
+#define EMESIS_BUF_FLAG_COHERENT_MAPPED  0x01u
+#define EMESIS_BUF_FLAG_TBO_ATTACHED     0x02u
+#define EMESIS_BUF_FLAG_VB_BOUND         0x04u
+#define EMESIS_BUF_FLAG_EBO_BOUND        0x08u
+#define EMESIS_BUF_FLAG_STORAGE_EMULATED 0x10u
 
 #define EMESIS_FAST_VAO_VB_SLOTS 4
 #define EMESIS_UPLOAD_SEGMENTS 4
@@ -144,8 +146,9 @@ typedef struct {
     EGLContext phys_context;
     bool context_rdy;
     bool es31, es32, buffer_storage, buffer_texture_ext, buffer_texture_oes;
-    bool multidraw_indirect, multidraw_ext, timer_query, base_instance, clear_texture, clip_control;
+    bool multidraw_indirect, multidraw_ext, timer_query, base_instance, clear_texture, clip_control, float_blend;
     bool es30_needs_ebo_mirror;
+    GLuint same_buf_copy_temp;
     int8_t mdi_probe_state;
     int8_t mdbv_probe_state;
     int8_t mda_probe_state;

@@ -23,9 +23,10 @@
 
 #define MAX_ATTACHED_SHADERS 8
 #define MAX_TRACKED_ATTRIBS 32
-#define ESSL_MEM_CACHE_SLOTS 256
+#define ESSL_MEM_CACHE_SLOTS 1024
+#define MAX_ASYNC_CACHE_JOBS 256
 #define EMESIS_PBIN_MAGIC 0x454D5042u /* "EMPB" */
-#define EMESIS_CACHE_TAG "emesis_modern_v126"
+#define EMESIS_CACHE_TAG "emesis_modern_v133"
 
 typedef struct {
     GLenum shader_type;
@@ -58,6 +59,105 @@ static int s_cache_cfg_init = 0;
 static bool s_cache_enabled = true;
 static bool s_eager_shader_compile = false;
 static char s_cache_dir[512];
+
+typedef struct cache_write_job_s {
+    char final_path[600];
+    uint8_t* payload;
+    size_t payload_len;
+    struct cache_write_job_s* next;
+} cache_write_job_t;
+
+static pthread_mutex_t s_writer_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t s_writer_cond = PTHREAD_COND_INITIALIZER;
+static cache_write_job_t* s_writer_head = NULL;
+static cache_write_job_t* s_writer_tail = NULL;
+static size_t s_writer_pending = 0;
+static bool s_writer_started = false;
+static uint32_t s_writer_seq = 0;
+
+static void write_cache_file_atomic(const char* final_path, const uint8_t* data, size_t len, uint32_t seq) {
+    char tmp_path[640];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp.%d.%u", final_path, (int)getpid(), seq);
+    FILE* fp = fopen(tmp_path, "wb");
+    if (!fp) return;
+    if (fwrite(data, 1, len, fp) == len && fflush(fp) == 0) {
+        fclose(fp);
+        if (rename(tmp_path, final_path) != 0) {
+            unlink(tmp_path);
+        }
+    } else {
+        fclose(fp);
+        unlink(tmp_path);
+    }
+}
+
+static void* emesis_cache_writer_main(void* arg) {
+    (void)arg;
+    uint32_t local_seq = 1;
+    for (;;) {
+        pthread_mutex_lock(&s_writer_mutex);
+        while (s_writer_head == NULL) {
+            pthread_cond_wait(&s_writer_cond, &s_writer_mutex);
+        }
+        cache_write_job_t* job = s_writer_head;
+        s_writer_head = job->next;
+        if (s_writer_head == NULL) s_writer_tail = NULL;
+        if (s_writer_pending > 0) s_writer_pending--;
+        pthread_mutex_unlock(&s_writer_mutex);
+
+        write_cache_file_atomic(job->final_path, job->payload, job->payload_len, local_seq++);
+        free(job->payload);
+        free(job);
+    }
+    return NULL;
+}
+
+static void enqueue_async_cache_write(const char* final_path, uint8_t* owned_payload, size_t len) {
+    if (!final_path || !owned_payload || len == 0) {
+        free(owned_payload);
+        return;
+    }
+    pthread_mutex_lock(&s_writer_mutex);
+    if (!s_writer_started) {
+        pthread_t tid;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_attr_setstacksize(&attr, 128 * 1024);
+        if (pthread_create(&tid, &attr, emesis_cache_writer_main, NULL) == 0) {
+            s_writer_started = true;
+        }
+        pthread_attr_destroy(&attr);
+    }
+    if (!s_writer_started) {
+        uint32_t seq = ++s_writer_seq;
+        pthread_mutex_unlock(&s_writer_mutex);
+        write_cache_file_atomic(final_path, owned_payload, len, seq);
+        free(owned_payload);
+        return;
+    }
+    if (s_writer_pending >= MAX_ASYNC_CACHE_JOBS) {
+        pthread_mutex_unlock(&s_writer_mutex);
+        free(owned_payload);
+        return;
+    }
+    cache_write_job_t* job = (cache_write_job_t*)malloc(sizeof(cache_write_job_t));
+    if (!job) {
+        pthread_mutex_unlock(&s_writer_mutex);
+        free(owned_payload);
+        return;
+    }
+    snprintf(job->final_path, sizeof(job->final_path), "%s", final_path);
+    job->payload = owned_payload;
+    job->payload_len = len;
+    job->next = NULL;
+    if (s_writer_tail) s_writer_tail->next = job;
+    else s_writer_head = job;
+    s_writer_tail = job;
+    s_writer_pending++;
+    pthread_cond_signal(&s_writer_cond);
+    pthread_mutex_unlock(&s_writer_mutex);
+}
 
 static uint64_t splitmix64(uint64_t x) {
     x += 0x9e3779b97f4a7c15ULL;
@@ -234,24 +334,15 @@ static void essl_cache_store(uint64_t lo, uint64_t hi, const char* essl) {
     pthread_mutex_unlock(&s_cache_mutex);
 
     if (s_cache_dir[0] == '\0') return;
-    char tmp_path[620];
+    size_t len = strlen(essl);
+    if (len == 0) return;
+    uint8_t* copy = (uint8_t*)malloc(len);
+    if (!copy) return;
+    memcpy(copy, essl, len);
     char final_path[600];
     snprintf(final_path, sizeof(final_path), "%s/%016llx%016llx.essl",
              s_cache_dir, (unsigned long long)lo, (unsigned long long)hi);
-    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp.%d.%lu",
-             final_path, (int)getpid(), (unsigned long)(uintptr_t)pthread_self());
-    FILE* fp = fopen(tmp_path, "wb");
-    if (!fp) return;
-    size_t len = strlen(essl);
-    if (fwrite(essl, 1, len, fp) == len && fflush(fp) == 0) {
-        fclose(fp);
-        if (rename(tmp_path, final_path) != 0) {
-            unlink(tmp_path);
-        }
-    } else {
-        fclose(fp);
-        unlink(tmp_path);
-    }
+    enqueue_async_cache_write(final_path, copy, len);
 }
 
 static void compute_program_hash(program_info_t* prog_info, uint64_t* lo, uint64_t* hi) {
@@ -339,40 +430,23 @@ static void save_program_binary(GLuint program, uint64_t lo, uint64_t hi) {
     es3_functions.glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &bin_len);
     if (bin_len <= 0 || bin_len > 16 * 1024 * 1024) return;
 
-    void* bin = malloc((size_t)bin_len);
-    if (!bin) return;
+    size_t hdr_bytes = 3u * sizeof(uint32_t);
+    uint8_t* packet = (uint8_t*)malloc(hdr_bytes + (size_t)bin_len);
+    if (!packet) return;
     GLsizei actual_len = 0;
     GLenum bin_fmt = 0;
-    es3_functions.glGetProgramBinary(program, bin_len, &actual_len, &bin_fmt, bin);
+    es3_functions.glGetProgramBinary(program, bin_len, &actual_len, &bin_fmt, packet + hdr_bytes);
     if (es3_functions.glGetError() != GL_NO_ERROR || actual_len <= 0 || actual_len > bin_len) {
-        free(bin);
+        free(packet);
         return;
     }
 
+    uint32_t hdr[3] = { EMESIS_PBIN_MAGIC, (uint32_t)bin_fmt, (uint32_t)actual_len };
+    memcpy(packet, hdr, hdr_bytes);
     char final_path[600];
-    char tmp_path[620];
     snprintf(final_path, sizeof(final_path), "%s/%016llx%016llx.pbin",
              s_cache_dir, (unsigned long long)lo, (unsigned long long)hi);
-    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp.%d.%lu",
-             final_path, (int)getpid(), (unsigned long)(uintptr_t)pthread_self());
-    FILE* fp = fopen(tmp_path, "wb");
-    if (!fp) {
-        free(bin);
-        return;
-    }
-    uint32_t hdr[3] = { EMESIS_PBIN_MAGIC, (uint32_t)bin_fmt, (uint32_t)actual_len };
-    bool ok = (fwrite(hdr, sizeof(uint32_t), 3, fp) == 3) &&
-              (fwrite(bin, 1, (size_t)actual_len, fp) == (size_t)actual_len) &&
-              (fflush(fp) == 0);
-    fclose(fp);
-    free(bin);
-    if (ok) {
-        if (rename(tmp_path, final_path) != 0) {
-            unlink(tmp_path);
-        }
-    } else {
-        unlink(tmp_path);
-    }
+    enqueue_async_cache_write(final_path, packet, hdr_bytes + (size_t)actual_len);
 }
 
 GLuint glCreateProgram(void) {
@@ -496,7 +570,7 @@ void glGetShaderiv(GLuint shader, GLenum pname, GLint* params) {
     shader_info_t* shader_info = unordered_map_get(current_context->shader_map, (void*)(uintptr_t)shader);
     if (shader_info != NULL) {
         if (pname == GL_COMPILE_STATUS &&
-            (shader_info->shader_type == GL_FRAGMENT_SHADER ||
+            ((shader_info->shader_type == GL_FRAGMENT_SHADER && shader_info->converted_ok) ||
              (shader_info->converted_ok && shader_info->compile_requested && !shader_info->driver_compiled))) {
             *params = GL_TRUE;
             return;

@@ -57,6 +57,8 @@ void glNamedBufferSubData(GLuint buffer, GLintptr offset, GLsizeiptr size, const
 void glCopyNamedBufferSubData(GLuint readBuffer, GLuint writeBuffer,
                               GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size) {
     if (readBuffer == 0 || writeBuffer == 0 || size <= 0) return;
+    if (readBuffer == 0 || writeBuffer == 0 || size <= 0) return;
+    if (readBuffer == writeBuffer && readOffset == writeOffset) return;
     /*
      * Zero-unbind fast path: glBindBuffer deduplicates against ctx->bound_buffers[],
      * so across 50-300+ Sodium chunk section uploads in a frame, readBuffer (Sodium's
@@ -67,34 +69,101 @@ void glCopyNamedBufferSubData(GLuint readBuffer, GLuint writeBuffer,
     glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, readOffset, writeOffset, size);
 }
 
+static size_t dsa_clear_elem_size(GLenum internalformat, GLenum format, GLenum type) {
+    switch (internalformat) {
+        case GL_R8: case GL_R8I: case GL_R8UI: return 1;
+        case GL_R16: case GL_R16I: case GL_R16UI: case GL_R16F:
+        case GL_RG8: case GL_RG8I: case GL_RG8UI: return 2;
+        case GL_RG32F: case GL_RG32I: case GL_RG32UI:
+        case GL_RGBA16: case GL_RGBA16I: case GL_RGBA16UI: case GL_RGBA16F: return 8;
+        case GL_RGB32F: case GL_RGB32I: case GL_RGB32UI: return 12;
+        case GL_RGBA32F: case GL_RGBA32I: case GL_RGBA32UI: return 16;
+        default: break;
+    }
+    size_t comp = 1;
+    switch (format) {
+        case GL_RG: case GL_RG_INTEGER: comp = 2; break;
+        case GL_RGB: case GL_RGB_INTEGER: comp = 3; break;
+        case GL_RGBA: case GL_RGBA_INTEGER: case GL_BGRA_EXT: comp = 4; break;
+        default: comp = 1; break;
+    }
+    size_t bpc = 4;
+    switch (type) {
+        case GL_BYTE: case GL_UNSIGNED_BYTE: bpc = 1; break;
+        case GL_SHORT: case GL_UNSIGNED_SHORT: case GL_HALF_FLOAT: bpc = 2; break;
+        default: bpc = 4; break;
+    }
+    size_t total = comp * bpc;
+    return (total > 0 && total <= 16) ? total : 4;
+}
+
+static void dsa_fill_pattern(uint8_t* dst, size_t size, const uint8_t pat[16], size_t elem_sz, bool all_zero) {
+    if (all_zero) {
+        memset(dst, 0, size);
+        return;
+    }
+    if (elem_sz == 1) {
+        memset(dst, pat[0], size);
+        return;
+    }
+    size_t pos = 0;
+    while (pos + elem_sz <= size) {
+        memcpy(dst + pos, pat, elem_sz);
+        pos += elem_sz;
+    }
+    if (pos < size) {
+        memcpy(dst + pos, pat, size - pos);
+    }
+}
+
 void glClearNamedBufferSubData(GLuint buffer, GLenum internalformat,
                                GLintptr offset, GLsizeiptr size,
                                GLenum format, GLenum type, const void *data) {
     context_t* ctx = emesis_get_context();
-    if (!ctx || buffer == 0 || size <= 0) return;
-    (void)internalformat; (void)format; (void)type;
+    if (!ctx || buffer == 0 || offset < 0 || size <= 0) return;
+
+    size_t elem_sz = dsa_clear_elem_size(internalformat, format, type);
+    uint8_t pat[16] = {0};
+    bool all_zero = true;
+    if (data != NULL) {
+        memcpy(pat, data, elem_sz);
+        for (size_t i = 0; i < elem_sz; i++) {
+            if (pat[i] != 0) {
+                all_zero = false;
+                break;
+            }
+        }
+    }
+
     glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
     void* dst = es3_functions.glMapBufferRange(GL_COPY_WRITE_BUFFER, offset, size,
                                                GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
-    if (dst) {
-        if (!data) {
-            memset(dst, 0, (size_t)size);
-        } else {
-            /* Fast zero-check (most common clear value) */
-            const uint8_t* bytes = (const uint8_t*)data;
-            if (bytes[0] == 0 && bytes[1] == 0 && bytes[2] == 0 && bytes[3] == 0) {
-                memset(dst, 0, (size_t)size);
-            } else {
-                uint32_t pat = 0;
-                memcpy(&pat, data, 4);
-                uint32_t* p32 = (uint32_t*)dst;
-                size_t words = (size_t)size / 4u;
-                for (size_t i = 0; i < words; i++) p32[i] = pat;
-                size_t rem = (size_t)size & 3u;
-                if (rem) memcpy((uint8_t*)dst + words * 4u, &pat, rem);
-            }
-        }
+    if (dst != NULL) {
+        dsa_fill_pattern((uint8_t*)dst, (size_t)size, pat, elem_sz, all_zero);
         es3_functions.glUnmapBuffer(GL_COPY_WRITE_BUFFER);
+        return;
+    }
+
+    /*
+     * Fallback when glMapBufferRange fails (e.g. buffer is already persistently
+     * mapped such as Sodium's sectionTimeInfo, or allocated via glBufferStorage
+     * without GL_MAP_WRITE_BIT): drain any GL_INVALID_OPERATION from map probe
+     * and stream via glBufferSubData chunks.
+     */
+    while (es3_functions.glGetError() != GL_NO_ERROR) {}
+    uint8_t chunk[4096];
+    size_t chunk_cap = ((sizeof(chunk) / elem_sz) * elem_sz);
+    if (chunk_cap == 0) chunk_cap = sizeof(chunk);
+    size_t fill_len = ((size_t)size < chunk_cap) ? (size_t)size : chunk_cap;
+    dsa_fill_pattern(chunk, fill_len, pat, elem_sz, all_zero);
+
+    size_t rem = (size_t)size;
+    GLintptr cur_off = offset;
+    while (rem > 0) {
+        size_t step = (rem < chunk_cap) ? rem : chunk_cap;
+        es3_functions.glBufferSubData(GL_COPY_WRITE_BUFFER, cur_off, (GLsizeiptr)step, chunk);
+        cur_off += (GLintptr)step;
+        rem -= step;
     }
 }
 
@@ -537,6 +606,9 @@ void glBindTextureUnit(GLuint unit, GLuint texture) {
     }
 
     GLenum target = emesis_resolve_tex_target(ctx, texture);
+    if (target == GL_TEXTURE_BUFFER) {
+        glBindSampler(unit, 0);
+    }
     int t_idx = emesis_tex_target_index(target);
     if (t_idx >= 0) {
         uint16_t bit = (uint16_t)(1u << t_idx);
