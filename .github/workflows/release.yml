@@ -1,5 +1,6 @@
 name: Publish Emesis Renderer Release
 
+# Run manually only after the release owner has approved publication.
 on:
   workflow_dispatch:
 
@@ -7,65 +8,20 @@ permissions:
   contents: write
 
 jobs:
-  publish-release:
+  attach-apk:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Emesis Renderer
+      - name: Checkout release tag
         uses: actions/checkout@v4
+        with:
+          ref: v2.0
 
-      - name: Verify Universal Plugin APK with Official Android SDK Build-Tools
+      - name: Verify and attach v2.0 APK to the existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          APK="EmesisRenderer-Universal-v1.2.7.apk"
-          test -f "${APK}"
-          ls -lh "${APK}"
-          sha256sum "${APK}"
-
-          BT_DIR=$(ls -d "${ANDROID_HOME}"/build-tools/* | sort -V | tail -n 1)
-          echo "Using official Android SDK build-tools: ${BT_DIR}"
-          "${BT_DIR}/zipalign" -c -v 4 "${APK}" | tail -n 20
-          "${BT_DIR}/apksigner" verify --verbose --print-certs --min-sdk-version 21 --max-sdk-version 34 "${APK}"
-          "${BT_DIR}/aapt2" dump badging "${APK}" | head -n 35
-
-      - name: Create or Update GitHub Release v1.2.7
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          python3 - << 'PY'
-          import hashlib, pathlib, textwrap
-
-          apk = pathlib.Path("EmesisRenderer-Universal-v1.2.7.apk")
-          sha256 = hashlib.sha256(apk.read_bytes()).hexdigest()
-
-          notes = textwrap.dedent(f"""\
-          <div align="center">
-            # Emesis Renderer v1.2.7 — Auto-Sync APK Update Bridge, 26.3 / 1.21 High-FPS Modern Core & 32-Bit Android Support
-            ### **Made by Entitybrian**
-          </div>
-
-          **Emesis Renderer v1.2.7** is a universal all-in-one Android Minecraft: Java Edition launcher renderer plugin APK created by **Entitybrian**, compatible across **all variants of Pojav** and 32-bit / 64-bit Android devices, delivering automatic background `custom_env.txt` path migration across Android 11+ APK updates, major frame-rate and 32-bit stability upgrades for **Minecraft `26.3` / `1.21.x`**, and full `< 1.17` Shader Acceleration (`1.6.4` – `1.7.10` – `1.8.9` – `1.12.2` – `1.16.5`).
-
-          ---
-
-          ### Package Details
-          - **Asset:** `EmesisRenderer-Universal-v1.2.7.apk`
-          - **Application ID:** `com.entitybrian.emesis.renderer` (`versionName "1.2.7"`, `versionCode 127`, `compileSdkVersion 34`, `minSdkVersion 21`, `targetSdkVersion 34`, signed v1 + v2 + v3)
-          - **SHA-256:** `{sha256}`
-          """)
-
-          pathlib.Path("/tmp/release_notes.md").write_text(notes, encoding="utf-8")
-          PY
-
-          if gh release view v1.2.7 >/dev/null 2>&1; then
-            gh release edit v1.2.7 \
-              --title "Emesis Renderer v1.2.7 — Made by Entitybrian" \
-              --notes-file /tmp/release_notes.md \
-              --latest
-            gh release upload v1.2.7 EmesisRenderer-Universal-v1.2.7.apk --clobber
-          else
-            gh release create v1.2.7 EmesisRenderer-Universal-v1.2.7.apk \
-              --target "${GITHUB_SHA}" \
-              --title "Emesis Renderer v1.2.7 — Made by Entitybrian" \
-              --notes-file /tmp/release_notes.md \
-              --latest
-          fi
+          APK="EmesisRenderer-Universal-v2.0.apk"
+          echo "8b8028f6a612e0ec12241b2d76553d44fac8bdca80fe5b950375d5fa07a9f923  ${APK}" | sha256sum -c -
+          gh release view v2.0 >/dev/null
+          gh release upload v2.0 "${APK}"
